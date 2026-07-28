@@ -3,6 +3,7 @@ import { loadModel, currentNode } from './model.js';
 import { validateTransition, validateWritePlan } from './guard.js';
 import { toFacts, parseAssigneeTable, fetchIssue, fetchComments, applyWritePlan, type GitLabIssue } from './gitlab.js';
 import { renderStatusChange } from './render.js';
+import { buildReturnPlan } from './plan.js';
 import { extractEvidence } from './evidence.js';
 import type { Payload, WritePlan } from './types.js';
 
@@ -72,8 +73,13 @@ async function main() {
       console.log(JSON.stringify(extractEvidence(comments)));
       break;
     }
+    case 'plan-return': {
+      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; from: string; target: string; issues: string[]; confirmer: string; date: string; assigneeUser?: string };
+      console.log(JSON.stringify(buildReturnPlan({ ...input, issueIid: Number(args[0] ?? 0) })));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | apply | resolve-assignee | evidence');
+      console.error('commands: node | validate | render | plan | plan-return | apply | resolve-assignee | evidence');
       process.exit(1);
   }
 }
