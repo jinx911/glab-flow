@@ -4,12 +4,9 @@ import { validateTransition, validateWritePlan } from './guard.js';
 import { toFacts, parseAssigneeTable, fetchIssue, fetchComments, applyWritePlan, type GitLabIssue } from './gitlab.js';
 import { renderStatusChange } from './render.js';
 import { extractEvidence } from './evidence.js';
-import { resolveToken } from './auth.js';
 import type { Payload, WritePlan } from './types.js';
 
 const model = loadModel();
-const BASE = process.env.GLAB_FLOW_API ?? 'https://git.kuainiujinke.com/api/v4';
-const TOKEN = resolveToken();
 const PROJECT = process.env.GLAB_FLOW_PROJECT_ID ?? '3915';
 
 function readStdin(): string {

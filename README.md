@@ -15,10 +15,10 @@ Seven layers: trigger → rule authority (harness) → state-machine driver → 
 
 ```bash
 ./install.sh                                   # symlinks skill + 3 agents into ~/.claude
-export GLAB_FLOW_TOKEN=<your-gitlab-token>     # required for online ops
-# optional:
+# Requires: glab CLI installed and authenticated (glab handles all GitLab auth — NO token env needed).
+# Optional overrides:
 #   GLAB_FLOW_PROJECT_ID (default 3915 = oa-ai-native-harness)
-#   GLAB_FLOW_API        (default https://git.kuainiujinke.com/api/v4)
+#   GLAB_FLOW_HOST        (default git.kuainiujinke.com; passed to `glab api --hostname`)
 ```
 
 ## Engine CLI

@@ -7,7 +7,7 @@ description: 当用户提供 oa-ai-native-harness 的 GitLab Issue URL/编号，
 
 **输入**：`$ARGUMENTS` = GitLab Issue URL 或 iid（如 `https://git.kuainiujinke.com/oa/oa-ai-native-harness/-/issues/123` 或 `123`）。
 
-**引擎**：`/Users/eliojin/IdeaProjects/glab-flow`，命令前缀 `cd /Users/eliojin/IdeaProjects/glab-flow && pnpm cli <cmd>`。环境变量 `GLAB_FLOW_TOKEN`（GitLab token）、`GLAB_FLOW_PROJECT_ID`（默认 3915）、`GLAB_FLOW_API`（默认 `https://git.kuainiujinke.com/api/v4`）。
+**引擎**：`/Users/eliojin/IdeaProjects/glab-flow`，命令前缀 `cd /Users/eliojin/IdeaProjects/glab-flow && pnpm cli <cmd>`。GitLab 认证由 **glab CLI** 统一处理（无需 token 环境变量，glab 用自身配置）。可选：`GLAB_FLOW_PROJECT_ID`（默认 3915）、`GLAB_FLOW_HOST`（默认 git.kuainiujinke.com）。
 
 ## Leader 每轮编排（严格按序）
 
