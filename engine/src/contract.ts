@@ -8,6 +8,8 @@ export interface Invariants {
   hardGates: [IssueType, string, string][];
   terminals: [IssueType, string, string][];
   returns: { type: IssueType; from: string; to: string; target: string }[];
+  reviews: Record<string, string>;
+  roleFields: Record<string, string[]>;
 }
 
 export const INVARIANTS: Invariants = {
@@ -27,6 +29,12 @@ export const INVARIANTS: Invariants = {
     { type: 'story', from: '待评审', to: '已评审', target: '草稿中' },
     { type: 'story', from: '测试中', to: '待发布', target: '开发中' },
   ],
+  reviews: { '需求评审': '推进状态', '技术方案评审': '只记录不推进', '代码评审': '不单独推进' },
+  roleFields: {
+    '产品': ['产品确认人', '具体产品验收人', '产品Assignee'],
+    '研发': ['研发Assignee'],
+    '测试': ['测试Assignee', '具体测试验证人', '测试验证人Assignee'],
+  },
 };
 
 export function assertModelContract(model: StateMachine, inv: Invariants): { ok: boolean; reasons: string[] } {
@@ -40,6 +48,14 @@ export function assertModelContract(model: StateMachine, inv: Invariants): { ok:
   for (const r of inv.returns) {
     const rt = transitionFor(model, r.type, r.from, r.to)?.return;
     if (!rt || rt.target !== r.target) reasons.push(`return target drift ${r.type} ${r.from}->${r.to} (want ${r.target})`);
+  }
+  for (const k of Object.keys(inv.reviews)) {
+    if (model.reviews[k] !== inv.reviews[k]) reasons.push(`reviews drift: ${k}`);
+  }
+  for (const role of Object.keys(inv.roleFields)) {
+    const got = model.roleFields[role as '产品'|'研发'|'测试'];
+    const want = inv.roleFields[role];
+    if (!got || !want || got.length !== want.length || !got.every((v, i) => v === want[i])) reasons.push(`roleFields drift: ${role}`);
   }
   return { ok: reasons.length === 0, reasons };
 }
