@@ -35,7 +35,7 @@ async function main() {
       break;
     }
     case 'plan': {
-      const input = JSON.parse(readStdin()) as { labels: string[]; payload: Payload };
+      const input = JSON.parse(readStdin()) as { payload: Payload };
       const p = input.payload;
       const prefix = p.type === 'story' ? 'story-status' : 'status';
       const plan: WritePlan = {

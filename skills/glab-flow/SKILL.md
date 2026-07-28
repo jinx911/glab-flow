@@ -17,7 +17,7 @@ description: 当用户提供 oa-ai-native-harness 的 GitLab Issue URL/编号，
    - 证据齐全 → 委派**流转 agent** 起草结构化 Payload（字段从 Issue 评论/证据抽取，人/结论不得臆造）。
    - 不齐 → 委派**节点工作 agent** 生成本节点内容（见 `nodes.md`：草稿/方案/代码/测试），写回用评论/分支，不推进状态。
 4. **护栏校验**：把 Payload 喂 `pnpm cli validate`（stdin: `{type,labels,payload}`）。`ok:false` → **停**，一次性列出 `missing`+`reasons` 问用户，不写。
-5. **构建写计划**：`pnpm cli plan <iid>`（stdin: `{labels,payload}`）→ 得 WritePlan JSON。
+5. **构建写计划**：`pnpm cli plan <iid>`（stdin: `{payload}`）→ 得 WritePlan JSON。
 6. **预览确认**：把 WritePlan 渲染成 diff 给用户看（add/remove label、set assignee、add comment、close）。用户 `y` 才继续；`n`/编辑 → 回到 Payload 收集。
 7. **应用**：`pnpm cli apply`（stdin: WritePlan）。引擎先 `validateWritePlan` 再调 GitLab API。
 8. **下一节点**：循环到 `已完成` 或用户停。
