@@ -1,14 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { loadModel, currentNode } from './model.js';
-import { validateTransition, validateWritePlan } from './guard.js';
-import { toFacts, parseAssigneeTable, fetchIssue, fetchComments, applyWritePlan, type GitLabIssue } from './gitlab.js';
+import { validateTransition } from './guard.js';
+import { toFacts } from './gitlab.js';
 import { renderStatusChange } from './render.js';
 import { buildReturnPlan } from './plan.js';
 import { extractEvidence } from './evidence.js';
 import type { Payload, WritePlan } from './types.js';
 
 const model = loadModel();
-const PROJECT = process.env.GLAB_FLOW_PROJECT_ID ?? '3915';
 
 function readStdin(): string {
   return readFileSync(0, 'utf8');
@@ -51,25 +50,8 @@ async function main() {
       console.log(JSON.stringify(plan));
       break;
     }
-    case 'apply': {
-      const plan = JSON.parse(readStdin()) as WritePlan;
-      const guard = validateWritePlan(plan);
-      if (!guard.ok) { console.error(JSON.stringify(guard)); process.exit(1); }
-      await applyWritePlan(PROJECT, plan);
-      console.log(JSON.stringify({ applied: true }));
-      break;
-    }
-    case 'resolve-assignee': {
-      const iid = Number(args[0]);
-      const role = args[1] ?? '';
-      const issue: GitLabIssue = await fetchIssue(PROJECT, iid);
-      const map = parseAssigneeTable(issue.description);
-      console.log(JSON.stringify({ user: map.get(role) ?? null }));
-      break;
-    }
     case 'evidence': {
-      const iid = Number(args[0]);
-      const comments = await fetchComments(PROJECT, iid);
+      const comments = JSON.parse(readStdin()) as { body: string }[];
       console.log(JSON.stringify(extractEvidence(comments)));
       break;
     }
@@ -79,7 +61,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | plan-return | apply | resolve-assignee | evidence');
+      console.error('commands: node | validate | render | plan | plan-return | evidence');
       process.exit(1);
   }
 }

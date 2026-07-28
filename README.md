@@ -4,47 +4,47 @@ Local human-driven Claude skill that drives OA requirements through the `oa-ai-n
 
 It is the GitLab-native counterpart of `dev-flow` (which is Jira-based). `dev-flow` stays untouched; glab-flow is a new, independent skill.
 
-## Architecture (hybrid)
+## Architecture (pure engine + Leader-driven I/O)
 
-- **Engine** (`engine/`, tested TypeScript): the deterministic core — state-machine model, guard validator (G1–G13), GitLab client, comment renderer. See `docs/architecture.md` and `docs/flow.md` (Mermaid flowcharts: 状态机全流 / Leader 8 步 / 七层架构).
-- **Skill pack** (`skills/glab-flow/SKILL.md` + `agents/*.md`): the Leader orchestration that reads GitLab, calls the engine CLI, delegates expert agents, previews write plans, confirms, applies.
+- **Engine** (`engine/`, tested TypeScript): the deterministic **pure-computation** core — state-machine model, guard validator (G1–G13), comment renderer, write-plan builder. **No subprocess, no network, no GitLab client.** stdin → stdout only.
+- **Skill pack** (`skills/glab-flow/SKILL.md` + `agents/*.md`): the Leader orchestration that reads/writes GitLab **directly via `glab` CLI**, calls the engine CLI for deterministic decisions, delegates expert agents, previews write plans, confirms, applies.
 
-Seven layers: trigger → rule authority (harness) → state-machine driver → guard/pre-flight (deterministic) → content generation (expert agents) → GitLab integration (preview-confirm) → persistence (GitLab Issue is truth).
+Seven layers: trigger → rule authority (harness) → state-machine driver → guard/pre-flight (deterministic) → content generation (expert agents) → GitLab integration (Leader via glab, preview-confirm) → persistence (GitLab Issue is truth).
 
 ## Install
 
 ```bash
 ./install.sh                                   # symlinks skill + 3 agents into ~/.claude
-# Requires: glab CLI installed and authenticated (glab handles all GitLab auth — NO token env needed).
-# Optional overrides:
-#   GLAB_FLOW_PROJECT_ID (default 3915 = oa-ai-native-harness)
-#   GLAB_FLOW_HOST        (default git.kuainiujinke.com; passed to `glab api --hostname`)
+# Requires glab CLI installed + authenticated (no token env needed).
 ```
 
-## Engine CLI
+## Engine CLI (pure: stdin → stdout, no I/O)
 
 ```bash
 cd /Users/eliojin/IdeaProjects/glab-flow && pnpm cli <cmd>
-  node <type> <labels...>                 # -> {"node": "<current>"}
-  validate          (stdin {type,labels,payload})  # -> GuardResult
-  render            (stdin payload)                # -> harness 状态变更 markdown
-  plan <iid>        (stdin {labels,payload})       # -> WritePlan JSON
-  apply             (stdin WritePlan)              # validateWritePlan then GitLab API
-  resolve-assignee <iid> <role>                    # -> {"user":"@x"} from 交付协同 table
+  node <type> <labels...>                         # -> {"node": "<current>"}
+  validate          (stdin {type,labels,payload}) # -> GuardResult
+  render            (stdin payload)               # -> harness 状态变更 markdown
+  plan <iid>        (stdin {payload})             # -> WritePlan JSON
+  plan-return <iid> (stdin {type,from,target,issues,confirmer,date,assigneeUser})
+                                                  # -> 退回 WritePlan JSON
+  evidence          (stdin [{body}] from `glab api .../notes`)  # -> 抽取的状态变更证据
 ```
+
+All GitLab reads/writes are done by the Leader via `glab` CLI (no token needed).
 
 ## Test / typecheck
 
 ```bash
 pnpm install
-pnpm typecheck && pnpm test   # vitest, 36 tests across 6 files
+pnpm typecheck && pnpm test   # vitest
 ```
 
 ## Project structure
 
 ```
 engine/state-machine.yaml     # the model (story+bug), derived from harness docs/issue-state-machine.md
-engine/src/{types,model,contract,guard,gitlab,render,cli}.ts   # + *.test.ts
+engine/src/{types,model,contract,guard,parse,gitlab,render,plan,evidence,cli}.ts   # + *.test.ts
 skills/glab-flow/{SKILL,nodes,guards}.md
 agents/{intake,review-preview,release-check}.md
 install.sh / uninstall.sh
