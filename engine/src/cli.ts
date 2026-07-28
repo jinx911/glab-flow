@@ -4,11 +4,12 @@ import { validateTransition, validateWritePlan } from './guard.js';
 import { toFacts, parseAssigneeTable, fetchIssue, fetchComments, applyWritePlan, type GitLabIssue } from './gitlab.js';
 import { renderStatusChange } from './render.js';
 import { extractEvidence } from './evidence.js';
+import { resolveToken } from './auth.js';
 import type { Payload, WritePlan } from './types.js';
 
 const model = loadModel();
 const BASE = process.env.GLAB_FLOW_API ?? 'https://git.kuainiujinke.com/api/v4';
-const TOKEN = process.env.GLAB_FLOW_TOKEN ?? '';
+const TOKEN = resolveToken();
 const PROJECT = process.env.GLAB_FLOW_PROJECT_ID ?? '3915';
 
 function readStdin(): string {
@@ -56,21 +57,21 @@ async function main() {
       const plan = JSON.parse(readStdin()) as WritePlan;
       const guard = validateWritePlan(plan);
       if (!guard.ok) { console.error(JSON.stringify(guard)); process.exit(1); }
-      await applyWritePlan(BASE, TOKEN, PROJECT, plan);
+      await applyWritePlan(PROJECT, plan);
       console.log(JSON.stringify({ applied: true }));
       break;
     }
     case 'resolve-assignee': {
       const iid = Number(args[0]);
       const role = args[1] ?? '';
-      const issue: GitLabIssue = await fetchIssue(BASE, TOKEN, PROJECT, iid);
+      const issue: GitLabIssue = await fetchIssue(PROJECT, iid);
       const map = parseAssigneeTable(issue.description);
       console.log(JSON.stringify({ user: map.get(role) ?? null }));
       break;
     }
     case 'evidence': {
       const iid = Number(args[0]);
-      const comments = await fetchComments(BASE, TOKEN, PROJECT, iid);
+      const comments = await fetchComments(PROJECT, iid);
       console.log(JSON.stringify(extractEvidence(comments)));
       break;
     }

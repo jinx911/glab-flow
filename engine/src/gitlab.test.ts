@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { parseAssigneeTable, toFacts, fetchIssue, fetchComments, applyWritePlan, type GitLabIssue } from './gitlab.js';
+import { buildArgs } from './glab.js';
+import type { GlabRunner } from './glab.js';
 
 const issue = JSON.parse(readFileSync(new URL('../fixtures/issue-story-pending-review.json', import.meta.url), 'utf8')) as GitLabIssue;
 
@@ -24,48 +26,65 @@ describe('gitlab read/parse', () => {
   });
 });
 
-const base = 'https://git.example.com/api/v4';
-const token = 'tok';
 const pid = 3915;
-function mockFetch(responder: (url: string, init?: RequestInit) => Response | Promise<Response>) {
-  (globalThis as any).fetch = vi.fn(async (url: string, init?: RequestInit) => responder(url, init));
+function recorder(canned: string): { runner: GlabRunner; calls: string[][] } {
+  const calls: string[][] = [];
+  const runner: GlabRunner = async (args) => { calls.push(args); return canned; };
+  return { runner, calls };
 }
 
 describe('fetchIssue', () => {
-  it('GETs the issue and retries on network error', async () => {
-    let calls = 0;
-    mockFetch(() => {
-      calls++;
-      if (calls < 2) throw new Error('net');
-      return new Response(JSON.stringify(issue), { status: 200 });
-    });
-    const got = await fetchIssue(base, token, pid, 123);
+  it('GETs via glabApi and maps to GitLabIssue', async () => {
+    const { runner, calls } = recorder(JSON.stringify({ iid: 123, state: 'opened', labels: ['type::story'], description: 'd' }));
+    const got = await fetchIssue(pid, 123, { runner });
     expect(got.iid).toBe(123);
-    expect(calls).toBe(2);
+    expect(got.state).toBe('opened');
+    expect(got.labels).toEqual(['type::story']);
+    expect(calls[0]).toEqual(buildArgs('GET', 'projects/3915/issues/123', {}));
   });
 });
 
 describe('applyWritePlan', () => {
-  it('translates ops to GitLab API calls (PUT issue + POST notes)', async () => {
-    const calls: string[] = [];
-    mockFetch((url, init) => { calls.push(`${init?.method ?? 'GET'} ${url}`); return new Response('{}', { status: 200 }); });
-    await applyWritePlan(base, token, pid, { issueIid: 123, ops: [
+  it('PUTs labels+assignee and POSTs each comment', async () => {
+    const { runner, calls } = recorder('{}');
+    await applyWritePlan(pid, { issueIid: 123, ops: [
       { kind: 'remove_label', value: 'story-status::草稿中' },
       { kind: 'add_label', value: 'story-status::待评审' },
       { kind: 'set_assignee', username: '@pm' },
       { kind: 'add_comment', body: 'hi' },
-    ] });
-    expect(calls.some((c) => c.includes('/projects/3915/issues/123') && c.startsWith('PUT'))).toBe(true);
-    expect(calls.some((c) => c.includes('/projects/3915/issues/123/notes') && c.startsWith('POST'))).toBe(true);
+    ] }, { runner });
+    const methods = calls.map((a) => a[a.indexOf('--method') + 1]);
+    expect(methods).toContain('PUT');
+    expect(methods).toContain('POST');
+    const put = calls.find((a) => a.includes('PUT'))!;
+    expect(put).toContain('add_labels=story-status::待评审');
+    expect(put).toContain('remove_labels=story-status::草稿中');
+    expect(put).toContain('assignee_username=pm');
+    expect(put[put.length - 1]).toBe('projects/3915/issues/123');
+  });
+  it('adds state_event=close on close_issue (terminal atomicity intent)', async () => {
+    const { runner, calls } = recorder('{}');
+    await applyWritePlan(pid, { issueIid: 123, ops: [
+      { kind: 'add_label', value: 'story-status::已完成' },
+      { kind: 'close_issue' },
+    ] }, { runner });
+    const put = calls.find((a) => a.includes('PUT'))!;
+    expect(put).toContain('state_event=close');
+  });
+  it('skips PUT when only comments', async () => {
+    const { runner, calls } = recorder('{}');
+    await applyWritePlan(pid, { issueIid: 123, ops: [{ kind: 'add_comment', body: 'hi' }] }, { runner });
+    expect(calls.every((a) => !a.includes('PUT'))).toBe(true);
+    expect(calls.some((a) => a.includes('POST'))).toBe(true);
   });
 });
 
 describe('fetchComments', () => {
-  it('GETs issue notes', async () => {
-    const calls: string[] = [];
-    mockFetch((url, init) => { calls.push(`${init?.method ?? 'GET'} ${url}`); return new Response(JSON.stringify([{ body: '## 状态变更\n- x：y' }]), { status: 200 }); });
-    const notes = await fetchComments(base, token, pid, 123);
+  it('GETs notes', async () => {
+    const { runner, calls } = recorder(JSON.stringify([{ body: '## 状态变更\n- x：y' }]));
+    const notes = await fetchComments(pid, 123, { runner });
+    const firstCall = calls[0]!;
     expect(notes[0]!.body).toContain('状态变更');
-    expect(calls.some((c) => c.includes('/issues/123/notes'))).toBe(true);
+    expect(firstCall[firstCall.length - 1]!).toContain('/issues/123/notes');
   });
 });
