@@ -6,7 +6,7 @@ It is the GitLab-native counterpart of `dev-flow` (which is Jira-based). `dev-fl
 
 ## Architecture (hybrid)
 
-- **Engine** (`engine/`, tested TypeScript): the deterministic core — state-machine model, guard validator (G1–G13), GitLab client, comment renderer. See `docs/architecture.md`.
+- **Engine** (`engine/`, tested TypeScript): the deterministic core — state-machine model, guard validator (G1–G13), GitLab client, comment renderer. See `docs/architecture.md` and `docs/flow.md` (Mermaid flowcharts: 状态机全流 / Leader 8 步 / 七层架构).
 - **Skill pack** (`skills/glab-flow/SKILL.md` + `agents/*.md`): the Leader orchestration that reads GitLab, calls the engine CLI, delegates expert agents, previews write plans, confirms, applies.
 
 Seven layers: trigger → rule authority (harness) → state-machine driver → guard/pre-flight (deterministic) → content generation (expert agents) → GitLab integration (preview-confirm) → persistence (GitLab Issue is truth).
