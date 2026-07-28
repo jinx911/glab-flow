@@ -11,9 +11,6 @@ importers:
       yaml:
         specifier: ^2.5.0
         version: 2.9.0
-      zod:
-        specifier: ^3.23.0
-        version: 3.25.76
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
@@ -702,9 +699,6 @@ packages:
     engines: {node: '>= 14.6'}
     hasBin: true
 
-  zod@3.25.76:
-    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
-
 snapshots:
 
   '@esbuild/aix-ppc64@0.21.5':
@@ -1212,5 +1206,3 @@ snapshots:
       stackback: 0.0.2
 
   yaml@2.9.0: {}
-
-  zod@3.25.76: {}
