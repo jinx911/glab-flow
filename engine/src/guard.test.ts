@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
-import { validateTransition } from './guard.js';
-import type { IssueFacts, Payload } from './types.js';
+import { validateTransition, validateWritePlan } from './guard.js';
+import type { IssueFacts, Payload, WritePlan } from './types.js';
 
 const model = loadModel();
 const facts = (labels: string[]): IssueFacts => ({ labels, body: '', state: 'opened', hasJiraSourceLabel: false });
@@ -108,5 +108,32 @@ describe('G12 terminal atomicity', () => {
       assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true, closeIssue: false };
     const r = validateTransition(model, facts(['type::story', 'story-status::生产验收中']), p);
     expect(r.ok).toBe(false);
+  });
+});
+
+describe('G7/G8/G13 write-plan guards', () => {
+  const plan = (ops: WritePlan['ops']): WritePlan => ({ issueIid: 123, ops });
+
+  it('G7 accepts add_label + add_comment (no body edit)', () => {
+    const r = validateWritePlan(plan([{ kind: 'add_label', value: 'x' }, { kind: 'add_comment', body: 'hi' }]));
+    expect(r.ok).toBe(true);
+  });
+  it('G8 forbids editing existing comments (edit_comment not allowed)', () => {
+    const r = validateWritePlan(plan([{ kind: 'edit_comment', body: 'x' } as any]));
+    expect(r.ok).toBe(false);
+  });
+  it('G13 forbids creating Jira', () => {
+    const r = validateWritePlan(plan([{ kind: 'create_jira' } as any]));
+    expect(r.ok).toBe(false);
+  });
+  it('accepts a clean label+assignee+comment+close plan', () => {
+    const r = validateWritePlan(plan([
+      { kind: 'remove_label', value: 'story-status::生产验收中' },
+      { kind: 'add_label', value: 'story-status::已完成' },
+      { kind: 'set_assignee', username: '@pm' },
+      { kind: 'add_comment', body: '## 状态变更' },
+      { kind: 'close_issue' },
+    ]));
+    expect(r.ok).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import type { StateMachine, IssueFacts, Payload, GuardResult } from './types.js';
+import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp } from './types.js';
 import { transitionFor } from './model.js';
 
 const ok: GuardResult = { ok: true, missing: [], reasons: [] };
@@ -54,4 +54,17 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
 
   if (missing.length || reasons.length) return fail(reasons, missing);
   return ok;
+}
+
+const ALLOWED_OPS = new Set<WriteOp['kind']>(['add_label', 'remove_label', 'set_assignee', 'add_comment', 'close_issue']);
+const FORBIDDEN = new Set(['edit_comment', 'edit_issue_body', 'update_issue_body', 'create_jira', 'delete_comment']);
+
+export function validateWritePlan(plan: WritePlan): GuardResult {
+  const reasons: string[] = [];
+  for (const op of plan.ops) {
+    const k = (op as { kind: string }).kind;
+    if (FORBIDDEN.has(k)) reasons.push(`禁止的操作 ${k}（G7/G8/G13：不改原文/不编评论/不建Jira）`);
+    else if (!ALLOWED_OPS.has(k as WriteOp['kind'])) reasons.push(`未知操作 ${k}`);
+  }
+  return reasons.length ? fail(reasons) : ok;
 }
