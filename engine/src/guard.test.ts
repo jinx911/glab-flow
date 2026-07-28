@@ -174,3 +174,39 @@ describe('G11 bug — blocking issues apply to bug too', () => {
     expect(r.ok).toBe(true);
   });
 });
+
+const TABLE_BODY = `# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n`;
+const factsWithTable = (labels: string[]) => ({ labels, body: TABLE_BODY, state: 'opened' as const, hasJiraSourceLabel: false });
+
+describe('G6b role cross-check (when 交付协同 table present)', () => {
+  it('passes when assigneeUser matches the table role', () => {
+    const p: Payload = { type: 'story', from: '待评审', to: '已评审',
+      fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
+      gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true };
+    const r = validateTransition(model, factsWithTable(['type::story', 'story-status::待评审']), p);
+    expect(r.ok).toBe(true);
+  });
+  it('blocks when assigneeUser does NOT match the table role', () => {
+    const p: Payload = { type: 'story', from: '待评审', to: '已评审',
+      fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
+      gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@someone-else', datesConfirmed: true };
+    const r = validateTransition(model, factsWithTable(['type::story', 'story-status::待评审']), p);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('与交付协同表'))).toBe(true);
+  });
+  it('blocks when the role is missing from the table', () => {
+    const bodyMissing = TABLE_BODY.replace('| 研发 | @dev |\n', '');
+    const p: Payload = { type: 'story', from: '待评审', to: '已评审',
+      fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
+      gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true };
+    const r = validateTransition(model, { labels: ['type::story', 'story-status::待评审'], body: bodyMissing, state: 'opened', hasJiraSourceLabel: false }, p);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('缺少「研发」'))).toBe(true);
+  });
+  it('does NOT cross-check when no table present (triage intake) — existing behavior preserved', () => {
+    // body empty → G6b skipped, only format G6 applies
+    const p: Payload = { type: 'story', from: '草稿中', to: '待评审', fields: {}, assigneeUser: '@anyone' };
+    const r = validateTransition(model, facts(['type::story', 'story-status::草稿中']), p);
+    expect(r.ok).toBe(true);
+  });
+});

@@ -1,5 +1,6 @@
 import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp } from './types.js';
 import { transitionFor } from './model.js';
+import { parseAssigneeTable } from './parse.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
@@ -38,6 +39,17 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   const ROLES = ['产品', '研发', '测试'];
   if (!payload.assigneeUser || !/^@.+$/.test(payload.assigneeUser) || ROLES.includes(payload.assigneeUser)) {
     reasons.push('Assignee 必须是具体 GitLab 用户(@xxx)，不能是角色名');
+  }
+
+  // G6b role cross-check — only when a 交付协同 table is present in the issue body
+  const assigneeTable = parseAssigneeTable(facts.body);
+  if (assigneeTable.size > 0) {
+    const expectedUser = assigneeTable.get(t.assigneeRole);
+    if (!expectedUser) {
+      reasons.push(`交付协同表缺少「${t.assigneeRole}」角色用户`);
+    } else if (payload.assigneeUser && payload.assigneeUser !== expectedUser) {
+      reasons.push(`Assignee ${payload.assigneeUser} 与交付协同表的「${t.assigneeRole}」(${expectedUser}) 不符`);
+    }
   }
 
   // G10 date confirmation
