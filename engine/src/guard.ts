@@ -1,7 +1,7 @@
 import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp } from './types.js';
 import { transitionFor } from './model.js';
 
-const ok: GuardResult = { ok: true, missing: [], reasons: [] };
+const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
 
 export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload): GuardResult {
@@ -36,12 +36,12 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
 
   // G6 assignee concrete user (must start with @, not a bare role)
   const ROLES = ['产品', '研发', '测试'];
-  if (!payload.assigneeUser || !payload.assigneeUser.startsWith('@') || ROLES.includes(payload.assigneeUser)) {
+  if (!payload.assigneeUser || !/^@.+$/.test(payload.assigneeUser) || ROLES.includes(payload.assigneeUser)) {
     reasons.push('Assignee 必须是具体 GitLab 用户(@xxx)，不能是角色名');
   }
 
   // G10 date confirmation
-  const hasDate = Object.keys(payload.fields).some((k) => /日期|Date/.test(k) || k.includes('日期'));
+  const hasDate = Object.keys(payload.fields).some((k) => /日期/.test(k));
   if (hasDate && !payload.datesConfirmed) reasons.push('日期需用户确认后才能落盘(datesConfirmed)');
 
   // G11 blocking test issues verified (field must be 是)
@@ -53,7 +53,7 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (t.terminal && !payload.closeIssue) reasons.push('终态需同一次操作关闭 Issue(closeIssue)');
 
   if (missing.length || reasons.length) return fail(reasons, missing);
-  return ok;
+  return ok();
 }
 
 const ALLOWED_OPS = new Set<WriteOp['kind']>(['add_label', 'remove_label', 'set_assignee', 'add_comment', 'close_issue']);
@@ -66,5 +66,5 @@ export function validateWritePlan(plan: WritePlan): GuardResult {
     if (FORBIDDEN.has(k)) reasons.push(`禁止的操作 ${k}（G7/G8/G13：不改原文/不编评论/不建Jira）`);
     else if (!ALLOWED_OPS.has(k as WriteOp['kind'])) reasons.push(`未知操作 ${k}`);
   }
-  return reasons.length ? fail(reasons) : ok;
+  return reasons.length ? fail(reasons) : ok();
 }

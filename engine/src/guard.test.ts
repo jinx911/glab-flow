@@ -137,3 +137,40 @@ describe('G7/G8/G13 write-plan guards', () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe('G3 positive — hard gate with humanConfirmed passes', () => {
+  it('passes 待发布->生产验收中 when humanConfirmed true', () => {
+    const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
+      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true };
+    const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('G12 positive — terminal with closeIssue passes', () => {
+  it('passes 生产验收中->已完成 when closeIssue true', () => {
+    const p: Payload = { type: 'story', from: '生产验收中', to: '已完成',
+      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok' },
+      assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true, closeIssue: true };
+    const r = validateTransition(model, facts(['type::story', 'story-status::生产验收中']), p);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('G11 bug — blocking issues apply to bug too', () => {
+  it('blocks bug 测试中->待发布 when blocking issues not verified', () => {
+    const p: Payload = { type: 'bug', from: '测试中', to: '待发布',
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '否' },
+      assigneeUser: '@dev', datesConfirmed: true };
+    const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p);
+    expect(r.ok).toBe(false);
+  });
+  it('passes bug 测试中->待发布 when blocking issues verified', () => {
+    const p: Payload = { type: 'bug', from: '测试中', to: '待发布',
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是' },
+      assigneeUser: '@dev', datesConfirmed: true };
+    const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p);
+    expect(r.ok).toBe(true);
+  });
+});
