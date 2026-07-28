@@ -18,4 +18,13 @@ describe('render', () => {
     expect(md).toContain('退回：`草稿中`');
     expect(md).toContain('范围未明确');
   });
+  it('emits every field, including ones without a semantic label', () => {
+    const p: Payload = { type: 'story', from: '已评审', to: '开发中',
+      fields: { 实际开始日期: '2026-07-28', 研发Assignee: '@dev', 计划提测时间: '2026-08-10', 计划上线时间: '2026-08-20', 技术方案评审通过记录或免评审结论: '免评审' },
+      assigneeUser: '@dev' };
+    const md = renderStatusChange(p);
+    expect(md).toContain('计划提测时间：2026-08-10');
+    expect(md).toContain('计划上线时间：2026-08-20');
+    expect(md).toContain('依据：免评审');
+  });
 });

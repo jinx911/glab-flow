@@ -3,14 +3,27 @@ import type { Payload } from './types.js';
 export function renderStatusChange(p: Payload): string {
   const f = p.fields;
   const lines = ['## 状态变更', '', `- 变更：\`${p.from}\` → \`${p.to}\``];
-  const dateKey = Object.keys(f).find((k) => k.includes('日期')) ?? '';
-  if (dateKey) lines.push(`- 实际日期：${f[dateKey]}`);
-  const who = f['产品确认人'] ?? f['测试Assignee'] ?? f['研发Assignee'] ?? p.assigneeUser ?? '';
-  if (who) lines.push(`- 确认人：${who}`);
-  const concl = f['评审结论'] ?? f['测试结论'] ?? f['验收结论'] ?? f['验证结论'];
-  if (concl) lines.push(`- 结论：${concl}`);
-  const ev = f['需求文档或评审记录'] ?? f['回归范围或证据'] ?? f['验收依据'] ?? f['验证依据'] ?? f['发布记录或回滚信息'];
-  if (ev) lines.push(`- 依据：${ev}`);
+  const rendered = new Set<string>();
+
+  const dateKey = Object.keys(f).find((k) => k.includes('日期'));
+  if (dateKey) { lines.push(`- 实际日期：${f[dateKey]}`); rendered.add(dateKey); }
+
+  const confirmerKeys = ['产品确认人', '测试Assignee', '研发Assignee', '具体产品验收人', '具体测试验证人', '测试验证人Assignee'];
+  const confirmerKey = confirmerKeys.find((k) => f[k]);
+  if (confirmerKey) { lines.push(`- 确认人：${f[confirmerKey]}`); rendered.add(confirmerKey); }
+
+  const conclKeys = ['评审结论', '测试结论', '验收结论', '验证结论'];
+  const conclKey = conclKeys.find((k) => f[k]);
+  if (conclKey) { lines.push(`- 结论：${f[conclKey]}`); rendered.add(conclKey); }
+
+  const evKeys = ['需求文档或评审记录', '回归范围或证据', '验收依据', '验证依据', '发布记录或回滚信息', '技术方案评审通过记录或免评审结论'];
+  const evKey = evKeys.find((k) => f[k]);
+  if (evKey) { lines.push(`- 依据：${f[evKey]}`); rendered.add(evKey); }
+
+  for (const k of Object.keys(f)) {
+    if (!rendered.has(k) && f[k]) lines.push(`- ${k}：${f[k]}`);
+  }
+
   if (p.assigneeUser) lines.push(`- 目标节点 Assignee：${p.assigneeUser}`);
   return lines.join('\n');
 }
