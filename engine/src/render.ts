@@ -34,3 +34,32 @@ export function renderReturn(target: string, issues: string[], confirmer: string
     '', '### 问题清单（需修订）', ...issues.map((i, n) => `${n + 1}. ${i}`),
     '', '- 下一步：产品修订后重新进入待评审'].join('\n');
 }
+
+export function renderChangeRequest(f: Record<string, string>): string {
+  const rows: [string, string | undefined][] = [
+    ['提出人', f['提出人']], ['实际提出日期', f['实际提出日期']],
+    ['变更原因', f['变更原因']], ['已评审内容', f['已评审内容']],
+    ['变更后内容', f['变更后内容']], ['影响范围', f['影响范围']],
+    ['排期影响', f['排期影响']], ['建议', f['建议']],
+  ];
+  return ['## 需求变更申请', '', ...rows.filter(([, v]) => v).map(([k, v]) => `- ${k}：${v}`)].join('\n');
+}
+
+export function renderTestIssue(f: Record<string, string>): string {
+  const rows: [string, string | undefined][] = [
+    ['发现人', f['发现人']], ['发现日期', f['发现日期']],
+    ['实际结果', f['实际结果']], ['预期结果', f['预期结果']],
+    ['复现步骤 / 证据', f['复现步骤 / 证据']], ['研发处理人', f['研发处理人']],
+    ['是否阻塞发布', f['是否阻塞发布']], ['当前结论', f['当前结论']], ['验证结果', f['验证结果']],
+  ];
+  return ['## 测试问题', '', ...rows.filter(([, v]) => v).map(([k, v]) => `- ${k}：${v}`)].join('\n');
+}
+
+export function renderCorrection(f: Record<string, string>): string {
+  const rows: [string, string | undefined][] = [
+    ['对应节点', f['对应节点']], ['原记录链接', f['原记录链接']],
+    ['更正内容', f['更正内容']], ['原因', f['原因']],
+    ['提出人', f['提出人']], ['实际日期', f['实际日期']],
+  ];
+  return ['## 补充/更正', '', ...rows.filter(([, v]) => v).map(([k, v]) => `- ${k}：${v}`)].join('\n');
+}

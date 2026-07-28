@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderStatusChange, renderReturn } from './render.js';
+import { renderStatusChange, renderReturn, renderChangeRequest, renderTestIssue, renderCorrection } from './render.js';
 import type { Payload } from './types.js';
 
 describe('render', () => {
@@ -26,5 +26,26 @@ describe('render', () => {
     expect(md).toContain('计划提测时间：2026-08-10');
     expect(md).toContain('计划上线时间：2026-08-20');
     expect(md).toContain('依据：免评审');
+  });
+});
+
+describe('extra templates', () => {
+  it('renders 需求变更申请', () => {
+    const md = renderChangeRequest({ 提出人: '@pm', 变更原因: '范围扩大', 建议: '待重新评审' });
+    expect(md).toContain('## 需求变更申请');
+    expect(md).toContain('- 提出人：@pm');
+    expect(md).toContain('- 变更原因：范围扩大');
+    expect(md).toContain('- 建议：待重新评审');
+  });
+  it('renders 测试问题', () => {
+    const md = renderTestIssue({ 发现人: '@qa', 是否阻塞发布: '是', 当前结论: '待处理' });
+    expect(md).toContain('## 测试问题');
+    expect(md).toContain('- 是否阻塞发布：是');
+  });
+  it('renders 补充/更正 and skips empty fields', () => {
+    const md = renderCorrection({ 对应节点: '已评审', 更正内容: '验收标准补充' });
+    expect(md).toContain('## 补充/更正');
+    expect(md).toContain('- 对应节点：已评审');
+    expect(md).not.toContain('原记录链接');
   });
 });
