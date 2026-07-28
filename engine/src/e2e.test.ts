@@ -1,0 +1,52 @@
+import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { loadModel, currentNode } from './model.js';
+import { validateTransition, validateWritePlan } from './guard.js';
+import { toFacts, parseAssigneeTable, type GitLabIssue } from './gitlab.js';
+import { renderStatusChange, renderReturn } from './render.js';
+import type { WritePlan } from './types.js';
+
+const model = loadModel();
+const issue = JSON.parse(readFileSync(new URL('../fixtures/issue-story-draft.json', import.meta.url), 'utf8')) as GitLabIssue;
+
+describe('e2e: 草稿中 -> 待评审 -> (退回) 草稿中 -> 待评审 -> 已评审', () => {
+  it('drives the loop with guards + render + plan validation', () => {
+    // step 1: current node
+    expect(currentNode(model, 'story', issue.labels)).toBe('草稿中');
+
+    // step 2: forward 草稿中->待评审 needs nothing required → ok
+    let facts = toFacts(issue);
+    let r = validateTransition(model, facts, { type: 'story', from: '草稿中', to: '待评审', fields: {}, assigneeUser: '@pm' });
+    expect(r.ok).toBe(true);
+
+    // step 3: at 待评审, review returns 退回 → must NOT advance to 已评审
+    facts = { ...facts, labels: ['type::story', 'story-status::待评审'] };
+    r = validateTransition(model, facts, { type: 'story', from: '待评审', to: '已评审', fields: {}, gateOutcome: '退回' });
+    expect(r.ok).toBe(false);
+
+    // step 4: render 退回 comment with 问题清单
+    const ret = renderReturn('草稿中', ['验收标准缺失'], '@pm', '2026-07-28');
+    expect(ret).toContain('验收标准缺失');
+
+    // step 5: after fix, 需求评审 通过 → 已评审 ok
+    r = validateTransition(model, facts, {
+      type: 'story', from: '待评审', to: '已评审',
+      fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc' },
+      gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true,
+    });
+    expect(r.ok).toBe(true);
+
+    // step 6: build + validate a write plan for 已评审 transition
+    const plan: WritePlan = { issueIid: 200, ops: [
+      { kind: 'remove_label', value: 'story-status::待评审' },
+      { kind: 'add_label', value: 'story-status::已评审' },
+      { kind: 'set_assignee', username: '@dev' },
+      { kind: 'add_comment', body: renderStatusChange({ type: 'story', from: '待评审', to: '已评审',
+        fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc' }, assigneeUser: '@dev' }) },
+    ] };
+    expect(validateWritePlan(plan).ok).toBe(true);
+
+    // step 7: assignee resolved from 交付协同
+    expect(parseAssigneeTable(issue.description).get('研发')).toBe('@dev');
+  });
+});
