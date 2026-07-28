@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parseAssigneeTable, toFacts, fetchIssue, applyWritePlan, type GitLabIssue } from './gitlab.js';
+import { parseAssigneeTable, toFacts, fetchIssue, fetchComments, applyWritePlan, type GitLabIssue } from './gitlab.js';
 
 const issue = JSON.parse(readFileSync(new URL('../fixtures/issue-story-pending-review.json', import.meta.url), 'utf8')) as GitLabIssue;
 
@@ -57,5 +57,15 @@ describe('applyWritePlan', () => {
     ] });
     expect(calls.some((c) => c.includes('/projects/3915/issues/123') && c.startsWith('PUT'))).toBe(true);
     expect(calls.some((c) => c.includes('/projects/3915/issues/123/notes') && c.startsWith('POST'))).toBe(true);
+  });
+});
+
+describe('fetchComments', () => {
+  it('GETs issue notes', async () => {
+    const calls: string[] = [];
+    mockFetch((url, init) => { calls.push(`${init?.method ?? 'GET'} ${url}`); return new Response(JSON.stringify([{ body: '## 状态变更\n- x：y' }]), { status: 200 }); });
+    const notes = await fetchComments(base, token, pid, 123);
+    expect(notes[0]!.body).toContain('状态变更');
+    expect(calls.some((c) => c.includes('/issues/123/notes'))).toBe(true);
   });
 });

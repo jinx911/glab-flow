@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { loadModel, currentNode } from './model.js';
 import { validateTransition, validateWritePlan } from './guard.js';
-import { toFacts, parseAssigneeTable, fetchIssue, applyWritePlan, type GitLabIssue } from './gitlab.js';
+import { toFacts, parseAssigneeTable, fetchIssue, fetchComments, applyWritePlan, type GitLabIssue } from './gitlab.js';
 import { renderStatusChange } from './render.js';
+import { extractEvidence } from './evidence.js';
 import type { Payload, WritePlan } from './types.js';
 
 const model = loadModel();
@@ -67,8 +68,14 @@ async function main() {
       console.log(JSON.stringify({ user: map.get(role) ?? null }));
       break;
     }
+    case 'evidence': {
+      const iid = Number(args[0]);
+      const comments = await fetchComments(BASE, TOKEN, PROJECT, iid);
+      console.log(JSON.stringify(extractEvidence(comments)));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | apply | resolve-assignee');
+      console.error('commands: node | validate | render | plan | apply | resolve-assignee | evidence');
       process.exit(1);
   }
 }

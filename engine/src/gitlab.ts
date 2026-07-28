@@ -34,6 +34,10 @@ export async function fetchIssue(base: string, token: string, projectId: string 
   return http<GitLabIssue>(`${base}/projects/${projectId}/issues/${iid}`, token, {});
 }
 
+export async function fetchComments(base: string, token: string, projectId: string | number, iid: number): Promise<{ body: string }[]> {
+  return http<{ body: string }[]>(`${base}/projects/${projectId}/issues/${iid}/notes?per_page=100&sort=asc&order_by=created_at`, token, {});
+}
+
 export async function applyWritePlan(base: string, token: string, projectId: string | number, plan: WritePlan): Promise<void> {
   const addLabels: string[] = [];
   const removeLabels: string[] = [];
