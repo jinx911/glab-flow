@@ -37,6 +37,11 @@ export async function fetchComments(projectId: string | number, iid: number, opt
   );
 }
 
+export async function resolveUserId(username: string, opts: GitlabOpts = {}): Promise<number | undefined> {
+  const users = await glabApi<{ id: number }[]>('GET', `users?username=${encodeURIComponent(username)}`, {}, opts);
+  return users[0]?.id;
+}
+
 export async function applyWritePlan(projectId: string | number, plan: WritePlan, opts: GitlabOpts = {}): Promise<void> {
   const addLabels: string[] = [];
   const removeLabels: string[] = [];
@@ -52,11 +57,16 @@ export async function applyWritePlan(projectId: string | number, plan: WritePlan
       case 'close_issue': doClose = true; break;
     }
   }
-  if (addLabels.length || removeLabels.length || assignee || doClose) {
+  let assigneeId: number | undefined;
+  if (assignee) {
+    assigneeId = await resolveUserId(assignee, opts);
+    if (assigneeId === undefined) throw new Error(`GitLab user not found for assignee: ${assignee}`);
+  }
+  if (addLabels.length || removeLabels.length || assigneeId !== undefined || doClose) {
     const fields: Record<string, string> = {};
     if (addLabels.length) fields.add_labels = addLabels.join(',');
     if (removeLabels.length) fields.remove_labels = removeLabels.join(',');
-    if (assignee) fields.assignee_username = assignee;
+    if (assigneeId !== undefined) fields.assignee_ids = String(assigneeId);
     if (doClose) fields.state_event = 'close';
     await glabApi('PUT', `projects/${projectId}/issues/${plan.issueIid}`, fields, opts);
   }

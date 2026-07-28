@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { parseAssigneeTable, toFacts, fetchIssue, fetchComments, applyWritePlan, type GitLabIssue } from './gitlab.js';
+import { parseAssigneeTable, toFacts, fetchIssue, fetchComments, applyWritePlan, resolveUserId, type GitLabIssue } from './gitlab.js';
 import { buildArgs } from './glab.js';
 import type { GlabRunner } from './glab.js';
 
@@ -46,7 +46,13 @@ describe('fetchIssue', () => {
 
 describe('applyWritePlan', () => {
   it('PUTs labels+assignee and POSTs each comment', async () => {
-    const { runner, calls } = recorder('{}');
+    const calls: string[][] = [];
+    const runner: GlabRunner = async (args) => {
+      calls.push(args);
+      const path = args[args.length - 1] ?? '';
+      if (path.includes('users')) return JSON.stringify([{ id: 777, username: 'pm' }]);
+      return '{}';
+    };
     await applyWritePlan(pid, { issueIid: 123, ops: [
       { kind: 'remove_label', value: 'story-status::草稿中' },
       { kind: 'add_label', value: 'story-status::待评审' },
@@ -59,7 +65,7 @@ describe('applyWritePlan', () => {
     const put = calls.find((a) => a.includes('PUT'))!;
     expect(put).toContain('add_labels=story-status::待评审');
     expect(put).toContain('remove_labels=story-status::草稿中');
-    expect(put).toContain('assignee_username=pm');
+    expect(put).toContain('assignee_ids=777');
     expect(put[put.length - 1]).toBe('projects/3915/issues/123');
   });
   it('adds state_event=close on close_issue (terminal atomicity intent)', async () => {
@@ -86,5 +92,43 @@ describe('fetchComments', () => {
     const firstCall = calls[0]!;
     expect(notes[0]!.body).toContain('状态变更');
     expect(firstCall[firstCall.length - 1]!).toContain('/issues/123/notes');
+  });
+});
+
+describe('resolveUserId', () => {
+  it('returns the first matching user id', async () => {
+    const runner: GlabRunner = async () => JSON.stringify([{ id: 1234, username: 'eliojin' }, { id: 9999, username: 'eliojin' }]);
+    expect(await resolveUserId('eliojin', { runner })).toBe(1234);
+  });
+  it('returns undefined when no match', async () => {
+    const runner: GlabRunner = async () => '[]';
+    expect(await resolveUserId('nobody', { runner })).toBeUndefined();
+  });
+});
+
+describe('applyWritePlan assignee_ids', () => {
+  it('PUTs assignee_ids (not assignee_username), resolving username→id via GET users', async () => {
+    const calls: string[][] = [];
+    const runner: GlabRunner = async (args) => {
+      calls.push(args);
+      const path = args[args.length - 1] ?? '';
+      if (path.includes('users')) return JSON.stringify([{ id: 1234, username: 'eliojin' }]);
+      return '{}';
+    };
+    await applyWritePlan(pid, { issueIid: 123, ops: [
+      { kind: 'add_label', value: 'story-status::已评审' },
+      { kind: 'set_assignee', username: '@eliojin' },
+    ] }, { runner });
+    const put = calls.find((a) => a.includes('PUT'))!;
+    expect(put).toContain('assignee_ids=1234');
+    expect(put.some((a) => a.startsWith('assignee_username'))).toBe(false);
+    // verify the users lookup happened with the right query
+    const getUsers = calls.find((a) => (a[a.length - 1] ?? '').includes('users?username=eliojin'));
+    expect(getUsers).toBeTruthy();
+  });
+  it('throws when the assignee username is not found', async () => {
+    const runner: GlabRunner = async (args) => ((args[args.length - 1] ?? '').includes('users') ? '[]' : '{}');
+    await expect(applyWritePlan(pid, { issueIid: 123, ops: [{ kind: 'set_assignee', username: '@ghost' }] }, { runner }))
+      .rejects.toThrow(/GitLab user not found/);
   });
 });
