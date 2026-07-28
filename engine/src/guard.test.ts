@@ -51,3 +51,62 @@ describe('G4 three-review separation', () => {
     expect(r.ok).toBe(false);
   });
 });
+
+describe('G5 label uniqueness', () => {
+  it('blocks when two story-status labels present (dirty state)', () => {
+    const p: Payload = { type: 'story', from: '草稿中', to: '待评审', fields: {} };
+    const r = validateTransition(model, facts(['type::story', 'story-status::草稿中', 'story-status::待评审']), p);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('脏状态'))).toBe(true);
+  });
+});
+
+describe('G6 assignee concrete user', () => {
+  it('blocks when assigneeUser is a bare role, not a user', () => {
+    const p: Payload = { type: 'story', from: '草稿中', to: '待评审', fields: {}, assigneeUser: '研发' };
+    const r = validateTransition(model, facts(['type::story', 'story-status::草稿中']), p);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('Assignee'))).toBe(true);
+  });
+});
+
+describe('G9 no placeholder people/conclusion', () => {
+  it('blocks when a person field is 待确认', () => {
+    const p: Payload = { type: 'story', from: '待评审', to: '已评审',
+      fields: { 评审日期: '2026-07-28', 产品确认人: '待确认', 评审结论: '通过', 需求文档或评审记录: 'link' },
+      gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true };
+    const r = validateTransition(model, facts(['type::story', 'story-status::待评审']), p);
+    expect(r.ok).toBe(false);
+    expect(r.missing).toContain('产品确认人');
+  });
+});
+
+describe('G10 date confirmation', () => {
+  it('blocks when a date field present but datesConfirmed false', () => {
+    const p: Payload = { type: 'story', from: '待评审', to: '已评审',
+      fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
+      gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: false };
+    const r = validateTransition(model, facts(['type::story', 'story-status::待评审']), p);
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('G11 blocking test issues verified', () => {
+  it('blocks 测试中->待发布 when blocking issues not verified', () => {
+    const p: Payload = { type: 'story', from: '测试中', to: '待发布',
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '否' },
+      assigneeUser: '@dev', datesConfirmed: true };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p);
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('G12 terminal atomicity', () => {
+  it('blocks terminal transition without closeIssue', () => {
+    const p: Payload = { type: 'story', from: '生产验收中', to: '已完成',
+      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok' },
+      assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true, closeIssue: false };
+    const r = validateTransition(model, facts(['type::story', 'story-status::生产验收中']), p);
+    expect(r.ok).toBe(false);
+  });
+});
