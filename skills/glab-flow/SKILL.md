@@ -103,6 +103,14 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`updatedAt` 写回该文件；门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签是唯一真理**，state 仅是派生缓存——两者不一致时以 GitLab 为准（对账逻辑见 `resume.md`）。
 
+### 学习闭环（learn）
+
+自我迭代闭环由 Leader + markdown 承载（引擎不参与），铁律是「**前面只记录，最后升级**」——run 内只采集、不干预；升级只在终态、且需人工审批。完整设计见 `learn.md`：
+
+- **每节点**：capture lesson（见 `learn.md`），把节点卡顿 / 护栏触发 / 证据缺失 / sub-skill 表现 / 用户修正写入 `<workspace.root>/.glab-flow/<iid>/lessons-<HHmm>.jsonl`，`state.lessonsCaptured++`。只记录、不 distill、不改 skill 文件。
+- **终态（已完成/close 后）**：upgrade ritual（distill + 人工审批的 skill 编辑，见 `learn.md`）——distill 本 run lessons 进 `knowledge.md`；视情况 spawn 临时 curator 提议 skill 文件 diff，**经用户审批后才应用**，绝不自动改。
+- **flow 启动**：apply（只读 `knowledge.md`，见 `learn.md`）——挑与当前节点/类型相关的条目注入执行上下文；首次无 knowledge → 零开销。
+
 ### Assignee 解析与证据抽取
 
 - **Assignee 解析**：从 Issue 正文「交付协同」表取角色对应的 `@用户`（Leader 解析 description）；缺则反问用户，不接受角色名占位（G6）。
@@ -135,10 +143,11 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 节点内容生成由 `sub-skills/` 内置子 skill 提供——Leader 对每个节点 Read 对应子 skill 后内联执行，或 spawn `general-purpose` 以其为 prompt：
 
-- 需求/方案 → `spec-author`
-- 开发 → `git-ops` / `tdd-guide` / `code-review`
-- 测试 → `test-design` / `test-flow-apifox`
-- 发布 → `jenkins-deploy`
+- 需求/方案 → `sub-skills/spec-author.md`
+- 开发 → `sub-skills/git-ops.md` / `sub-skills/tdd-guide.md` / `sub-skills/code-review.md`
+- 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`
+- 发布 → `sub-skills/jenkins-deploy.md`
+- 运行时工具（非 vendor）见 `tools.md`（codegraph / *-reviewer / apifox-* / glab / MySQL MCP）
 
 自带 agent（随 skill 一起定义，直接 spawn）：
 
@@ -157,3 +166,16 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 ```
 
 路径来自配置（`workspace.root`，见 `config.md`）；`<iid>` 为 GitLab Issue iid。**禁止**写进代码仓（oa-service / oa-platform 等）的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一存储树见 `nodes.md`。
+
+## 相关文件
+
+glab-flow 的同伴文件（与 SKILL.md 同目录 `skills/glab-flow/`，自包含、无外部 skill 依赖）：
+
+- `config.md` —— 配置格式、字段语义、查找链。
+- `nodes.md` —— 节点契约（下一节点 / 必填项 / 门禁 / Assignee 角色 / 文档存储树）。
+- `guards.md` —— 护栏 G1–G13 完整判定。
+- `gate.md` —— 门禁仪式（6 步）+ run 模式 + hard_gate 红线。
+- `resume.md` —— 恢复 / 脏状态处理 / GitLab 对账。
+- `learn.md` —— 自我迭代闭环（capture / apply / upgrade ritual）。
+- `tools.md` —— 运行时工具依赖清单（glab / codegraph / *-reviewer / apifox-* / MySQL MCP，非 vendor）。
+- `sub-skills/*.md` —— 7 个内置子 skill（spec-author / git-ops / tdd-guide / code-review / test-design / test-flow-apifox / jenkins-deploy）。
