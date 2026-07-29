@@ -1,6 +1,6 @@
 # 节点契约（引擎权威来源 = engine/state-machine.yaml；本表是 Leader 速查）
 
-**工作产物落点**（参考 dev-flow 的 `.dev-flow/<key>/spec/`）：所有 issue 文档（需求草稿 / 技术方案 `design.md` / 测试计划 / 回滚等）→ `<oa-workspace>/.glab-flow/<iid>/spec/`（例 `/Users/eliojin/IdeaProjects/oa/.glab-flow/123/spec/design.md`）。**禁止**写进代码仓（oa-service / oa-platform 等）的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。
+**工作产物落点**：所有 issue 文档（需求草稿 / 技术方案 `design.md` / 测试计划 / 回滚等）→ `<workspace.root>/.glab-flow/<iid>/spec/`（路径来自 config，见 `config.md`；`<iid>` 为 GitLab Issue iid）。**禁止**写进代码仓（oa-service / oa-platform 等）的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一存储树见 spec §7。
 
 | 节点 | 工作agent | 产出 | 门禁 | 流转写回 |
 |---|---|---|---|---|
