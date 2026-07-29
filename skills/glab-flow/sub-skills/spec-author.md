@@ -1,0 +1,164 @@
+---
+name: glab-flow-spec-author
+description: glab-flow 草稿/已评审节点的需求与方案子 skill。把需求（GitLab Issue 或自然语言）转成结构化 proposal.md + design.md，按触发条件展开必填工程章节（数据模型 / API 契约 / 接口边界 / 状态流程 / 错误契约 / 测试策略）。Gate 是完整性 checklist，不打分。vendor 自 ~/.claude/skills/spec-author 并按 GitLab-native 适配。
+---
+
+> 本文件是 glab-flow 自有子 skill（vendor 自 `~/.claude/skills/spec-author` 并按 GitLab-native 适配）。在对应节点由 Leader Read 本文件内联执行，或 spawn `general-purpose` 以其为 prompt。运行时工具依赖见 `../tools.md`。
+
+# Spec-Author：需求 → 结构化 spec
+
+把需求转成工程级的 `proposal.md` + `design.md`，让开发者无需猜测就能实现。
+
+## 工具使用
+
+你已安装的全部 skill / agent 都可用，主动调用（未装时降级为代码扫描 + 推理）：
+- 接口设计 → api-design
+- 架构/画图 → architect / architecture-diagram
+- 查代码 → codegraph / code-explorer / repo-scan
+- 各栈规范 → 对应 *-coding-standards（作风格权威参考）
+
+## 输入
+
+- GitLab Issue `<iid>`（Leader 已通过 glab CLI 读取 Issue 描述与评论）或自然语言 `{requirement_text}`
+- 触发条件集：由编排器传入，或从代码扫描自检（见下「触发条件映射」）
+
+## 产出
+
+工作产物落点见 `../nodes.md`：所有 spec 文档统一落在 `<workspace.root>/.glab-flow/<iid>/spec/`（**禁止**写进代码仓的 `docs/`）。
+
+- `<workspace.root>/.glab-flow/<iid>/spec/proposal.md`
+- `<workspace.root>/.glab-flow/<iid>/spec/design.md`
+- 向 Leader 返回：`spec_name`、简短摘要、使用的触发集（产出目录以 `<iid>` 为准）
+
+## 驱动的 agent
+
+编排器 spawn 本 skill 的 agent：requirements-analyst（核心章节 + 澄清）→ architect（工程章节 + 架构决策）。角色专长内嵌本 skill，**不读** `~/.claude/agents/*.md`。
+
+## 流程
+
+1. requirements-analyst：读 GitLab Issue/需求 + 相关代码 → 写**核心章节** → 仅在歧义时问澄清。
+2. **若需求指向具体页面/URL**：先做「路由分流核查」（见下），确认这个 URL 实际会渲染哪些组件，再进入触发检测和后续分析——不要 grep 到第一个文件名相似的组件就当唯一实现。
+3. 检测触发条件（见「触发条件映射」）。
+4. architect：写**触发的工程章节** + 架构决策 + 关键文件 + 复用点。
+5. 按 Gate 1 checklist 自检；补齐缺口后再汇报。
+
+### 路由分流核查（拿到具体 URL 时必做）
+
+同一个 URL 背后可能不止一套实现——按设备（User-Agent 检测，如 `react-device-detect`）、租户、灰度开关、版本号等分流到不同的组件是常见模式，不能假设"一个路径 = 一份代码"。
+
+1. 在前端路由注册处（如 `routers/index.tsx`）搜这个路径，看注册项是否同时挂了多个组件（例如同一路由对象里有 `web:` 和 `mobile:` 两个字段）。
+2. 若命中多套实现，逐一确认：状态判断逻辑是否一致、提交/展示字段是否一致——**不要只改其中一套就当作完成**，除非需求明确只针对某一端。
+3. 把核查结论写进 design.md「关键文件」章节：列出所有命中的实现文件，以及分流依据（User-Agent / 租户 / 灰度等）。
+4. 后端同理：确认该功能是否有多个入口/版本（如 v1/v2 并存的旧接口），避免只改一半。
+
+## 核心章节（恒必填）—— proposal.md
+
+- **背景与目标**
+- **范围** —— 明确 in / out
+- **验收标准** —— 每个场景 Given/When/Then
+- **影响模块**
+
+## 触发条件映射
+
+核心章节恒必填。下列工程章节**仅在对应触发条件命中时**展开。编排器传入触发集；缺省时由 architect 从代码扫描检测。
+
+| 触发条件 | 展开章节 | 必填内容 |
+|---|---|---|
+| 新表 / 字段变更 / migration | 数据模型 | 表结构、字段、索引、migration 步骤 |
+| 新增或改动端点 / 请求-响应 | API 契约 | endpoint、请求/响应结构、错误码 |
+| 跨模块 / 跨服务改动 | 接口边界 | 模块间契约、调用方向 |
+| 状态机 / 多步工作流 / 异步 | 状态与流程 | 状态机或时序图 |
+| 重要错误路径 / 权限 / 支付 | 错误契约 | 异常分类、降级、权限矩阵 |
+| （恒久；深度可缩放） | 测试策略 | 每条验收标准怎么测 |
+
+### 触发条件检测提示
+
+- **数据模型**：引用了 migration 文件、描述里出现新字段、"新增表/字段"。
+- **API 契约**："接口/endpoint/请求/响应"、路由变更。
+- **接口边界**：影响模块多于一个模块/服务。
+- **状态与流程**：状态字段、工作流、"审批/流转"、异步任务。
+- **错误契约**：权限规则、支付、文件上传、外部服务调用。
+
+### 扩展
+
+项目专属触发条件可按相同结构（触发名 → 必填章节 + 内容 checklist）在 glab-flow 配置中扩展；缺省时由 architect 从代码扫描检测。测试策略恒必填（深度随复杂度变化）。
+
+## design.md 追加
+
+- **架构决策** —— 复杂需求强制非空（格式：决策 / 理由 / 备选方案）
+- **关键文件** —— 每个文件写明打算怎么改
+- **复用点** —— 先找现有实现来复用/扩展
+
+## 澄清（取代固定 checkpoint）
+
+仅在需求**确实歧义**时才问澄清——不是固定的 3-checkpoint 仪式。用户确认集中在 Gate 1 一次。
+
+## Gate 1（checklist，不打分）
+
+- [ ] 所有核心章节存在且填写完整
+- [ ] 需求指向具体 URL 时，已做路由分流核查（多套实现均已列出或已确认只有一套）
+- [ ] 所有触发的工程章节存在且填写完整
+- [ ] 无 TBD/TODO；模板里的 `<...>` 指导占位**必须全部替换为真实内容**（不允许保留 `<...>`）
+- [ ] 每条验收标准有对应的测试策略条目
+- [ ] 复杂需求：架构决策非空
+
+pass/fail。无数字分数。无自评循环。
+
+## 模板（中文骨架）
+
+### proposal.md
+
+```
+# Proposal: <iid>
+
+> 由 spec-author 生成（中文）。核心章节必填；条件章节按触发集追加。
+
+## 背景与目标
+<问题、为何现在做、成功指标>
+
+## 范围
+### 范围内
+- <项>
+### 范围外
+- <项>
+
+## 验收标准
+- **AC1**：给定 <上下文>，当 <动作>，则 <预期>
+- **AC2**：...
+
+## 影响模块
+- <模块> —— <改动性质>
+
+<!-- 条件工程章节按触发条件追加：数据模型 / API 契约 / 接口边界 / 状态与流程 / 错误契约 -->
+
+## 测试策略（必填）
+- AC1 → <如何验证> [test_strategy: tdd|regression|smoke|none]
+- AC2 → <如何验证> [test_strategy: ...]
+```
+
+### design.md
+
+```
+# Design: <iid>
+
+## 架构决策（复杂需求强制非空）
+| 决策 | 理由 | 备选方案 |
+|---|---|---|
+| <决策> | <为何> | <其他方案及为何不选> |
+
+## 关键文件
+| 文件 | 打算怎么改 |
+|---|---|
+| <路径> | <此处改动内容> |
+
+## 复用点
+- <可复用/扩展的现有实现> —— <如何复用>
+
+<!-- 条件工程章节（数据模型 / API 契约 / 接口边界 / 状态与流程 / 错误契约）按触发条件展开 -->
+```
+
+## Dependencies
+
+- Agents（内嵌）：requirements-analyst、architect
+- GitLab：glab CLI（读 Issue / 写评论）—— 由 Leader 持有，见 `../tools.md`
+- 探索：方案/决策需头脑风暴时，可 spawn `general-purpose`
