@@ -1,0 +1,118 @@
+---
+name: glab-flow-jenkins-deploy
+description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择 job 与参数、最终确认后触发构建并轮询结果。vendor 自 ~/.claude/skills/jenkins-deploy 并按 GitLab-native 适配。
+---
+
+> 本文件是 glab-flow 自有子 skill（vendor 自 `~/.claude/skills/jenkins-deploy` 并按 GitLab-native 适配）。在对应节点由 Leader Read 本文件内联执行，或 spawn `general-purpose` 以其为 prompt。运行时工具依赖见 `../tools.md`。
+
+# Jenkins Deploy — 交互式部署
+
+**配置来源**：job 名 / 分支参数名 / 默认参数来自 glab-flow 配置（见 `../config.md`）：
+- `jenkins.job_name` —— 目标构建作业名
+- `jenkins.branch_param` —— 分支参数名，默认 `oa_branch`
+- `jenkins.default_params` —— 默认构建参数键值表
+
+`jenkins.job_name` 为空 → 不启用 Jenkins 能力（发布节点跳过构建触发）。
+
+## Job 参数映射（参考）
+
+已知 oa 项目族的 job 与参数（实际 job 以配置 `jenkins.job_name` 为准）：
+
+| Job | 环境 (默认 stage) | 分支 (默认 test) | 额外参数 |
+|-----|---------|---------|---------|
+| oa-platform-php | test_version (kn/stage/u1) | platform_branch, module_branch, capital_branch | force_package, isForce, rmNodeModules |
+| oa-service | test_version (kn/stage/u1) | oa_branch | — |
+| oa-gateway | test_version (kn/stage/u1) | oa_branch | — |
+| oa-frontend | DEPLOY_ENV (kn/u1/stage) | GIT_BRANCH | RUN_LINT=true |
+| oa-integration | environment (kn/stage/u1/kn2) | integration, message, calendar, common, approval, employees, recruitment | — |
+| oa-go | test_version (attendance/clock/user/employee/delivery) | branch | — |
+| oa-web-app-v2 | test_version (kn/kn2/stage/u1) | default_branch | — |
+
+## 参数默认值
+
+| 参数类型 | 默认值 | 说明 |
+|---------|-------|------|
+| 环境类 (test_version / DEPLOY_ENV) | **stage** | 用户未指定时 |
+| 分支类 | **test** | 用户未指定时；分支参数名取 `jenkins.branch_param` |
+| Boolean | 字符串 `"true"` / `"false"` | ⚠️ MCP 工具不接受布尔值 |
+| Password / registry_* | 跳过 | 使用 Jenkins 默认值 |
+
+未在映射表中显式列出的参数，回退到 `jenkins.default_params` 给定的默认值。
+
+## 工作流
+
+### 1. 确定 Job
+
+- 编排器/用户指定 job 名 → 直接使用
+- 否则读 glab-flow config `jenkins.job_name` → 用之
+- 都无 → AskUserQuestion multiSelect 让用户选择（支持多项目）
+- 用户说"部署 N 个项目" → 按上下文推断
+
+### 2. 交互式参数收集
+
+每个选中 Job 调用 `jenkins_get_job` 获取参数定义后，按类型交互：
+
+**Choice 参数** (如 test_version)：
+- 有默认值且用户未指定 → 使用默认值
+- 用户需要调整 → AskUserQuestion 列出 choices 选项
+
+**String 参数** (如分支)：
+- 有默认值 → 在确认清单中展示，用户可调整
+- 无默认值 → AskUserQuestion 让用户输入
+
+**Boolean 参数**：
+- 使用默认值，在确认清单中展示
+
+**force_package vs isForce（仅 oa-platform-php）**：
+- `force_package`：**指定模块强制打包**，填模块名（如 `oa-app-workflow`），多个用英文逗号分隔。用于只重新打包指定模块的前端/后端，不影响其他模块。
+- `isForce`：**全局强制打包**，布尔值。重新打包所有模块，耗时较长。
+- **互斥原则**：用户指定了 `force_package` 时，`isForce` 保持默认 `false`；用户说"全部强制打包"时才设 `isForce=true`。
+
+**Password 参数**：跳过。
+
+**多项目共享**：环境和分支参数只询问一次，共享给所有项目。
+
+### 3. 最终确认
+
+所有参数收集后，**必须**用 AskUserQuestion 展示完整清单让用户确认：
+
+```
+📋 部署清单
+
+[1] oa-platform-php
+    test_version = stage, platform_branch = test, module_branch = test, capital_branch = test
+
+[2] oa-frontend
+    DEPLOY_ENV = stage, GIT_BRANCH = test, RUN_LINT = true
+
+确认部署？
+```
+
+用户确认后才能触发构建。
+
+### 4. 触发构建
+
+**单项目**：`jenkins_build_and_watch` 阻塞等待结果。
+
+**多项目并行**：
+1. 所有项目同时调用 `jenkins_build`（非阻塞）触发
+2. 记录 queue URL / build number
+3. 轮询 `jenkins_get_build` 检查状态，或用户自行查询构建状态
+4. 不阻塞用户其他工作
+
+### 5. 结果展示
+
+```
+📊 构建结果
+[1] oa-platform-php  → ✅ SUCCESS  #2810  (3m20s)
+[2] oa-frontend      → ✅ SUCCESS  #570   (2m45s)
+```
+
+失败 → 提示查看对应 job/build 的日志。
+
+## 规则
+
+- 只用 MCP 工具 (`mcp__jenkins__jenkins_*`)，禁止 curl/bash
+- 参数不完整必须交互询问，不自行编造
+- **触发前必须展示清单让用户确认**
+- Boolean 参数必须传字符串 `"true"` / `"false"`
