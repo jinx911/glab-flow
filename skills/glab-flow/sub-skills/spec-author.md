@@ -32,7 +32,7 @@ description: glab-flow 草稿/已评审节点的需求与方案子 skill。把�
 
 ## 驱动的 agent
 
-编排器 spawn 本 skill 的 agent：requirements-analyst（核心章节 + 澄清）→ architect（工程章节 + 架构决策）。角色专长内嵌本 skill，**不读** `~/.claude/agents/*.md`。
+编排器 spawn 本 skill 的 agent：requirements-analyst（核心章节 + 澄清）→ architect（工程章节 + 架构决策）。角色专长由本文件的 prompt 内容注入给被 spawn 的 agent，**不读** `~/.claude/agents/*.md`——即 glab-flow 自包含，不依赖全局 agent 定义。
 
 ## 流程
 

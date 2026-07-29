@@ -31,7 +31,7 @@ Leader 在每轮编排中识别并记录以下信号，写入本 run 专属的 l
   - `signal` —— 信号分类（见下文清单）。
   - `detail` —— 人类可读的具体观察，包含足够上下文（Issue iid、触发条件、发生了什么）。
   - `at` —— ISO 时间戳。
-- **计数**：每写一条 lesson，`state.lessonsCaptured++`（state.json 内字段，见 `SKILL.md`「状态缓存」）。该计数不驱动任何门禁，仅供 upgrade ritual 判断本 run 是否值得升级（如阈值 < 3 条则跳过）。
+- **计数**：每写一条 lesson，`state.lessonsCaptured++`（state.json 内字段，见 `SKILL.md`「状态缓存」）。该计数不驱动任何门禁，仅供 upgrade ritual 判断本 run 是否值得升级——举例：若 lessons 过少（如不足 3 条），curator 可跳过 distill；此为启发式判断，非硬规则，无固定阈值。
 
 **采集的信号清单**（不在捕获时分析，只记录原始事实）：
 
@@ -114,4 +114,4 @@ learn 闭环的数据独立于状态机，不混进 state.json：
 - apply = Leader 读 markdown 文件后注入提示。
 - upgrade = Leader 读 jsonl + 写 markdown + spawn curator agent + 展示 diff 给用户。
 
-引擎（`pnpm cli node/validate/plan/render/config/state-init`）**不参与** learn——它没有任何 learn 相关的命令、字段、或分支。learn 不在状态机的确定性计算里，是在 Leader 编排层之上的旁路闭环。这保证了引擎的纯计算性质不被"学习"污染：同一个 Issue + 同一组 labels，引擎永远推出同一个节点，不管 learn 学到了什么。学到的东西只影响 Leader 怎么**执行**那个节点，不影响节点**是什么**。
+引擎（`pnpm cli` 的 node / validate / plan / plan-return / render / evidence / config / state-init 等 8 个命令）**不参与** learn——它没有任何 learn 相关的命令、字段、或分支。learn 不在状态机的确定性计算里，是在 Leader 编排层之上的旁路闭环。这保证了引擎的纯计算性质不被"学习"污染：同一个 Issue + 同一组 labels，引擎永远推出同一个节点，不管 learn 学到了什么。学到的东西只影响 Leader 怎么**执行**那个节点，不影响节点**是什么**。
