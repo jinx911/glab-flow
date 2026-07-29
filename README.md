@@ -2,7 +2,7 @@
 
 Local human-driven Claude skill that drives OA requirements through the `oa-ai-native-harness` GitLab Issue state machine — from triage to release/acceptance — with **deterministic guardrails**, content generation via reused sub-skills, and **preview-confirmed** GitLab writeback.
 
-It is the GitLab-native counterpart of `dev-flow` (which is Jira-based). `dev-flow` stays untouched; glab-flow is a new, independent skill.
+glab-flow is a self-contained, GitLab-native skill with its own config, state cache, and vendored sub-skills.
 
 ## Architecture (pure engine + Leader-driven I/O)
 
@@ -14,9 +14,13 @@ Seven layers: trigger → rule authority (harness) → state-machine driver → 
 ## Install
 
 ```bash
-./install.sh                                   # symlinks skill + 3 agents into ~/.claude
+./install.sh                                   # symlinks glab-flow + init-glab-flow + 3 agents into ~/.claude
 # Requires glab CLI installed + authenticated (no token env needed).
 ```
+
+## Config
+
+Run `/init-glab-flow <workspace.root>` to generate `.glab-flow/config.md`; format/details in `skills/glab-flow/config.md`.
 
 ## Engine CLI (pure: stdin → stdout, no I/O)
 
@@ -29,6 +33,8 @@ cd /Users/eliojin/IdeaProjects/glab-flow && pnpm cli <cmd>
   plan-return <iid> (stdin {type,from,target,issues,confirmer,date,assigneeUser})
                                                   # -> 退回 WritePlan JSON
   evidence          (stdin [{body}] from `glab api .../notes`)  # -> 抽取的状态变更证据
+  config            (stdin {workspace.root})      # -> 读取/生成 .glab-flow/config.md
+  state-init <iid>  (stdin {type,labels})         # -> 初始化 .glab-flow/<iid>/ 本地状态
 ```
 
 All GitLab reads/writes are done by the Leader via `glab` CLI (no token needed).
@@ -50,17 +56,9 @@ agents/{intake,review-preview,release-check}.md
 install.sh / uninstall.sh
 ```
 
-## Relation to dev-flow
+## Scope
 
-| dev-flow (Jira) | glab-flow (GitLab harness) |
-|---|---|
-| spec | 草稿中 + 待评审 |
-| design | 已评审 (技术方案) |
-| dev | 开发中 |
-| review-test | 测试中 |
-| ship | 待发布 + 生产验收中 + 已完成 |
-
-glab-flow adds (from the harness): triage, three-review separation + node freezing, binary gate with 问题清单 退回, hard_gate release/acceptance, knowledge feedback loop.
+glab-flow is an independent, self-contained skill (GitLab-native). It does not depend on any external skill; all content sub-skills are vendored under `skills/glab-flow/sub-skills/`.
 
 ## Authority
 
