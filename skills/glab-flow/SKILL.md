@@ -15,13 +15,13 @@ glab-flow 是 GitLab-native、自包含的流程引擎：引擎只做确定性�
 
 ## 配置（启动第一件事）
 
-glab-flow 是配置驱动的——`host`/`project_id`/`workspace.root` 等参数因项目而异，绝不写死。每次启动 flow，**先读 config**：
+glab-flow 是配置驱动的——`host`/`project_id`/`workspace.root` 等参数因项目而异，绝不写死。每次启动 flow，**先读 config**（`$ENGINE_ROOT` 见下文「引擎与命令」节，启动时先解析一次、全局复用）：
 
 1. 按 `config.md` 的查找链取**首个存在**的配置文件（项目级 `<workspace.root>/.glab-flow/config.md` → 全局兜底 `~/.claude/skills/glab-flow/config.md`）。
-2. 在 glab-flow 仓库根跑解析：
+2. 解析：
 
    ```bash
-   cat <config.md 路径> | pnpm cli config
+   cd "$ENGINE_ROOT" && cat <config.md 路径> | pnpm cli config
    ```
 
    stdout 是 `GlabConfig` JSON，从中派生后续编排所需的全部项目参数：`gitlab.host` / `gitlab.projectId` / `workspace.root` / `runMode`（以及可选项 `harnessClone` / `deployBranch` / `jenkins` / `databases` / `testEnvironments`）。
@@ -30,13 +30,19 @@ glab-flow 是配置驱动的——`host`/`project_id`/`workspace.root` 等参数
 
 配置格式、字段语义、查找链细节见 `config.md`。
 
-## 引擎（纯计算，无 I/O）
+## 引擎与命令（纯计算，无 I/O）
 
-引擎仓库就是 glab-flow 自身。在仓库根执行：
+glab-flow 引擎仓库就是本 skill 所属的仓库（不依赖任何外部 skill）。引擎只做确定性计算，不做任何 GitLab 调用、不读文件系统之外的 I/O；所有副作用由 Leader 跑 glab 产生。
+
+**引擎根解析（每次启动 flow 先做一次，后续复用）**：`install.sh` 把 `skills/glab-flow` 符号链接到 `~/.claude/skills/glab-flow`，故引擎仓库根 = 该符号链接实际目标的"上两级"。启动时解析一次 `$ENGINE_ROOT`，此后所有 `pnpm cli …` 都在它下面跑（形如 `cd "$ENGINE_ROOT" && pnpm cli …`，下文「配置」「Leader 编排」「证据抽取」等各处出现的 `pnpm cli …` 均在此前缀下执行）：
 
 ```bash
-cd /Users/eliojin/IdeaProjects/glab-flow && pnpm cli <cmd>
+# 引擎仓库根 = glab-flow skill 的实际仓库根（install.sh 符号链接 ~/.claude/skills/glab-flow → <repo>/skills/glab-flow）
+ENGINE_ROOT="$(dirname "$(dirname "$(readlink -f "$HOME/.claude/skills/glab-flow")")")"
+cd "$ENGINE_ROOT" && pnpm cli <cmd>
 ```
+
+若 `readlink -f` 不可用或开发态直接在仓库内运行，`ENGINE_ROOT` 即当前 glab-flow 仓库根（开发者自行 `cd` 到仓库根即可）。
 
 命令列表：
 
@@ -50,8 +56,6 @@ cd /Users/eliojin/IdeaProjects/glab-flow && pnpm cli <cmd>
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
-
-引擎不做任何 GitLab 调用、不读文件系统之外的 I/O；所有副作用由 Leader 跑 glab 产生。
 
 ## GitLab 读写（Leader 直接 glab CLI）
 
@@ -79,11 +83,11 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 每个节点、每轮都按这 8 步走（门禁细节见 `gate.md`）：
 
-1. **读状态**：用 config 提供的 `host`/`projectId`/`harnessClone`，跑 `glab issue view <iid> --output json` → 取 labels/description；`pnpm cli node <type> <labels...>` 得当前节点。0 或 ≥2 个状态标签 → 脏状态，停，列给人工（见 `resume.md` 脏状态处理）。
+1. **读状态**：用 config 提供的 `host`/`projectId`/`harnessClone`，跑 `glab issue view <iid> --output json` → 取 labels/description；`cd "$ENGINE_ROOT" && pnpm cli node <type> <labels...>` 得当前节点。0 或 ≥2 个状态标签 → 脏状态，停，列给人工（见 `resume.md` 脏状态处理）。
 2. **查契约**：从 `nodes.md` 取当前节点的下一节点 / 必填项 / 门禁 / Assignee 角色。
 3. **判断证据是否齐**：证据齐 → 起草 Payload；不齐 → 委派节点工作 agent（见下文「内容生成」）生成缺失内容（评论/分支/spec 文档），不推进状态。
-4. **护栏校验**：`pnpm cli validate`（stdin `{type,labels,payload}`）。`ok:false` → 停，把 `missing`+`reasons` 列给用户问需要补什么。
-5. **构建写计划**：正向 `pnpm cli plan <iid>`（stdin `{payload}`）；退回 `pnpm cli plan-return <iid>`（门禁二值，见 `gate.md`）。
+4. **护栏校验**：`cd "$ENGINE_ROOT" && pnpm cli validate`（stdin `{type,labels,payload}`）。`ok:false` → 停，把 `missing`+`reasons` 列给用户问需要补什么。
+5. **构建写计划**：正向 `cd "$ENGINE_ROOT" && pnpm cli plan <iid>`（stdin `{payload}`）；退回 `cd "$ENGINE_ROOT" && pnpm cli plan-return <iid>`（门禁二值，见 `gate.md`）。
 6. **预览确认**：把计划翻译成 glab 命令序列，以 diff 形式展示给用户（标签 add/remove、Assignee、评论正文、是否 close）。
 7. **应用（Leader 直接跑 glab）**：按 `gate.md` 的 run 模式决定 AskUserQuestion 后应用还是护栏 ok 即自动应用；`hard_gate` 两模式都强制人工。命令见上文「GitLab 读写」。
 8. **下一节点**：写回成功后更新 state 缓存（见下文），循环到「已完成」或用户停。
@@ -93,7 +97,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 首轮进入 flow 时，Leader 用 `state-init` 生成 state 文件，把"上次到哪一步"缓存到本地：
 
 ```bash
-echo '{...}' | pnpm cli state-init
+cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 # → 写到 <workspace.root>/.glab-flow/<iid>-state.json
 ```
 
@@ -105,7 +109,7 @@ echo '{...}' | pnpm cli state-init
 - **证据抽取**：
 
   ```bash
-  glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100" | pnpm cli evidence
+  cd "$ENGINE_ROOT" && glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100" | pnpm cli evidence
   ```
 
   从 notes 抽 `## 状态变更` 块的结构化证据（确认人/日期/结论/阻塞问题验证），供护栏 G1/G3/G11 取证。
