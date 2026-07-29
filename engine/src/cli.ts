@@ -5,6 +5,8 @@ import { toFacts } from './gitlab.js';
 import { renderStatusChange } from './render.js';
 import { buildReturnPlan } from './plan.js';
 import { extractEvidence } from './evidence.js';
+import { parseConfig } from './config.js';
+import { initState } from './state.js';
 import type { Payload, WritePlan } from './types.js';
 
 const model = loadModel();
@@ -60,8 +62,25 @@ async function main() {
       console.log(JSON.stringify(buildReturnPlan({ ...input, issueIid: Number(args[0] ?? 0) })));
       break;
     }
+    case 'config': {
+      console.log(JSON.stringify(parseConfig(readStdin())));
+      break;
+    }
+    case 'state-init': {
+      const input = JSON.parse(readStdin()) as {
+        iid: string;
+        type: 'story' | 'bug';
+        host: string;
+        projectId: string;
+        workspaceRoot: string;
+        runMode?: 'semi-auto' | 'full-auto';
+        now?: string;
+      };
+      console.log(JSON.stringify(initState(input)));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | plan-return | evidence');
+      console.error('commands: node | validate | render | plan | plan-return | evidence | config | state-init');
       process.exit(1);
   }
 }
