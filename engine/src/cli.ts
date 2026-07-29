@@ -7,6 +7,7 @@ import { buildReturnPlan } from './plan.js';
 import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
+import type { InitStateInput } from './state.js';
 import type { Payload, WritePlan } from './types.js';
 
 const model = loadModel();
@@ -67,16 +68,21 @@ async function main() {
       break;
     }
     case 'state-init': {
-      const input = JSON.parse(readStdin()) as {
-        iid: string;
-        type: 'story' | 'bug';
-        host: string;
-        projectId: string;
-        workspaceRoot: string;
-        runMode?: 'semi-auto' | 'full-auto';
-        now?: string;
-      };
-      console.log(JSON.stringify(initState(input)));
+      const input = JSON.parse(readStdin()) as Partial<InitStateInput>;
+      const { iid, type, host, projectId, workspaceRoot } = input;
+      if (!iid || !type || !host || !projectId || !workspaceRoot) {
+        throw new Error('state-init: stdin requires iid, type, host, projectId, workspaceRoot');
+      }
+      const state = initState({
+        iid,
+        type,
+        host,
+        projectId,
+        workspaceRoot,
+        runMode: input.runMode,
+        now: input.now ?? new Date().toISOString(),
+      });
+      console.log(JSON.stringify(state));
       break;
     }
     default:

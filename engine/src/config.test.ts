@@ -47,4 +47,21 @@ describe('parseConfig', () => {
     const c = parseConfig('```yaml\ngitlab: { host: h, project_path: "oa/oa" }\nworkspace: { root: /r }\n```');
     expect(c.gitlab.projectId).toBe('oa/oa');
   });
+
+  it('throws a clean error when yaml block parses to null (empty or `null`)', () => {
+    expect(() => parseConfig('```yaml\nnull\n```')).toThrow(/did not parse to an object/);
+    expect(() => parseConfig('```yaml\n\n```')).toThrow(/did not parse to an object/);
+  });
+
+  it('coerces unquoted numeric project_id to string', () => {
+    const c = parseConfig('```yaml\ngitlab: { host: h, project_id: 3915 }\nworkspace: { root: /r }\n```');
+    expect(c.gitlab.projectId).toBe('3915');
+  });
+
+  it('maps databases and test_environments with defaults', () => {
+    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\ndatabases:\n  main: { mcp: mcp__db__q, desc: 主库 }\ntest_environments:\n  default: { url: http://x, account: a }\n```';
+    const c = parseConfig(md);
+    expect(c.databases?.main).toEqual({ mcp: 'mcp__db__q', desc: '主库' });
+    expect(c.testEnvironments?.default).toEqual({ url: 'http://x', account: 'a' });
+  });
 });

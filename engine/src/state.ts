@@ -23,24 +23,23 @@ export interface InitStateInput {
   projectId: string;
   workspaceRoot: string;
   runMode?: RunMode;
-  now?: string;
+  now: string;
 }
 
 export function initState(input: InitStateInput): RunState {
-  const now = input.now ?? new Date().toISOString();
   const runMode: RunMode = input.runMode ?? 'semi-auto';
   return {
     iid: input.iid,
     type: input.type,
     project: { host: input.host, id: input.projectId },
     cachedNode: '',
-    cachedNodeAt: now,
+    cachedNodeAt: input.now,
     docVersion: 1,
     specDir: `${input.workspaceRoot}/.glab-flow/${input.iid}/spec`,
     runMode,
     lastActions: [],
     spawnedAgents: [],
     lessonsCaptured: 0,
-    updatedAt: now,
+    updatedAt: input.now,
   };
 }
