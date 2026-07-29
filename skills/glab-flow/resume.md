@@ -48,7 +48,7 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
 1. **读 `<iid>-state.json`**。`cat <workspace.root>/.glab-flow/<iid>-state.json` 拿到 `RunState`，从中取 `type`（`story`/`bug`）、`project`（`{host, id}`）、`runMode`、`specDir`。这些决定后续用哪套状态机（story vs bug）、去哪个 GitLab 实例查、以及恢复后门禁按哪种 run 模式走。
 
 2. **从 GitLab 重推导当前节点**。这是真理源查询，不能跳：
-   - 取最新 Issue：`glab issue view <iid> --output json`。若 state 里有 `gitlab.harnessClone` 路径（来自配置的 `gitlab.harness_clone`），在该克隆目录跑（glab 自动识别 remote）；否则用 `glab api --hostname <host> "projects/<id>/issues/<iid>"`。
+   - 取最新 Issue：`glab issue view <iid> --output json`。若**配置**里有 `gitlab.harness_clone`（`config.gitlab.harnessClone`），在该克隆目录跑（glab 自动识别 remote）；否则用 `glab api --hostname <host> "projects/<id>/issues/<iid>"`。
    - 从返回 JSON 取 `labels` 数组。
    - 推导节点：`pnpm cli node <type> <labels...>`（在 glab-flow 仓库根跑），stdout 的 `node` 即 **GitLab 当前节点**。
 

@@ -25,7 +25,7 @@ Run `/init-glab-flow <workspace.root>` to generate `.glab-flow/config.md`; forma
 ## Engine CLI (pure: stdin → stdout, no I/O)
 
 ```bash
-cd /Users/eliojin/IdeaProjects/glab-flow && pnpm cli <cmd>
+cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析，见 SKILL.md「引擎与命令」
   node <type> <labels...>                         # -> {"node": "<current>"}
   validate          (stdin {type,labels,payload}) # -> GuardResult
   render            (stdin payload)               # -> harness 状态变更 markdown
@@ -33,8 +33,8 @@ cd /Users/eliojin/IdeaProjects/glab-flow && pnpm cli <cmd>
   plan-return <iid> (stdin {type,from,target,issues,confirmer,date,assigneeUser})
                                                   # -> 退回 WritePlan JSON
   evidence          (stdin [{body}] from `glab api .../notes`)  # -> 抽取的状态变更证据
-  config            (stdin {workspace.root})      # -> 读取/生成 .glab-flow/config.md
-  state-init <iid>  (stdin {type,labels})         # -> 初始化 .glab-flow/<iid>/ 本地状态
+  config            (stdin = config markdown 文件内容)                      # -> GlabConfig JSON（Leader: cat <config.md> | pnpm cli config）
+  state-init        (stdin {iid,type,host,projectId,workspaceRoot,runMode?,now?})  # -> RunState JSON（Leader 写到 .glab-flow/*-state.json）
 ```
 
 All GitLab reads/writes are done by the Leader via `glab` CLI (no token needed).

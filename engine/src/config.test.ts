@@ -64,4 +64,14 @@ describe('parseConfig', () => {
     expect(c.databases?.main).toEqual({ mcp: 'mcp__db__q', desc: '主库' });
     expect(c.testEnvironments?.default).toEqual({ url: 'http://x', account: 'a' });
   });
+
+  it('passes through gitlab.harness_clone when present', () => {
+    const c = parseConfig('```yaml\ngitlab: { host: h, project_id: "1", harness_clone: "/p/harness" }\nworkspace: { root: /r }\n```');
+    expect(c.gitlab.harnessClone).toBe('/p/harness');
+  });
+
+  it('defaults an unknown run_mode to semi-auto', () => {
+    const c = parseConfig('```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\nrun_mode: bogus\n```');
+    expect(c.runMode).toBe('semi-auto');
+  });
 });
