@@ -94,6 +94,10 @@ Leader 把 curator 提议的 diff 展示给用户（每条 diff 一条决策）�
 - **`/glab-flow learn <note>`** —— 在任意节点手动记一条 `signal: "manual_note"` 的 lesson，写入本 run 的 `lessons-<HHmm>.jsonl`。用于用户想主动留下观察（如"这个 Issue 的业务背景特殊，下次同类要……”）。
 - **`/glab-flow learn --upgrade`** —— 在非终态手动触发 upgrade ritual（例如用户判断这次 run 已经学到足够东西，不想等到 close）。流程同终态升级：distill → curator 提议 → 人工审批 → 应用。**仍然不改当前 run 的行为**——升级产物只对下个 run 生效（apply）。
 
+## 版本化升级与清理
+
+外部 memory 或 run-local lessons 不能直接复制进 skill。升级顺序固定为：capture 原始事实 → distill 可复用规则 → 去掉 Issue ID / MR / build / 个人映射等一次性信息 → 写入测试和 docs/skill/agent → 跑验证 → 用户确认后再删除已迁移的外部 memory。未泛化或仍依赖单个业务 Issue 的观察保留在 lessons / memory 中，直到用户明确清理。
+
 ## 数据落点
 
 learn 闭环的数据独立于状态机，不混进 state.json：

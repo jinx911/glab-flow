@@ -35,7 +35,7 @@
 - Create `skills/init-glab-flow/SKILL.md` — `/init-glab-flow` interactive probe → writes `.glab-flow/config.md`.
 
 **Installer / docs:**
-- Modify `install.sh` — symlink `config.example.md` + `init-glab-flow`; drop stale `GLAB_FLOW_TOKEN` line.
+- Modify `install.sh` — symlink `config.example.md` + `init-glab-flow`; drop stale token-env setup line.
 - Modify `uninstall.sh` — remove new symlinks.
 - Modify `README.md` — drop dev-flow mapping table; one-liner.
 - Modify `docs/architecture.md`, `docs/flow.md` — remove dev-flow mappings.
@@ -753,7 +753,7 @@ echo "[glab-flow] engine: cd $DIR && pnpm install"
 echo "[glab-flow] configure: /init-glab-flow  (glab CLI handles auth — no token needed)"
 ```
 
-(Removes the stale `export GLAB_FLOW_TOKEN=…` line — token-discovery was already dropped; glab CLI authenticates itself.)
+(Removes the stale token-env setup line — token discovery was already dropped; glab CLI authenticates itself.)
 
 - [ ] **Step 2: Update `uninstall.sh`**
 
