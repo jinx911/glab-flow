@@ -20,7 +20,7 @@ GitLab Issue 的全部读写（view / update label / note / close / `glab api`�
 
 CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文件都已解析）。读取亚毫秒，索引滞后写入约 1 秒。
 
-- 使用方：`sub-skills/tdd-guide.md`（定位被测符号、查 callers/callees 判断改动影响面、找现有测试惯例——先 codegraph 再写测试）、`sub-skills/code-review.md`（按改动符号查影响面）。
+- 使用方：`sub-skills/tdd-guide.md`（定位被测符号、查 callers/callees 判断改动影响面、找现有测试惯例——先 codegraph 再写测试）、`sub-skills/code-review.md`（按改动符号查影响面）、`agents/review-preview.md`（凡把现有系统行为作为阻塞/退回依据，先用 codegraph 或源码证据核实）。
 - 工具面：`codegraph_search` / `codegraph_context` / `codegraph_callers` / `codegraph_callees` / `codegraph_impact` / `codegraph_node` / `codegraph_explore` / `codegraph_files`。
 - 未初始化（`.codegraph/` 不存在）→ 提示用户跑 `codegraph init -i` 构建索引，不回退到 grep 暴力扫。
 

@@ -25,7 +25,7 @@
 
 ### 2.2 缺口（glab-flow 要补的位置）
 
-harness 把**规则**写得很完整，但缺一个把规则**跑起来的执行器**：skills/ 下三个（oa-knowledge-intake / oa-mr-review / oa-release-check）目前只是 ~200 字 README 规格；CI 仅 grep 关键短语；loop-engineering 仍是草案；#123 上的 AI 分诊是外部 bot。
+harness 把**规则**写得很完整，但缺一个把规则**跑起来的执行器**：skills/ 下三个（oa-knowledge-intake / oa-mr-review / oa-release-check）目前只是 ~200 字 README 规格；CI 仅 grep 关键短语；loop-engineering 仍是草案；历史 Issue 上的 AI 分诊是外部 bot。
 
 ### 2.3 目标
 
@@ -52,8 +52,8 @@ harness 把**规则**写得很完整，但缺一个把规则**跑起来的执行
 ③ 状态机驱动  读 GitLab Issue labels → 查模型 → 当前节点/允许下一节点/必填项/Assignee映射/门禁类型
 ④ 护栏/前置校验 确定性纯函数(非 LLM)：硬门禁强制人工证据；缺字段→停+一次性列全缺失项
 ⑤ 内容生成    Leader 按节点委派专家 agent，复用现有 skill（见 §6）
-⑥ GitLab集成层 唯一对外写口：label/assignee/comment/close 全经此；强制 preview-confirm；
-              封装 token/重试/沙箱；未来 bot 挂这层
+⑥ GitLab写回层 Leader 唯一执行对外写回：label/assignee/comment/close 由已认证 glab CLI 执行；
+              引擎不持有 token、不封装 API client、不做网络/子进程 I/O；强制 preview-confirm
 ⑦ 持久化      GitLab Issue = 唯一状态真相(labels + 评论)；
               本地 .glab-flow/<issue>/ 只放可重建的工作产物
 ```
@@ -245,7 +245,7 @@ validate(当前状态, 目标流转, 结构化载荷, Issue证据, 用户指令)
 - 状态机模型（story + bug）+ 模型↔harness 文档一致性校验
 - 护栏层 G1–G13 确定性校验 + 写计划预览确认
 - 全生命周期内容生成：分诊/草稿/需求评审预审/技术方案/开发/测试/发布检查/验收，复用现有 skill
-- GitLab 集成层（read labels/issue/comments；write labels/assignee/comments/close），封装 token/重试/沙箱
+- GitLab 写回层：Leader read/write labels/issue/comments/assignee/close；执行用已认证 glab CLI，engine 不封装 GitLab API client
 - Leader + 专家 agent 编排；跨仓开发（oa-platform/service/frontend/go）经 git-ops/codegraph
 
 ### 8.2 OUT

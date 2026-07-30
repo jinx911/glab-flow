@@ -51,7 +51,8 @@ pnpm typecheck && pnpm test   # vitest
 ```
 engine/state-machine.yaml     # the model (story+bug), derived from harness docs/issue-state-machine.md
 engine/src/{types,model,contract,guard,parse,gitlab,render,plan,evidence,cli}.ts   # + *.test.ts
-skills/glab-flow/{SKILL,nodes,guards}.md
+skills/glab-flow/{SKILL,config,nodes,guards,gate,resume,learn,tools}.md
+skills/glab-flow/sub-skills/*.md
 agents/{intake,review-preview,release-check}.md
 install.sh / uninstall.sh
 ```
@@ -59,6 +60,10 @@ install.sh / uninstall.sh
 ## Scope
 
 glab-flow is an independent, self-contained skill (GitLab-native). It does not depend on any external skill; all content sub-skills are vendored under `skills/glab-flow/sub-skills/`.
+
+## Memory hygiene
+
+Reusable glab-flow lessons belong in versioned docs/tests/skill files after they are generalized and verified. Run-specific observations stay in `<workspace.root>/.glab-flow/<iid>/lessons-*.jsonl` or external memory until they are distilled; do not copy issue-specific details into reusable project docs.
 
 ## Authority
 

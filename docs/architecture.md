@@ -11,8 +11,8 @@
 ③ 状态机驱动  读 GitLab Issue labels → 查模型 → 当前节点/允许下一节点/必填项/Assignee映射/门禁类型
 ④ 护栏/前置校验 确定性纯函数(非 LLM)：硬门禁强制人工证据；缺字段→停+一次性列全缺失项
 ⑤ 内容生成    Leader 按节点委派专家 agent，复用现有 skill（见 nodes.md）
-⑥ GitLab集成层 唯一对外写口：label/assignee/comment/close 全经此；强制 preview-confirm；
-              封装 token/重试/沙箱；未来 bot 挂这层
+⑥ GitLab写回层 Leader 唯一执行对外写回：label/assignee/comment/close 均由已认证 `glab` CLI 执行；
+              引擎不持有 token、不封装 API client、不做网络/子进程 I/O；强制 preview-confirm
 ⑦ 持久化      GitLab Issue = 唯一状态真相(labels + 评论)；
               本地 .glab-flow/<issue>/ 只放可重建的工作产物
 ```
@@ -24,7 +24,7 @@ GitLab Issue URL → Leader → 读 labels → 状态机模型 → 当前节点+
   → 缺证据/门禁？ 停，列缺失，问用户
   → 齐了？ 委派专家 agent 生成内容 → 护栏校验
   → 起草「状态变更评论 + 标签/Assignee 变更」→ 预览 → 用户确认
-  → GitLab 集成层写回 → 更新本地快照 → 下一节点
+  → Leader 直接跑 glab CLI 写回 → 更新本地快照 → 下一节点
 ```
 
 ## Guard layer G1–G13 (deterministic, pure function — no LLM in critical path)

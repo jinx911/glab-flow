@@ -44,12 +44,13 @@ flowchart TD
 - 技术方案评审不通过 **不退回**（停在「已评审」继续完善方案）。
 - 测试单问题 **不退回**（挂父需求评论）；仅整体返工才回「开发中」。
 - 终态（已完成）= 标签替换 + Assignee + 评论 + 关闭 Issue **同一次操作**。
+- 引擎只产出节点/校验/计划/渲染结果；GitLab 写回由 Leader 预览后用已认证的 `glab` CLI 执行。
 
 ## 2. Leader 每轮编排（8 步）
 
 ```mermaid
 flowchart TD
-    A["① 读状态<br/>cli node + GitLab API"] --> B{"当前节点?<br/>(labels)"}
+    A["① 读状态<br/>glab issue view + cli node"] --> B{"当前节点?<br/>(labels)"}
     B -->|"0 或 ≥2 个状态标签"| DIRTY(["脏状态：停，列给人工修复"])
     B --> 正常 --> C["② 查契约 nodes.md<br/>(必填项/门禁/Assignee角色)"]
     C --> D{"③ 证据齐全?"}
@@ -62,7 +63,7 @@ flowchart TD
     VAL --> ok:true --> PLAN["⑤ 构建写计划  cli plan"]
     PLAN --> PREV["⑥ 预览确认  WritePlan diff"]
     PREV -->|"n / 编辑"| PAYLOAD
-    PREV --> y确认 --> APP["⑦ 应用  cli apply<br/>(validateWritePlan → GitLab API)"]
+    PREV --> y确认 --> APP["⑦ 应用  Leader 跑 glab CLI<br/>(WritePlan → glab issue update/note/close)"]
     APP --> NEXT{"⑧ 下一节点?"}
     NEXT --> 未到已完成 --> A
     NEXT --> 已完成 --> DONE(["结束"])
@@ -77,7 +78,7 @@ flowchart TD
     L3["③ 状态机驱动<br/>读 labels → 查模型 → 节点/必填/门禁/Assignee角色"] --> L4
     L4["④ 护栏 / 前置校验<br/>确定性纯函数  G1–G13 + G6b（关键路径不放 LLM）"] --> L5
     L5["⑤ 内容生成<br/>专家 agent（复用 spec-author / git-ops / code-review / tdd-guide ...）"] --> L6
-    L6["⑥ GitLab 集成层<br/>唯一对外写口 · preview-confirm · token/重试 · 未来 bot 挂这层"] --> L7
+    L6["⑥ GitLab 写回层<br/>Leader 直接 glab CLI · preview-confirm · 引擎零 I/O"] --> L7
     L7["⑦ 持久化<br/>GitLab Issue = 唯一真相 · .glab-flow/&lt;issue&gt;/ = 工作产物"]
 ```
 

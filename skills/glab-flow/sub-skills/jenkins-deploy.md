@@ -74,7 +74,7 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 
 ### 3. 最终确认
 
-所有参数收集后，**必须**用 AskUserQuestion 展示完整清单让用户确认：
+所有参数收集后，**必须**用 AskUserQuestion 展示完整清单让用户确认。粗粒度授权（例如「去发布」「合并并部署」「触发 Jenkins」）不等于构建参数确认；`test_version` / `DEPLOY_ENV` / 分支等会改变目标环境的参数必须逐项展示后再触发：
 
 ```
 📋 部署清单
@@ -104,8 +104,8 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 
 ```
 📊 构建结果
-[1] oa-platform-php  → ✅ SUCCESS  #2810  (3m20s)
-[2] oa-frontend      → ✅ SUCCESS  #570   (2m45s)
+[1] oa-platform-php  → ✅ SUCCESS  #<build-number>  (3m20s)
+[2] oa-frontend      → ✅ SUCCESS  #<build-number>  (2m45s)
 ```
 
 失败 → 提示查看对应 job/build 的日志。

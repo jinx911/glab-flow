@@ -7,6 +7,10 @@ description: 当用户提供 GitLab Issue URL/编号，需要按 harness 状态�
 
 glab-flow 是 GitLab-native、自包含的流程引擎：引擎只做确定性计算（节点推导 / 护栏校验 / 计划构建 / 文本渲染 / 配置解析 / 状态初始化），所有 GitLab 读写由 Leader 直接用 glab CLI 完成，每次写回前预览确认。项目参数走配置文件，不在代码里硬编码；文档落自有工作目录，不进代码仓。
 
+## 权威来源
+
+规则权威来自 `oa-ai-native-harness` 的 `docs/issue-state-machine.md` 与 `AGENTS.md`；glab-flow 的 `state-machine.yaml`、护栏和节点文档只是可执行投影。运行时状态权威是 GitLab Issue 的 labels/comments；本地 state 与 lessons 都是派生缓存或经验材料。
+
 ## 输入
 
 `$ARGUMENTS` = GitLab Issue URL 或 iid。
@@ -146,7 +150,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - 需求/方案 → `sub-skills/spec-author.md`
 - 开发 → `sub-skills/git-ops.md` / `sub-skills/tdd-guide.md` / `sub-skills/code-review.md`
 - 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`
-- 发布 → `sub-skills/jenkins-deploy.md`
+- 发布 → `sub-skills/jenkins-deploy.md`（Jenkins 触发前必须单独确认 job/分支/部署参数；发布流转确认不等于构建参数确认）
 - 运行时工具（非 vendor）见 `tools.md`（codegraph / *-reviewer / apifox-* / glab / MySQL MCP）
 
 自带 agent（随 skill 一起定义，直接 spawn）：
@@ -156,6 +160,10 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - `release-check` —— 发布前检查，产出风险等级 + 必补事项 + 发布后检查清单 + 回滚方案。
 
 证据不足时（`validate` 返回 `ok:false`），委派对应子 skill/agent 生成缺失内容，落回 Issue 评论或 spec 文档后重走门禁——**门禁不通过 → 回去干活，而不是改门禁**。
+
+## 记忆升级边界
+
+外部 memory / lessons 只能在**泛化、去标识化、加测试并验证通过**后进入本仓。一次性 Issue ID、MR/build 编号、个人映射、临时分支、单个业务需求细节不得写入可复用 skill/docs/agent；这些信息留在 run-local lessons 或外部 memory，升级完成并确认已有版本化承载后再清理。
 
 ## 文档落点
 
