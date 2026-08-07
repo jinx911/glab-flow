@@ -60,7 +60,7 @@ function hintFor(field: string): string {
 const PLAYBOOK_ACTIONS: Record<string, { subskill?: string; desc: string }> = {
   commit_push_feature: { subskill: 'git-ops', desc: '提交并推送 feature 分支剩余改动' },
   merge_to_deploy_branch: { subskill: 'git-ops', desc: '合并 feature → deploy_branch（如 test）' },
-  trigger_jenkins: { subskill: 'jenkins-deploy', desc: '触发 Jenkins 构建/部署到目标环境' },
+  trigger_jenkins: { subskill: 'jenkins-deploy', desc: '交互询问 Jenkins 参数（job / 分支 / 环境类 test_version·DEPLOY_ENV / force_package·isForce 等）→ 展示部署清单确认 → 触发测试环境构建（参数确认独立于 run_mode，full-auto 也不跳过）' },
   create_mr_to_master: { subskill: 'git-ops', desc: '提 PR feature → master，标题=Issue 地址（含 iid）' },
   mr_review: { subskill: 'mr-review', desc: '评审 MR（推断需求/需求↔代码一致性/需求外改动/bug/回归）；无 HIGH 残留才放行，否则修复重评' },
   release_check: { subskill: 'release-check', desc: '产出上线步骤/配置清单/注意事项/回滚方案（引用 spec 上线清单 + 配置机制核查）' },

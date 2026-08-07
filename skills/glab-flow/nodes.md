@@ -42,7 +42,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|
-| 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → 触发 Jenkins 构建 → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins` |
+| 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → **触发 Jenkins 构建（交互问 job/分支/test_version/DEPLOY_ENV/force_package 等参数 → 清单确认）** → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins`；**参数确认独立于 run_mode** |
 | 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
 | 待发布→生产验收中/生产验证中（发布） | **执行生产部署**（当前手动点击；按 release-check 上线步骤）→ 确认部署版本 → 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 生产部署恒存在（手动优先，无 Jenkins 条件） |
 | 其它转换 | 仅写 Issue | — |

@@ -27,7 +27,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
    `transition` 内部即「`evidence`（取证）→ `validate`（校验）→ `plan`（计划）→ `render`（预览）」的顺序编排；退回（G2 二值）仍走 `plan-return`。
 
 2. **执行 playbook + 确认/应用**。`playbook` 是本转换的完整动作包，代码侧步骤在前、Issue 写回（`isWriteback:true`）恒为末步。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
-   - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建部署、release-check 等），每步按 sub-skill 自身规则确认；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 部署（hard_gate）。
+   - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——与 run_mode 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认 ≠ 参数确认，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
    - **末步 issue_writeback**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令：
      - **标签 + Assignee**：`glab issue update <iid> [--label <add1,add2>] [--unlabel <rm1,rm2>] --assignee <@user>`；无 `harnessClone` 时加 `-R <host>/<group>/<project>` 限定项目（见 `SKILL.md`「GitLab 读写」，数字 project_id 不适用 `-R`、改用 `glab api`）。
      - **评论**：短正文 `glab issue note <iid> -m "<正文>"`；长正文（含 backtick/表格）写临时文件后 `glab issue note <iid> -F <file>`，避开 shell 转义。
