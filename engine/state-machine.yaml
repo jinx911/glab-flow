@@ -20,11 +20,11 @@ story:
        requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论],
        assigneeRole: 研发,
        return: {target: 开发中, onlyWhen: 整体返工},
-       playbook: [{action: create_mr_to_master}, {action: mr_review}]}
+       playbook: [{action: create_mr_to_master}, {action: mr_review}, {action: release_check}]}
     - {from: 待发布, to: 生产验收中, gate: 发布, hardGate: true,
        requiredFields: [发布日期, 研发Assignee, 生产版本, 发布记录或回滚信息],
        assigneeRole: 产品,
-       playbook: [{action: release_check}, {action: deploy, when: config.jenkins}]}
+       playbook: [{action: deploy, when: config.jenkins}]}
     - {from: 生产验收中, to: 已完成, gate: 产品验收, hardGate: true, terminal: true,
        requiredFields: [验收完成日期, 具体产品验收人, 产品Assignee, 验收结论, 验收依据],
        assigneeRole: 产品}
@@ -39,11 +39,11 @@ bug:
     - {from: 测试中, to: 待发布, gate: 测试验收,
        requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论],
        assigneeRole: 研发,
-       playbook: [{action: create_mr_to_master}, {action: mr_review}]}
+       playbook: [{action: create_mr_to_master}, {action: mr_review}, {action: release_check}]}
     - {from: 待发布, to: 生产验证中, gate: 发布, hardGate: true,
        requiredFields: [发布日期, 研发Assignee, 生产版本, 发布记录或回滚信息],
        assigneeRole: 测试,
-       playbook: [{action: release_check}, {action: deploy, when: config.jenkins}]}
+       playbook: [{action: deploy, when: config.jenkins}]}
     - {from: 生产验证中, to: 已完成, gate: 生产验证, hardGate: true, terminal: true,
        requiredFields: [验证完成日期, 具体测试验证人, 测试验证人Assignee, 验证结论, 验证依据],
        assigneeRole: 测试}
@@ -62,7 +62,7 @@ progressSteps:
   已评审: [技术方案 design.md, 技术方案评审]
   开发中: [技术方案, 编码实现, 自测, 代码评审]
   测试中: [测试计划, 用例执行, 阻塞修复, 复测]
-  待发布: [release-check, 上线清单核对]
+  待发布: [发布计划就绪, 上线前确认]
   生产验收中: [生产验证, 验收确认]
   生产验证中: [生产验证]
   已确认缺陷: [复现确认, 根因定位]

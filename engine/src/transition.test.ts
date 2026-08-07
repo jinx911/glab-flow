@@ -169,23 +169,23 @@ describe('transition — per-transition side-effect playbook', () => {
     }));
     expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'issue_writeback']);
   });
-  it('发布 bundles release_check + deploy + issue writeback (hard_gate)', () => {
+  it('发布 = 执行上线 deploy + issue writeback (hard_gate)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
       fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
       datesConfirmed: true, humanConfirmed: true, config: { jenkins: true },
     }));
     expect(r.next).toBe('生产验收中');
-    expect(r.playbook.map((s) => s.action)).toEqual(['release_check', 'deploy', 'issue_writeback']);
+    expect(r.playbook.map((s) => s.action)).toEqual(['deploy', 'issue_writeback']);
     expect(r.shouldConfirm).toBe(true);
   });
-  it('测试中→待发布 bundles create_mr_to_master + mr_review + issue writeback', () => {
+  it('测试中→待发布 准备发布：create_mr + mr_review + release_check + issue writeback', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
       fields: { ...TEST_DONE_FIELDS }, datesConfirmed: true,
     }));
     expect(r.next).toBe('待发布');
-    expect(r.playbook.map((s) => s.action)).toEqual(['create_mr_to_master', 'mr_review', 'issue_writeback']);
+    expect(r.playbook.map((s) => s.action)).toEqual(['create_mr_to_master', 'mr_review', 'release_check', 'issue_writeback']);
   });
   it('transitions without declared playbook default to issue_writeback only', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::草稿中'], body: TABLE_BODY, fields: {} }));

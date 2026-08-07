@@ -10,7 +10,7 @@
 | 已评审 | spec-author/architect | 技术方案 `design.md` → `.glab-flow/<iid>/spec/` | 技术方案评审(只记录)+开发门槛 | 进开发 Assignee=研发 |
 | 开发中 | git-ops+tdd-guide+codegraph | 代码+MR描述+自测 | 代码评审与自测 | →测试中, Assignee=测试 |
 | 测试中 | test-design/test-flow-apifox/test-flow-e2e | 测试计划;测试问题评论 | 测试验收(阻塞全验证) | →待发布, Assignee=研发 |
-| 待发布 | release-check+jenkins-deploy | 风险/检查清单/回滚 | 发布(hard_gate) | →生产验收中, Assignee=产品 |
+| 待发布 | jenkins-deploy | 执行上线(deploy) | 发布(hard_gate) | →生产验收中, Assignee=产品 |
 | 生产验收中→已完成 | Leader起草终态评论 | 验收记录 | 产品验收(hard_gate·terminal) | →已完成+关闭, Assignee=产品; 反哺context/faq/cases |
 
 Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要产品；详见 `engine/state-machine.yaml` 的 `bug.transitions`。
@@ -32,9 +32,9 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 配置多的需求尤其必要；缺这份清单是提测阶段最常见的返工点。
 
-### 测试中→待发布：feature MR 评审前置（G14）
+### 测试中→待发布：MR 评审前置（G14）+ 发布计划就绪
 
-进「待发布」前必须填 `feature分支MR评审结论`：用 `code-review` sub-skill 跑 feature→master **全 MR diff**，确认无 CRITICAL/HIGH 残留。这是为了避免阻塞 bug 漏到「待发布」阶段（届时已过测试验收，回头补要重新部署测试）。有残留 → 留在测试中修复，不进 待发布。
+进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` 写**发布计划**（上线步骤/配置/注意事项/回滚）。两者都就绪才进待发布——待发布节点本身只剩「上线前确认 + 执行 deploy」。这是为了避免阻塞 bug 漏到「待发布」之后、以及发布时才发现没上线计划。
 
 ### 转换副作用 playbook（推进节点 = 完整动作包，不只是改 Issue）
 
@@ -43,11 +43,11 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|
 | 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → 触发 Jenkins 构建 → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins` |
-| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
-| 待发布→生产验收中/生产验证中（发布） | **release-check**（上线步骤/配置/注意事项/回滚）→ Jenkins 部署 → 写 Issue（hard_gate） | 部署需 `jenkins` |
+| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
+| 待发布→生产验收中/生产验证中（发布） | Jenkins 部署（**按 release-check 的上线步骤执行**）→ 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 部署需 `jenkins` |
 | 其它转换 | 仅写 Issue | — |
 
-⚠️ MR 在「测试中→待发布」**只创建+评审、不合并**；合并发生在「发布」。没配 `jenkins` 时部署步骤自动消失。
+⚠️ release-check 是**发布计划**，在「测试中→待发布」就绪（进待发布前写好）；「发布」只**执行**该计划（deploy）。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
 
 ### 节点内部子步骤 checklist（层 2 进度可见）
 
@@ -60,7 +60,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 | 已评审 | 技术方案 design.md / 技术方案评审 |
 | 开发中 | 技术方案 / 编码实现 / 自测 / 代码评审 |
 | 测试中 | 测试计划 / 用例执行 / 阻塞修复 / 复测 |
-| 待发布 | release-check / 上线清单核对 |
+| 待发布 | 发布计划就绪 / 上线前确认 |
 | 生产验收中 | 生产验证 / 验收确认 |
 | 生产验证中（Bug） | 生产验证 |
 | 已确认缺陷（Bug） | 复现确认 / 根因定位 |
