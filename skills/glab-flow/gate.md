@@ -19,7 +19,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
    stdin JSON `{type, iid, labels, body, notes, state, to?, fields?, …, runMode?, config?}`，stdout 一次给出：
    - `dirty` / `dirtyReason`（脏则停，见下文「脏状态」）；
-   - `prefilled`（Assignee 已按「交付协同表 → config.roles → 输入」解析并自动补 `@`）；
+   - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」）；
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）；
    - `validate`（G1–G14，`reasons` 自带补救动作；`ok:false` 则 `plan` 为空、不推进）；
    - `plan`（`WritePlan`：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `preview`（散文 diff）+ `shouldConfirm`。

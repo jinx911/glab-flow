@@ -98,7 +98,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 1. **读状态（2 次只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取评论。读哪条路径见上文「GitLab 读写」。
 2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
    - `node` / `next` / `dirty`（脏：0/≥2 状态标签，或已 closed 但非终态 → 停，见 `resume.md`）
-   - `prefilled`（Assignee 已按「交付协同表 → config.roles → 输入」解析并自动补 `@`）
+   - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
    - `validate`（G1–G14，`reasons` 自带补救动作）
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `preview`（散文 diff）+ `shouldConfirm`

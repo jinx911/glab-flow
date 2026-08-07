@@ -83,6 +83,24 @@ function buildPlaybook(tr: Transition, config: TransitionInput['config']): Playb
   return steps;
 }
 
+/**
+ * 扫全部评论里「- 字段：值」行（renderStatusChange / renderTestIssue 等产物格式），按精确 key 建字段→值映射。
+ * 同名字段后出现的覆盖先出现的（GitLab notes 默认时间升序，后出现≈最新）。仅精确匹配，不做模糊推断。
+ */
+function scanFieldsFromNotes(notes: { body: string }[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const n of notes) {
+    for (const line of n.body.split('\n')) {
+      const m = line.match(/^-\s+(.+?)[：:](.+)$/);
+      if (!m) continue;
+      const key = m[1]?.trim();
+      const val = m[2]?.trim();
+      if (key && val && val !== '待确认') map.set(key, val);
+    }
+  }
+  return map;
+}
+
 function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   const code = playbook.filter((s) => !s.isWriteback);
@@ -149,11 +167,24 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     prefilled.assigneeUser = `${assigneeUser}（来自${src}）`;
   }
 
+  // 证据智能预填：扫评论「- 字段：值」，按精确 key 填必填字段（user 输入优先，最新值优先，标「请核实」）
+  const evidenceFields = scanFieldsFromNotes(input.notes);
+  const prefillFields: Record<string, string> = {};
+  for (const f of tr.requiredFields) {
+    const userVal = input.fields?.[f];
+    if (userVal && userVal !== '待确认') continue; // 用户已给，不覆盖
+    const evVal = evidenceFields.get(f);
+    if (evVal && evVal !== '待确认') {
+      prefillFields[f] = evVal;
+      prefilled[f] = `${evVal}（来自评论，请核实）`;
+    }
+  }
+
   const payload: Payload = {
     type: input.type,
     from: current,
     to: tr.to,
-    fields: { ...input.fields },
+    fields: { ...prefillFields, ...input.fields },
     ...(input.gateOutcome ? { gateOutcome: input.gateOutcome } : {}),
     ...(input.reviewType ? { reviewType: input.reviewType } : {}),
     ...(assigneeUser ? { assigneeUser } : {}),

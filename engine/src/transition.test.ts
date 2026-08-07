@@ -193,3 +193,36 @@ describe('transition — per-transition side-effect playbook', () => {
     expect(r.preview).toContain('合并 feature → deploy_branch');
   });
 });
+
+describe('transition — evidence smart prefill', () => {
+  const NOTE = '## 状态变更\n- 测试完成日期：2026-08-05\n- 测试结论：通过\n- 回归范围或证据：回归通过\n';
+  const rest = { 测试Assignee: '@qa', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' };
+
+  it('prefills required fields from note "- 字段：值" lines', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      notes: [{ body: NOTE }], fields: rest, datesConfirmed: true,
+    }));
+    expect(r.payload?.fields.测试完成日期).toBe('2026-08-05');
+    expect(r.prefilled.测试完成日期).toContain('2026-08-05');
+    expect(r.prefilled.测试完成日期).toContain('评论');
+    expect(r.missing.map((m) => m.field)).not.toContain('测试完成日期');
+    expect(r.validate.ok).toBe(true);
+  });
+  it('user-provided fields take priority over evidence', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      notes: [{ body: NOTE }], fields: { ...rest, 测试完成日期: '2026-08-09' }, datesConfirmed: true,
+    }));
+    expect(r.payload?.fields.测试完成日期).toBe('2026-08-09');
+    expect(r.prefilled.测试完成日期).toBeUndefined();
+  });
+  it('skips 待确认 placeholder values in notes', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      notes: [{ body: '## 状态变更\n- 测试完成日期：待确认\n' }], fields: rest, datesConfirmed: true,
+    }));
+    expect(r.payload?.fields.测试完成日期).toBeUndefined();
+    expect(r.missing.map((m) => m.field)).toContain('测试完成日期');
+  });
+});
