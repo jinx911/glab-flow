@@ -170,7 +170,8 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 - 需求/方案 → `sub-skills/spec-author.md`
 - 开发 → `sub-skills/git-ops.md` / `sub-skills/tdd-guide.md` / `sub-skills/code-review.md`
-- 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`
+- 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`（API）/ `sub-skills/test-flow-e2e.md`（前端 E2E）
+- 测试→待发布 MR 评审 → `sub-skills/mr-review.md`（G14，无 HIGH 残留才放行）
 - 发布 → `sub-skills/jenkins-deploy.md`（Jenkins 触发前必须单独确认 job/分支/部署参数；发布流转确认不等于构建参数确认）
 - 运行时工具（非 vendor）见 `tools.md`（codegraph / *-reviewer / apifox-* / glab / MySQL MCP）
 
@@ -207,4 +208,4 @@ glab-flow 的同伴文件（与 SKILL.md 同目录 `skills/glab-flow/`，自包�
 - `resume.md` —— 恢复 / 脏状态处理 / GitLab 对账。
 - `learn.md` —— 自我迭代闭环（capture / apply / upgrade ritual）。
 - `tools.md` —— 运行时工具依赖清单（glab / codegraph / *-reviewer / apifox-* / MySQL MCP，非 vendor）。
-- `sub-skills/*.md` —— 7 个内置子 skill（spec-author / git-ops / tdd-guide / code-review / test-design / test-flow-apifox / jenkins-deploy）。
+- `sub-skills/*.md` —— 9 个内置子 skill（spec-author / git-ops / tdd-guide / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）。

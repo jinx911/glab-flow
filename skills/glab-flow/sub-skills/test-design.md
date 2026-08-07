@@ -67,6 +67,10 @@ API 用例在设计阶段只列「用例描述 + 期望契约」，执行交给 
 
 接口测试的设计（用例 + 期望契约）写进 test-plan.md，**执行**委托 apifox 运行时工具。具体执行方法论见同目录 `test-flow-apifox.md`，运行时工具清单见 `../tools.md`。test-design 不直接调用 apifox，只产出供它消费的用例描述。
 
+## E2E 测试（前端 UI 流）
+
+UI 渲染、弹窗文案、按钮显隐分支、交互时序这类验收标准，单测和代码评审抓不到——**必须标 `e2e` 策略**，由同目录 `test-flow-e2e.md` 经 e2e-runner / Playwright 真实点击执行。设计阶段在 test-plan.md 里列「场景 + 步骤 + 预期（可见性/文案/显隐）」，执行委托 test-flow-e2e，不在 test-plan.md 里手写浏览器脚本。覆盖范围参考 design.md 的「路由分流核查」——多套实现（web/mobile/租户灰度）都要有用例，不能只测一套。
+
 ## glab-flow 上下文
 
 - **节点归属**：「测试中」节点（`../nodes.md`），Leader Read 本文件内联执行或 spawn `general-purpose` 以本文件为 prompt。产出 `test-plan.md` 落 `.glab-flow/<iid>/spec/`。

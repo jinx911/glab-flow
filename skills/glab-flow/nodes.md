@@ -9,7 +9,7 @@
 | 待评审 | review-preview | 评审意见+问题清单 | 需求评审(二值) | 通过→已评审 / 退回→草稿中 |
 | 已评审 | spec-author/architect | 技术方案 `design.md` → `.glab-flow/<iid>/spec/` | 技术方案评审(只记录)+开发门槛 | 进开发 Assignee=研发 |
 | 开发中 | git-ops+tdd-guide+codegraph | 代码+MR描述+自测 | 代码评审与自测 | →测试中, Assignee=测试 |
-| 测试中 | test-design/test-flow-apifox | 测试计划;测试问题评论 | 测试验收(阻塞全验证) | →待发布, Assignee=研发 |
+| 测试中 | test-design/test-flow-apifox/test-flow-e2e | 测试计划;测试问题评论 | 测试验收(阻塞全验证) | →待发布, Assignee=研发 |
 | 待发布 | release-check+jenkins-deploy | 风险/检查清单/回滚 | 发布(hard_gate) | →生产验收中, Assignee=产品 |
 | 生产验收中→已完成 | Leader起草终态评论 | 验收记录 | 产品验收(hard_gate·terminal) | →已完成+关闭, Assignee=产品; 反哺context/faq/cases |
 
@@ -43,10 +43,11 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|
 | 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → 触发 Jenkins 构建 → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins` |
-| 待发布→生产验收中/生产验证中（发布） | Jenkins 部署 → 写 Issue（hard_gate） | 部署需 `jenkins` |
+| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
+| 待发布→生产验收中/生产验证中（发布） | **release-check**（上线步骤/配置/注意事项/回滚）→ Jenkins 部署 → 写 Issue（hard_gate） | 部署需 `jenkins` |
 | 其它转换 | 仅写 Issue | — |
 
-没配 `deploy_branch` / `jenkins` 时对应步骤自动消失，`playbook` 退化为只剩 Issue 写回。
+⚠️ MR 在「测试中→待发布」**只创建+评审、不合并**；合并发生在「发布」。没配 `jenkins` 时部署步骤自动消失。
 
 ### 节点内部子步骤 checklist（层 2 进度可见）
 

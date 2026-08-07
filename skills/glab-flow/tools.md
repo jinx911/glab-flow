@@ -58,6 +58,21 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 - 生产库：MCP **不直连生产**；需查生产时用 `kibana_generate_sql` 起草 SELECT → 人工执行后回贴结果（见 `SKILL.md` 配置的 `databases` 字段约定）。
 - 未配置 → 不阻塞 flow，跳过 DB 佐证步骤，记录在 lessons。
 
+### 6. `mr-review-lite` —— MR 评审（可选）
+
+feature→master MR 的评审运行时 skill（推断需求目标 / 需求↔代码一致性 / 识别需求外改动 / bug/回归）。
+
+- 使用方：`sub-skills/mr-review.md`（测试中→待发布 的 `mr_review` 步骤，G14）。
+- 优先用它；未安装 → mr-review 降级为自带 `code-review` sub-skill（含跨栈激活维度），结论标注「未用 mr-review-lite」。
+
+### 7. `e2e-runner` / Playwright —— 前端 E2E 执行（可选）
+
+驱动真实浏览器跑 UI 关键流程（Vercel Agent Browser 的 `e2e-runner` 首选，Playwright 降级）。
+
+- 使用方：`sub-skills/test-flow-e2e.md`（测试中 的 e2e 用例执行）。
+- 目标环境从 config 的 `test_environments` 取 URL + 账号，不依赖工作区 playwright.config 硬编码 baseURL。
+- 未安装 → 用 Playwright 或项目自带 E2E runner 按 test-plan.md 手动执行，标注降级。
+
 ## 边界说明
 
 glab-flow 宣称「**完全零外部依赖**」指的是**零外部 skill / 方法论依赖**——整个流程的方法论本体（节点 / 护栏 / 内容生成 / 评审 / 测试 / 发布）都已 vendor 进 `sub-skills/` 与 `nodes.md`/`guards.md`/`gate.md`，没有任何外部 flow skill 或外部方法论的引用。
