@@ -74,4 +74,46 @@ describe('parseConfig', () => {
     const c = parseConfig('```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\nrun_mode: bogus\n```');
     expect(c.runMode).toBe('semi-auto');
   });
+
+  it('parses roles default mapping', () => {
+    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\nroles:\n  产品: "@a"\n  研发: "@b"\n  测试: "@c"\n```';
+    const c = parseConfig(md);
+    expect(c.roles).toEqual({ 产品: '@a', 研发: '@b', 测试: '@c' });
+  });
+
+  it('parses multi-repo jenkins.jobs and keeps single jobName compatible', () => {
+    const md = [
+      '```yaml',
+      'gitlab: { host: h, project_id: "1" }',
+      'workspace: { root: /r }',
+      'jenkins:',
+      '  job_name: oa-service',
+      '  jobs:',
+      '    oa-service: { job_name: oa-service, branch_param: oa_branch }',
+      '    oa-frontend: { job_name: oa-frontend, branch_param: GIT_BRANCH, env_param: DEPLOY_ENV, default_params: { RUN_LINT: "true" } }',
+      '```',
+    ].join('\n');
+    const c = parseConfig(md);
+    expect(c.jenkins?.jobName).toBe('oa-service');
+    expect(c.jenkins?.branchParam).toBe('oa_branch');
+    expect(c.jenkins?.jobs?.['oa-frontend']).toEqual({
+      jobName: 'oa-frontend',
+      branchParam: 'GIT_BRANCH',
+      envParam: 'DEPLOY_ENV',
+      defaultParams: { RUN_LINT: 'true' },
+    });
+  });
+
+  it('enables jenkins on jobs-only config (no single job_name)', () => {
+    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\njenkins:\n  jobs:\n    oa-service: { job_name: oa-service }\n```';
+    const c = parseConfig(md);
+    expect(c.jenkins?.jobName).toBeUndefined();
+    expect(c.jenkins?.jobs?.['oa-service']?.jobName).toBe('oa-service');
+    expect(c.jenkins?.branchParam).toBe('oa_branch');
+  });
+
+  it('does not enable jenkins when neither job_name nor jobs present', () => {
+    const c = parseConfig('```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\njenkins: { branch_param: x }\n```');
+    expect(c.jenkins).toBeUndefined();
+  });
 });

@@ -1,15 +1,18 @@
 # 护栏 G1–G13（确定性，由 engine/src/guard.ts 强制；本表给 Leader 参考）
 
-- **G1** 流转前置必填：目标节点的日期/确认人/结论/证据任一空 → block
+护栏触发时，`reasons` 文本本身即携带**补救动作**（期望值 / 怎么补 / 去哪取）；优先用 `transition` 命令一次性拿到 `missing`（带 hint）+ `reasons`，而非手工拼 payload 试错。
+
+- **G1** 流转前置必填：目标节点的日期/确认人/结论/证据任一空 → block（hint 标注每个字段的来源/格式）
 - **G2** 门禁二值(通过/退回)：退回 → 走 return 路径，不进下一节点
-- **G3** hard_gate 需 humanConfirmed（待发布/验收/关闭）
+- **G3** hard_gate 需 humanConfirmed（待发布/验收/关闭）—— reason 直说「在 payload 加 humanConfirmed: true」
 - **G4** 三类评审分离：reviewType 必须等于门禁（防技评/代码评审替代需求评审）
 - **G5** 标签唯一：0 或 ≥2 个 story-status::*/status::* → 脏状态，拒绝驱动
-- **G6** Assignee 必须是具体 @用户，不能是角色名（从「交付协同」表解析）
+- **G6** Assignee 必须是具体 @用户，不能是角色名——`transition` 自动按「交付协同表 → config.roles → 输入」解析并补 `@`；仍无则 reason 提示来源
 - **G7** 不改原文（永不 update issue body）
 - **G8** 不编评论（永不 edit/delete comment）
 - **G9** 不臆造人/结论（禁"待确认"占位）
 - **G10** 日期需用户确认（datesConfirmed）
-- **G11** 阻塞发布问题全部验证通过才放行 待发布（需求与 Bug 均适用）
+- **G11** 阻塞发布问题全部验证通过才放行 待发布（需求与 Bug 均适用）—— 肯定同义集合：`是` / `已验证` / `已通过` / `无阻塞` / `通过` / `true` / `yes`，或以「是」开头的附注（如 `是(无阻塞)`、`是。详细…`）；`否` / `未` / `false` / 空 / `待确认` 拒
 - **G12** 终态原子：标签替换+Assignee+评论+关闭 Issue 必须同一次操作（closeIssue）
 - **G13** 不建 Jira
+- **G14** feature→master MR 评审前置：测试中→待发布 必填 `feature分支MR评审结论`（由 G1 强制非空）——用 `code-review` sub-skill 跑全 MR diff，确认无 CRITICAL/HIGH 残留再放行。避免阻塞 bug 漏到「待发布」才被 mr-review 发现、已过测试验收还得回头重提测

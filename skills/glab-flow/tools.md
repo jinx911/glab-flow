@@ -13,8 +13,14 @@ glab-flow **vendor 了 OA 方法论**——`sub-skills/` 下的 7 个子 skill�
 
 GitLab Issue 的全部读写（view / update label / note / close / `glab api`）由 Leader 直接调用 `glab` 完成详见 `SKILL.md`「GitLab 读写」一节。glab 已由环境认证（`glab auth login`），**无需 token、不在环境变量里配 token**。
 
-- 使用方：Leader（每轮编排第 1/7 步）、`sub-skills/git-ops.md`、`sub-skills/spec-author.md`（读 Issue / 写评论）。
+- 使用方：Leader（每轮编排读状态/应用写回）、`sub-skills/git-ops.md`、`sub-skills/spec-author.md`（读 Issue / 写评论）。
 - 未安装 → `/init-glab-flow` 引导用户先 `brew install glab` 并 `glab auth login`，flow 不在无认证下裸跑。
+
+**glab / git 写操作要点**：
+
+- **沙箱**：`git push` / `git pull` / `git fetch` / `glab` 写操作在受限沙箱里会被拦（无网络或无 SSH key）。这类命令需 `dangerouslyDisableSandbox: true`，并确保 SSH/git 在完整 `PATH` 下运行；只读的 `glab issue view` / `glab api GET` 不必禁沙箱。
+- **长评论写文件**：评论正文含 backtick / 表格 / 多行时，避开 shell 转义——写临时文件后 `glab issue note <iid> -F <file>`（等价 body=@file），不要硬塞进 `-m "..."`。
+- **项目限定**：无 `harnessClone` 时给 `glab issue` 子命令带 `-R <host>/<group>/<project>`（见 `SKILL.md`「GitLab 读写」），避免默认 host 404。
 
 ### 2. `codegraph` MCP —— 符号导航 / 影响分析
 
@@ -51,6 +57,21 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 - 使用方：可选——护栏取证（G3 阻塞验证）、bug 排查节点（`mcp__platform-test` / `mcp__tenant-*-test` 等只读实例）。
 - 生产库：MCP **不直连生产**；需查生产时用 `kibana_generate_sql` 起草 SELECT → 人工执行后回贴结果（见 `SKILL.md` 配置的 `databases` 字段约定）。
 - 未配置 → 不阻塞 flow，跳过 DB 佐证步骤，记录在 lessons。
+
+### 6. `mr-review-lite` —— MR 评审（可选）
+
+feature→master MR 的评审运行时 skill（推断需求目标 / 需求↔代码一致性 / 识别需求外改动 / bug/回归）。
+
+- 使用方：`sub-skills/mr-review.md`（测试中→待发布 的 `mr_review` 步骤，G14）。
+- 优先用它；未安装 → mr-review 降级为自带 `code-review` sub-skill（含跨栈激活维度），结论标注「未用 mr-review-lite」。
+
+### 7. `e2e-runner` / Playwright —— 前端 E2E 执行（可选）
+
+驱动真实浏览器跑 UI 关键流程（Vercel Agent Browser 的 `e2e-runner` 首选，Playwright 降级）。
+
+- 使用方：`sub-skills/test-flow-e2e.md`（测试中 的 e2e 用例执行）。
+- 目标环境从 config 的 `test_environments` 取 URL + 账号，不依赖工作区 playwright.config 硬编码 baseURL。
+- 未安装 → 用 Playwright 或项目自带 E2E runner 按 test-plan.md 手动执行，标注降级。
 
 ## 边界说明
 

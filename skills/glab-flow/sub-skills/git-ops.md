@@ -114,10 +114,34 @@ stash pop 冲突 → 停止，提示用户手动处理。
 3. 无上游 → `git push -u origin {branch}`；有上游 → `git push`。
 
 ### 合并分支（按目标分流）
-- **→ test（常规）**：选仓库+开发分支 → 清单确认 → `checkout test → pull → merge {branch}` → 询问是否推 test。
+- **→ test（常规）**：选仓库+开发分支 → 清单确认 → 先 `checkout test && git fetch origin && git reset --hard origin/test`（对齐远程，治本地 test 脏/领先远程杂提交）→ `merge {branch}`。⚠️ OA 仓 husky 钩子会卡 merge commit（静默失败），用 `git merge --no-commit` + `git commit --no-verify`（或 `git merge --no-verify` 若版本支持）绕过 merge commit 的钩子；**只绕 merge commit，不绕代码质量检查意图**。冲突立即停止。→ 询问是否推 test。
 - **→ pre（须先同步主分支）**：开发分支先 `merge origin/main`（冲突停止）→ 清单确认（标"已同步主分支"）→ `checkout pre → pull → merge {dev}` → 询问是否推 pre。
 - **→ master/main（二次确认）**：清单 + 输入 "yes" 确认 → 执行。
 - **禁止方向**：检测 `test→*` / `pre→*` → 拦截 + 警告（"test/pre 只读，改动请在开发分支重实现"）。
+
+### MR 创建前置（feat 分支洁净性）
+
+提 MR 前确认 feat 分支只含**本需求**改动，避免混入他人 commit 导致 MR 不干净：
+
+```bash
+git fetch origin
+git rev-list --left-right --count origin/master...HEAD     # 期望 0 N（master 不领先 feat）
+git log origin/master..HEAD --format='%an %s'               # 逐条核对 author + 文件范围是否都是自己的
+git diff origin/master...HEAD --stat                         # 文件清单是否都在需求范围内
+```
+
+发现非己方 commit（他人误推、axios 修复等混入）→ cherry-pick 自己的 commit 到干净分支再提，**不要把别人的改动一起合进 MR**。
+
+### CI 失败归因（test 分支构建失败 ≠ 自己的锅）
+
+test 分支常含他人的失败测试/构建问题；自己 push 触发全量测试会暴露别人的问题，**切勿误判为己方改动而删自己的测试**：
+
+```bash
+git diff feat...test -- <失败文件>      # 失败是否在自己的改动范围
+git log --oneline test -5               # test 最近提交是谁的
+```
+
+判定为他人问题 → 报告 + 跳过，不擅自改；判定为己方 → 修。**排障操作（删测试/改代码）限制在本地，不直接推远程**；确认无误后再推。
 
 ### 清理分支
 1. 扫描本地分支（排除保护分支），标记已合并/未合并。

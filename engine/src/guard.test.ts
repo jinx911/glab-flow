@@ -168,10 +168,25 @@ describe('G11 bug — blocking issues apply to bug too', () => {
   });
   it('passes bug 测试中->待发布 when blocking issues verified', () => {
     const p: Payload = { type: 'bug', from: '测试中', to: '待发布',
-      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是' },
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
       assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p);
     expect(r.ok).toBe(true);
+  });
+});
+
+describe('G11 normalization — accepts affirmative synonyms, rejects the rest', () => {
+  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过' };
+  const run = (val: string) => validateTransition(model, facts(['type::story', 'story-status::测试中']), {
+    type: 'story', from: '测试中', to: '待发布',
+    fields: { ...baseFields, 阻塞发布问题均已验证通过: val }, assigneeUser: '@dev', datesConfirmed: true,
+  } as Payload);
+
+  it.each(['是', '已验证', '已通过', '无阻塞', '通过', 'true', 'yes', ' 是 ', '是(无阻塞)', '是。详细说明…'])('accepts %s', (val) => {
+    expect(run(val).ok).toBe(true);
+  });
+  it.each(['否', '未', 'false', 'no', '待确认', ''])('rejects %s', (val) => {
+    expect(run(val).ok).toBe(false);
   });
 });
 

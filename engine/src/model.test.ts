@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { loadModel, currentNode, transitionFor, requiredFields, assigneeRole, returnTarget } from './model.js';
+import { loadModel, currentNode, transitionFor, requiredFields, assigneeRole, returnTarget, progressStepsFor } from './model.js';
 
 const model = loadModel();
 
@@ -29,5 +29,18 @@ describe('model', () => {
   });
   it('marks terminal transitions', () => {
     expect(transitionFor(model, 'story', '生产验收中', '已完成')?.terminal).toBe(true);
+  });
+});
+
+describe('progressStepsFor (node sub-step checklist)', () => {
+  it('returns the 开发中 checklist', () => {
+    expect(progressStepsFor(model, '开发中')).toEqual(['技术方案', '编码实现', '自测', '代码评审']);
+  });
+  it('returns [] for terminal 已完成', () => {
+    expect(progressStepsFor(model, '已完成')).toEqual([]);
+  });
+  it('returns [] for null/unknown node', () => {
+    expect(progressStepsFor(model, null)).toEqual([]);
+    expect(progressStepsFor(model, '不存在')).toEqual([]);
   });
 });
