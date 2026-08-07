@@ -61,6 +61,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
+| `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |
 
 ## GitLab 读写（Leader 直接 glab CLI）
 
@@ -107,6 +108,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - 末步 `issue_writeback`：把 `plan` 翻译成 glab 命令序列（标签 add/unlabel、`--assignee <@user>`、评论长则 `-F <file>`、终态 `close`，见 `gate.md`）。
    - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
    - Issue 写回成功后更新 state 缓存（见下文），循环到「已完成」或用户停。
+   - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
 
 `transition` = `node` + `evidence` + `validate` + `plan` + `render` 的确定性编排 + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。
 

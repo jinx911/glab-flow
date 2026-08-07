@@ -7,8 +7,8 @@ import { buildReturnPlan, buildForwardPlan } from './plan.js';
 import { runTransition } from './transition.js';
 import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
-import { initState } from './state.js';
-import type { InitStateInput } from './state.js';
+import { initState, markProgressDone, resetProgress } from './state.js';
+import type { InitStateInput, RunState } from './state.js';
 import type { Payload, TransitionInput } from './types.js';
 
 const model = loadModel();
@@ -79,8 +79,16 @@ async function main() {
       console.log(JSON.stringify(state));
       break;
     }
+    case 'progress': {
+      const input = JSON.parse(readStdin()) as { state: RunState; step?: string; resetToNode?: string; now: string };
+      let s = input.state;
+      if (input.resetToNode !== undefined) s = resetProgress(s, input.resetToNode, input.now);
+      if (input.step) s = markProgressDone(s, input.step, input.now);
+      console.log(JSON.stringify(s));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | plan-return | evidence | config | state-init');
+      console.error('commands: node | validate | render | plan | transition | plan-return | evidence | config | state-init | progress');
       process.exit(1);
   }
 }

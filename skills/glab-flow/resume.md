@@ -62,6 +62,8 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
 
    不一致常见于：用户或他人在 GitLab UI 手改了标签、或上次写回失败但本地 state 已更新。绝不能反过来用 `cachedNode` 去"纠正"GitLab 标签。
 
+   **进度对账（层 2）**：若 `state.progress.node !== GitLab 当前节点`（节点在 flow 外被改过、或上次换节点时未重置），`progress.done` 已失效——用 `pnpm cli progress`（stdin `{state, resetToNode: <GitLab 节点>, now}`）重置后再展示「子步骤 ✓/☐」。一致则直接拿 `nodeProgress`（来自 `node`/`transition`）对照 `progress.done` 涂黑已完成项。
+
 4. **从当前节点继续 SKILL.md 编排循环**。节点定了之后，按 `SKILL.md` 的"Leader 每轮编排"走：查 `nodes.md` 契约 → 判断证据是否齐 → `validate` → `plan`/`plan-return` → 门禁预览确认（见 `gate.md`）→ glab 应用。恢复只是把 Leader 重新放到正确的节点上，后续动作与首次进入完全相同。
 
 ## state schema 参考
@@ -82,6 +84,7 @@ state 文件的 TypeScript 权威定义在 `engine/src/state.ts` 的 `RunState` 
 | `lastActions[]` | string[] | 最近动作审计尾迹（用于续接与回看） |
 | `spawnedAgents[]` | string[] | 本 flow 已委派过的 agent 名单（去重/记账） |
 | `lessonsCaptured` | number | 已反哺的 lesson 条数（已完成节点反哺 context/faq/cases 时 +1） |
+| `progress` | `{ node, done[] }` | 节点内子步骤进度（层 2）：`node` = 这批 done 所属节点；换节点时重置 |
 | `updatedAt` | string (ISO) | state 最后写入时间 |
 
 ## 持久化时机
