@@ -35,3 +35,15 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 ### 测试中→待发布：feature MR 评审前置（G14）
 
 进「待发布」前必须填 `feature分支MR评审结论`：用 `code-review` sub-skill 跑 feature→master **全 MR diff**，确认无 CRITICAL/HIGH 残留。这是为了避免阻塞 bug 漏到「待发布」阶段（届时已过测试验收，回头补要重新部署测试）。有残留 → 留在测试中修复，不进 待发布。
+
+### 转换副作用 playbook（推进节点 = 完整动作包，不只是改 Issue）
+
+`transition` 输出的 `playbook` 把跨节点的代码侧动作 + Issue 写回打包。引擎按 config 滤除不适用步骤；Issue 写回恒为末步（代码到位 → 才标记节点）。Leader 按序执行，代码侧步骤调对应 sub-skill。
+
+| 转换 | playbook（代码侧 → Issue 写回） | 条件 |
+|---|---|---|
+| 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → 触发 Jenkins 构建 → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins` |
+| 待发布→生产验收中/生产验证中（发布） | Jenkins 部署 → 写 Issue（hard_gate） | 部署需 `jenkins` |
+| 其它转换 | 仅写 Issue | — |
+
+没配 `deploy_branch` / `jenkins` 时对应步骤自动消失，`playbook` 退化为只剩 Issue 写回。

@@ -100,12 +100,13 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `node` / `next` / `dirty`（脏：0/≥2 状态标签，或已 closed 但非终态 → 停，见 `resume.md`）
    - `prefilled`（Assignee 已按「交付协同表 → config.roles → 输入」解析并自动补 `@`）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
-   - `validate`（G1–G13，`reasons` 自带补救动作）
-   - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `preview`（散文 diff）+ `shouldConfirm`
-3. **确认 + 应用（Leader 跑 glab）**：展示 `preview`：
-   - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接应用；
-   - `shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再应用；有缺口则按 `missing` 的 hint 委派对应 sub-skill（见「内容生成」）补齐，回第 1 步重取。
-   - 应用 = 把 `plan` 翻译成 glab 命令序列（标签 add/unlabel、`--assignee <@user>`、评论正文长则 `-F <file>`、终态 `close`，见 `gate.md`）并执行；写回成功后更新 state 缓存（见下文），循环到「已完成」或用户停。
+   - `validate`（G1–G14，`reasons` 自带补救动作）
+   - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `preview`（散文 diff）+ `shouldConfirm`
+3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
+   - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建部署等），每步按 sub-skill 自身规则确认。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
+   - 末步 `issue_writeback`：把 `plan` 翻译成 glab 命令序列（标签 add/unlabel、`--assignee <@user>`、评论长则 `-F <file>`、终态 `close`，见 `gate.md`）。
+   - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
+   - Issue 写回成功后更新 state 缓存（见下文），循环到「已完成」或用户停。
 
 `transition` = `node` + `evidence` + `validate` + `plan` + `render` 的确定性编排 + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。
 

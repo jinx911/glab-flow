@@ -152,3 +152,44 @@ describe('transition — default next node when to omitted', () => {
     expect(r.preview).toContain('无可用转换');
   });
 });
+
+describe('transition — per-transition side-effect playbook', () => {
+  it('提测 bundles commit/merge/jenkins + issue writeback when config present', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true,
+      config: { deployBranch: 'test', jenkins: true },
+    }));
+    expect(r.next).toBe('测试中');
+    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'merge_to_deploy_branch', 'trigger_jenkins', 'issue_writeback']);
+    expect(r.playbook[r.playbook.length - 1]?.isWriteback).toBe(true);
+  });
+  it('提测 filters out merge/jenkins when config absent', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true,
+    }));
+    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'issue_writeback']);
+  });
+  it('发布 bundles deploy + issue writeback (hard_gate)', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
+      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      datesConfirmed: true, humanConfirmed: true, config: { jenkins: true },
+    }));
+    expect(r.next).toBe('生产验收中');
+    expect(r.playbook.map((s) => s.action)).toEqual(['deploy', 'issue_writeback']);
+    expect(r.shouldConfirm).toBe(true);
+  });
+  it('transitions without declared playbook default to issue_writeback only', () => {
+    const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::草稿中'], body: TABLE_BODY, fields: {} }));
+    expect(r.next).toBe('待评审');
+    expect(r.playbook.map((s) => s.action)).toEqual(['issue_writeback']);
+  });
+  it('preview lists code-side actions when present', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true,
+      config: { deployBranch: 'test', jenkins: true },
+    }));
+    expect(r.preview).toContain('动作包');
+    expect(r.preview).toContain('合并 feature → deploy_branch');
+  });
+});

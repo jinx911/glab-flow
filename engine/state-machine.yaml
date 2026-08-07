@@ -14,14 +14,16 @@ story:
        return: {target: 已评审, note: 不退回, 继续完善方案}}
     - {from: 开发中, to: 测试中, gate: 代码评审与自测,
        requiredFields: [代码评审与自测结论, 提测日期, 研发Assignee, 可测试版本或环境, 测试说明],
-       assigneeRole: 测试}
+       assigneeRole: 测试,
+       playbook: [{action: commit_push_feature}, {action: merge_to_deploy_branch, when: config.deployBranch}, {action: trigger_jenkins, when: config.jenkins}]}
     - {from: 测试中, to: 待发布, gate: 测试验收,
        requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论],
        assigneeRole: 研发,
        return: {target: 开发中, onlyWhen: 整体返工}}
     - {from: 待发布, to: 生产验收中, gate: 发布, hardGate: true,
        requiredFields: [发布日期, 研发Assignee, 生产版本, 发布记录或回滚信息],
-       assigneeRole: 产品}
+       assigneeRole: 产品,
+       playbook: [{action: deploy, when: config.jenkins}]}
     - {from: 生产验收中, to: 已完成, gate: 产品验收, hardGate: true, terminal: true,
        requiredFields: [验收完成日期, 具体产品验收人, 产品Assignee, 验收结论, 验收依据],
        assigneeRole: 产品}
@@ -31,13 +33,15 @@ bug:
     - {from: 已确认缺陷, to: 开发中, gate: null, requiredFields: [], assigneeRole: 研发}
     - {from: 开发中, to: 测试中, gate: 代码评审与自测,
        requiredFields: [代码评审与自测结论, 提测日期, 研发Assignee, 可测试版本或环境],
-       assigneeRole: 测试}
+       assigneeRole: 测试,
+       playbook: [{action: commit_push_feature}, {action: merge_to_deploy_branch, when: config.deployBranch}, {action: trigger_jenkins, when: config.jenkins}]}
     - {from: 测试中, to: 待发布, gate: 测试验收,
        requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论],
        assigneeRole: 研发}
     - {from: 待发布, to: 生产验证中, gate: 发布, hardGate: true,
        requiredFields: [发布日期, 研发Assignee, 生产版本, 发布记录或回滚信息],
-       assigneeRole: 测试}
+       assigneeRole: 测试,
+       playbook: [{action: deploy, when: config.jenkins}]}
     - {from: 生产验证中, to: 已完成, gate: 生产验证, hardGate: true, terminal: true,
        requiredFields: [验证完成日期, 具体测试验证人, 测试验证人Assignee, 验证结论, 验证依据],
        assigneeRole: 测试}

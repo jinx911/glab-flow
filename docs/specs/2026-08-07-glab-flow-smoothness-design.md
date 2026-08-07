@@ -97,6 +97,7 @@ stdin `{type,iid,labels,body,notes,state,to?,fields?,…,config?,runMode?}` → 
 | 多仓库未建模（轻量） | config.jenkins.jobs + nodes 待发布泛化 + jenkins-deploy 多 job | A/B |
 | 沙箱 git/ssh、长评论 -F | tools.md | B |
 | MR 评审门禁前置（审查 ③） | state-machine 必填 `feature分支MR评审结论` + G14 + nodes/gate/SKILL/guards | A/B |
+| 推进节点副作用未打包（提测=commit+merge test+Jenkins+Issue）| state-machine `playbook` + transition 输出 playbook + nodes/gate/SKILL | A/B |
 
 ## 6. 不在本次范围（YAGNI）
 

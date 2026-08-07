@@ -21,17 +21,19 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
    - `dirty` / `dirtyReason`（脏则停，见下文「脏状态」）；
    - `prefilled`（Assignee 已按「交付协同表 → config.roles → 输入」解析并自动补 `@`）；
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）；
-   - `validate`（G1–G13，`reasons` 自带补救动作；`ok:false` 则 `plan` 为空、不推进）；
-   - `plan`（`WritePlan`：标签 / Assignee / 评论 / 是否 close）+ `preview`（散文 diff）+ `shouldConfirm`。
+   - `validate`（G1–G14，`reasons` 自带补救动作；`ok:false` 则 `plan` 为空、不推进）；
+   - `plan`（`WritePlan`：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `preview`（散文 diff）+ `shouldConfirm`。
 
    `transition` 内部即「`evidence`（取证）→ `validate`（校验）→ `plan`（计划）→ `render`（预览）」的顺序编排；退回（G2 二值）仍走 `plan-return`。
 
-2. **确认/应用**。按 run 模式（见下节）决定 `AskUserQuestion` 后应用还是自动应用。应用阶段 Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令：
-   - **标签 + Assignee**：`glab issue update <iid> [--label <add1,add2>] [--unlabel <rm1,rm2>] --assignee <@user>`；无 `harnessClone` 时加 `-R <host>/<group>/<project>` 限定项目（见 `SKILL.md`「GitLab 读写」，数字 project_id 不适用 `-R`、改用 `glab api`）。
-   - **评论**：短正文 `glab issue note <iid> -m "<正文>"`；长正文（含 backtick/表格）写临时文件后 `glab issue note <iid> -F <file>`，避开 shell 转义。
-   - **终态（已完成）**：`glab issue close <iid>`。G12 终态原子——标签替换 + Assignee + 评论 + 关闭必须**同一次**完成（`closeIssue: true` 的 plan 一次跑完），不能先关 Issue 再补评论。
+2. **执行 playbook + 确认/应用**。`playbook` 是本转换的完整动作包，代码侧步骤在前、Issue 写回（`isWriteback:true`）恒为末步。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
+   - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建部署、release-check 等），每步按 sub-skill 自身规则确认；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 部署（hard_gate）。
+   - **末步 issue_writeback**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令：
+     - **标签 + Assignee**：`glab issue update <iid> [--label <add1,add2>] [--unlabel <rm1,rm2>] --assignee <@user>`；无 `harnessClone` 时加 `-R <host>/<group>/<project>` 限定项目（见 `SKILL.md`「GitLab 读写」，数字 project_id 不适用 `-R`、改用 `glab api`）。
+     - **评论**：短正文 `glab issue note <iid> -m "<正文>"`；长正文（含 backtick/表格）写临时文件后 `glab issue note <iid> -F <file>`，避开 shell 转义。
+     - **终态（已完成）**：`glab issue close <iid>`。G12 终态原子——标签替换 + Assignee + 评论 + 关闭必须**同一次**完成（`closeIssue: true` 的 plan 一次跑完），不能先关 Issue 再补评论。
 
-   Assignee 用 `prefilled.assigneeUser`（已解析+补@）；`missing` 非空（有缺口）不推进，按 hint 委派对应 sub-skill 补齐后回第 1 步重取。
+   Assignee 用 `prefilled.assigneeUser`（已解析+补@）；`missing` 非空（有缺口）不推进，按 hint 委派对应 sub-skill 补齐后回第 1 步重取。**顺序铁律：代码侧步骤全部成功后，才执行 issue_writeback**（代码到位 → 才标记节点）。
 
 3. **冻结**。两条不可逾越的冻结线（详见 `guards.md`）：
    - **G7 不改原文**：永不 `glab issue update <iid> --description ...`，Issue 正文一旦创建即冻结。

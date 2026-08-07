@@ -1,4 +1,4 @@
-import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType } from './types.js';
+import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType, Transition, PlaybookStep } from './types.js';
 import { currentNode, transitionFor, allowedTransitions } from './model.js';
 import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
@@ -56,8 +56,39 @@ function hintFor(field: string): string {
   return FIELD_HINTS[field] ?? '来自对应节点评论 / spec 文档';
 }
 
-function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string): string {
+/** 副作用动作 → 执行它的 sub-skill + 人类可读说明（Issue 写回由 buildPlaybook 末步追加）。 */
+const PLAYBOOK_ACTIONS: Record<string, { subskill?: string; desc: string }> = {
+  commit_push_feature: { subskill: 'git-ops', desc: '提交并推送 feature 分支剩余改动' },
+  merge_to_deploy_branch: { subskill: 'git-ops', desc: '合并 feature → deploy_branch（如 test）' },
+  trigger_jenkins: { subskill: 'jenkins-deploy', desc: '触发 Jenkins 构建/部署到目标环境' },
+  deploy: { subskill: 'jenkins-deploy', desc: '部署到目标环境（Jenkins）' },
+  release_check: { subskill: 'release-check', desc: '产出发布风险/检查清单/回滚方案' },
+};
+
+function conditionActive(when: string | undefined, config?: { deployBranch?: string; jenkins?: boolean }): boolean {
+  if (when === 'config.deployBranch') return !!config?.deployBranch;
+  if (when === 'config.jenkins') return !!config?.jenkins;
+  return true;
+}
+
+/** 把转换声明的 playbook（仅代码侧步骤）按 config 过滤，末尾追加 issue_writeback（官方状态变更，恒末步）。 */
+function buildPlaybook(tr: Transition, config: TransitionInput['config']): PlaybookStep[] {
+  const steps: PlaybookStep[] = [];
+  for (const decl of tr.playbook ?? []) {
+    if (!conditionActive(decl.when, config)) continue;
+    const meta = PLAYBOOK_ACTIONS[decl.action] ?? { desc: decl.action };
+    steps.push({ action: decl.action, subskill: meta.subskill, when: decl.when, desc: meta.desc, isWriteback: false });
+  }
+  steps.push({ action: 'issue_writeback', desc: '应用 WritePlan 写回 Issue（标签 / Assignee / 评论 / 关闭）', isWriteback: true });
+  return steps;
+}
+
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
+  const code = playbook.filter((s) => !s.isWriteback);
+  if (code.length) {
+    lines.push(`动作包（代码侧，先于 Issue 写回）：\n${code.map((s, i) => `  ${i + 1}. ${s.desc}${s.subskill ? ` — ${s.subskill}` : ''}`).join('\n')}`);
+  }
   lines.push(`标签：移除 ${STATUS_PREFIX[payload.type]}${from}，新增 ${STATUS_PREFIX[payload.type]}${to}`);
   lines.push(`Assignee：${payload.assigneeUser ?? '（未解析）'}`);
   lines.push(`评论：将发表「## 状态变更」结构化评论（由 render 生成）`);
@@ -85,7 +116,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
 
   if (dirtyReason) {
     return {
-      node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [],
+      node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [], playbook: [],
       validate: { ok: false, missing: [], reasons: [dirtyReason] },
       preview: dirtyReason, shouldConfirm: true, applied: false,
     };
@@ -98,7 +129,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (!tr) {
     const msg = `无可用转换：from=${current} to=${target ?? '(未指定且无默认下一节点)'}——检查 to 节点名或当前标签`;
     return {
-      node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [],
+      node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [], playbook: [],
       validate: { ok: false, missing: [], reasons: [msg] },
       preview: msg, shouldConfirm: true, applied: false,
     };
@@ -151,8 +182,9 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
 
   const runMode = input.runMode ?? 'semi-auto';
   const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;
+  const playbook = buildPlaybook(tr, input.config);
   const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode);
+  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook);
 
   return {
     node: current,
@@ -164,6 +196,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     payload,
     validate,
     plan,
+    playbook,
     preview,
     shouldConfirm,
     applied: false,

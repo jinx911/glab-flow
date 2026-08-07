@@ -11,6 +11,8 @@ export interface Transition {
   hardGate?: boolean;
   terminal?: boolean;
   return?: { target: string; assigneeRole: Role; onlyWhen?: string; note?: string };
+  /** 跨节点副作用步骤（仅声明，Leader 执行）：commit/merge/deploy 等；Issue 写回由引擎自动追加为末步。 */
+  playbook?: { action: string; when?: string }[];
 }
 
 export interface StateMachine {
@@ -65,6 +67,16 @@ export interface MissingItem {
   hint: string;
 }
 
+/** 一条副作用步骤：引擎声明，Leader 执行（代码侧调 sub-skill，Issue 写回调 glab）。 */
+export interface PlaybookStep {
+  action: string;
+  subskill?: string;
+  when?: string;
+  desc: string;
+  /** 是否 Issue 写回（官方状态变更，恒为末步）。 */
+  isWriteback: boolean;
+}
+
 /** `transition` 命令输入：Leader 两次只读 glab 拿到的原料 + 已知字段。 */
 export interface TransitionInput {
   type: IssueType;
@@ -82,7 +94,7 @@ export interface TransitionInput {
   humanConfirmed?: boolean;
   closeIssue?: boolean;
   runMode?: RunMode;
-  config?: { roles?: Record<string, string> };
+  config?: { roles?: Record<string, string>; deployBranch?: string; jenkins?: boolean };
 }
 
 /** `transition` 命令输出：一次调用产出节点/证据/预填/校验/计划/预览/是否需确认。引擎永不应用（applied:false）。 */
@@ -97,6 +109,7 @@ export interface TransitionOutput {
   payload?: Payload;
   validate: GuardResult;
   plan?: WritePlan;
+  playbook: PlaybookStep[];
   preview: string;
   shouldConfirm: boolean;
   applied: false;
