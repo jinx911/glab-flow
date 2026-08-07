@@ -14,3 +14,20 @@
 | 生产验收中→已完成 | Leader起草终态评论 | 验收记录 | 产品验收(hard_gate·terminal) | →已完成+关闭, Assignee=产品; 反哺context/faq/cases |
 
 Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要产品；详见 `engine/state-machine.yaml` 的 `bug.transitions`。
+
+### 多仓库（OA 常态）
+
+一个 Issue 跨前端/PHP/Java 等多仓时，状态机仍单线推进（节点不按仓库分支），多仓维度在配置与产物层处理：
+
+- **Jenkins**：config 用 `jenkins.jobs` 按仓映射 job + 参数（见 `config.md`）；`jenkins-deploy` 按当前操作仓库选模板。
+- **待发布「生产版本」**：多仓时填**各仓部署版本**（分号分隔，如 `oa-service:v1.2; oa-frontend:v3.4`），不再是单一版本号。
+- **MR**：每仓一条 feature 分支 + 一条 MR；`git-ops` 按仓操作。
+
+### 开发中→测试中：上线步骤与配置清单（必带）
+
+提测评论的「测试说明」必须包含**上线步骤与配置清单**，区分：
+
+- **A 类（随代码部署生效）**：migration、init 命令（如 `init:permission`）、随版本发布的配置。
+- **B 类（各环境手动配置）**：菜单/权限/开关等需在后台手工设置的项——**先核查配置机制**（查模块 `config/*.php` + 平台 init 命令），不能臆测是「手动」还是「自动同步」。
+
+配置多的需求尤其必要；缺这份清单是提测阶段最常见的返工点。

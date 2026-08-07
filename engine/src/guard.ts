@@ -5,6 +5,17 @@ import { parseAssigneeTable } from './parse.js';
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
 
+/** 阻塞发布问题「均已验证通过」的肯定同义集合；G11 归一化用（替代精确匹配 '是'）。 */
+const AFFIRMATIVE = new Set(['是', 'true', 'yes', '已验证', '已通过', '无阻塞', '通过', '同意', '确认']);
+
+export function isAffirmative(v: string | undefined): boolean {
+  if (!v) return false;
+  const norm = v.trim().toLowerCase();
+  if (!norm) return false;
+  // 精确同义集合，或以「是」开头（容忍「是(无阻塞)」「是。详细说明…」这类附注）
+  return AFFIRMATIVE.has(norm) || norm.startsWith('是');
+}
+
 export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload): GuardResult {
   const t = transitionFor(model, payload.type, payload.from, payload.to);
   if (!t) return fail([`transition ${payload.from}->${payload.to} not allowed`]);
@@ -30,7 +41,7 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   }
 
   // G3 hard gate
-  if (t.hardGate && !payload.humanConfirmed) reasons.push(`hard-gate ${t.gate} 需人工确认证据(humanConfirmed)`);
+  if (t.hardGate && !payload.humanConfirmed) reasons.push(`hard-gate ${t.gate} 需人工确认：在 payload 加 humanConfirmed: true 才能流转（不可关闭的红线）`);
 
   // G4 review type matches gate
   if (t.gate && payload.reviewType && t.gate !== payload.reviewType) reasons.push(`reviewType ${payload.reviewType} 与门禁 ${t.gate} 不符`);
@@ -38,7 +49,7 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   // G6 assignee concrete user (must start with @, not a bare role)
   const ROLES = ['产品', '研发', '测试'];
   if (!payload.assigneeUser || !/^@.+$/.test(payload.assigneeUser) || ROLES.includes(payload.assigneeUser)) {
-    reasons.push('Assignee 必须是具体 GitLab 用户(@xxx)，不能是角色名');
+    reasons.push('Assignee 必须是具体 GitLab 用户（@前缀；角色名不行——请填 @用户，或在 config 配 roles 默认由引擎兜底）');
   }
 
   // G6b role cross-check — only when a 交付协同 table is present in the issue body
@@ -56,9 +67,11 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   const hasDate = Object.keys(payload.fields).some((k) => /日期/.test(k));
   if (hasDate && !payload.datesConfirmed) reasons.push('日期需用户确认后才能落盘(datesConfirmed)');
 
-  // G11 blocking test issues verified (field must be 是)
+  // G11 blocking test issues verified (affirmative set, not exact '是')
   if (payload.from === '测试中' && payload.to === '待发布') {
-    if (payload.fields['阻塞发布问题均已验证通过'] !== '是') reasons.push('存在未验证的阻塞发布问题，不得进入 待发布');
+    if (!isAffirmative(payload.fields['阻塞发布问题均已验证通过'])) {
+      reasons.push('存在未验证的阻塞发布问题，不得进入 待发布（字段「阻塞发布问题均已验证通过」填 是 / 已验证 / 无阻塞 / true / yes）');
+    }
   }
 
   // G12 terminal atomicity

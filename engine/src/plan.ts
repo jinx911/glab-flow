@@ -1,5 +1,5 @@
-import type { WritePlan, IssueType } from './types.js';
-import { renderReturn } from './render.js';
+import type { WritePlan, IssueType, Payload } from './types.js';
+import { renderReturn, renderStatusChange } from './render.js';
 
 export interface ReturnInput {
   type: IssueType;
@@ -10,6 +10,21 @@ export interface ReturnInput {
   date: string;
   assigneeUser?: string;
   issueIid: number;
+}
+
+/** 正向流转建写回计划：标签替换 + Assignee + 状态变更评论 +（终态）关闭。 */
+export function buildForwardPlan(payload: Payload, issueIid: number): WritePlan {
+  const prefix = payload.type === 'story' ? 'story-status' : 'status';
+  return {
+    issueIid,
+    ops: [
+      { kind: 'remove_label', value: `${prefix}::${payload.from}` },
+      { kind: 'add_label', value: `${prefix}::${payload.to}` },
+      { kind: 'set_assignee', username: payload.assigneeUser ?? '' },
+      { kind: 'add_comment', body: renderStatusChange(payload) },
+      ...(payload.closeIssue ? [{ kind: 'close_issue' as const }] : []),
+    ],
+  };
 }
 
 export function buildReturnPlan(input: ReturnInput): WritePlan {

@@ -13,8 +13,14 @@ glab-flow **vendor 了 OA 方法论**——`sub-skills/` 下的 7 个子 skill�
 
 GitLab Issue 的全部读写（view / update label / note / close / `glab api`）由 Leader 直接调用 `glab` 完成详见 `SKILL.md`「GitLab 读写」一节。glab 已由环境认证（`glab auth login`），**无需 token、不在环境变量里配 token**。
 
-- 使用方：Leader（每轮编排第 1/7 步）、`sub-skills/git-ops.md`、`sub-skills/spec-author.md`（读 Issue / 写评论）。
+- 使用方：Leader（每轮编排读状态/应用写回）、`sub-skills/git-ops.md`、`sub-skills/spec-author.md`（读 Issue / 写评论）。
 - 未安装 → `/init-glab-flow` 引导用户先 `brew install glab` 并 `glab auth login`，flow 不在无认证下裸跑。
+
+**glab / git 写操作要点**：
+
+- **沙箱**：`git push` / `git pull` / `git fetch` / `glab` 写操作在受限沙箱里会被拦（无网络或无 SSH key）。这类命令需 `dangerouslyDisableSandbox: true`，并确保 SSH/git 在完整 `PATH` 下运行；只读的 `glab issue view` / `glab api GET` 不必禁沙箱。
+- **长评论写文件**：评论正文含 backtick / 表格 / 多行时，避开 shell 转义——写临时文件后 `glab issue note <iid> -F <file>`（等价 body=@file），不要硬塞进 `-m "..."`。
+- **项目限定**：无 `harnessClone` 时给 `glab issue` 子命令带 `-R <host>/<group>/<project>`（见 `SKILL.md`「GitLab 读写」），避免默认 host 404。
 
 ### 2. `codegraph` MCP —— 符号导航 / 影响分析
 

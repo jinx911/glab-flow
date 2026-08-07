@@ -1,0 +1,170 @@
+import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType } from './types.js';
+import { currentNode, transitionFor, allowedTransitions } from './model.js';
+import { validateTransition } from './guard.js';
+import { parseAssigneeTable } from './parse.js';
+import { buildForwardPlan } from './plan.js';
+
+const ROLES: ReadonlySet<string> = new Set(['产品', '研发', '测试']);
+const TERMINAL = new Set(['已完成']);
+const STATUS_PREFIX: Record<IssueType, string> = { story: 'story-status::', bug: 'status::' };
+
+/** 角色名不是用户；其余自动补 @ 前缀。 */
+function ensureAt(user: string | undefined): string | undefined {
+  if (!user) return undefined;
+  const u = user.trim();
+  if (!u || ROLES.has(u)) return undefined;
+  return u.startsWith('@') ? u : `@${u}`;
+}
+
+/** 必填字段的来源/格式提示——给 Leader「去哪取 / 填什么」的可操作线索。 */
+const FIELD_HINTS: Record<string, string> = {
+  评审日期: '评审会议/决策日期',
+  产品确认人: '@产品用户（交付协同表 / config.roles）',
+  评审结论: '通过 / 退回',
+  需求文档或评审记录: '需求文档链接或评审记录',
+  技术方案评审通过记录或免评审结论: '技评通过记录，或免评审结论',
+  实际开始日期: '开发实际开始日期',
+  研发Assignee: '@研发用户',
+  计划提测时间: '计划提测日期',
+  计划上线时间: '计划上线日期',
+  代码评审与自测结论: '代码评审 + 自测结论（来自开发节点 sub-skill 产出）',
+  提测日期: '本次提测日期',
+  可测试版本或环境: '可测试版本号 / 环境（多仓分别列出）',
+  测试说明: '测试说明 + 上线步骤与配置清单（A 随代码 / B 各环境手动）',
+  测试完成日期: '测试完成日期',
+  测试Assignee: '@测试用户',
+  测试结论: '通过 / 退回',
+  回归范围或证据: '回归范围或证据链接',
+  阻塞发布问题均已验证通过: '是 / 已验证 / 无阻塞（来自测试问题评论的验证结果）',
+  发布日期: '发布日期',
+  生产版本: '各仓部署版本号（多仓用分号分隔）',
+  发布记录或回滚信息: '发布记录 + 回滚方案（来自 release-check 产出）',
+  验收完成日期: '验收完成日期',
+  具体产品验收人: '@产品验收人',
+  产品Assignee: '@产品用户',
+  验收结论: '通过 / 退回',
+  验收依据: '验收依据（E2E / DB 断言 / 业务确认）',
+  验证完成日期: '验证完成日期',
+  具体测试验证人: '@测试验证人',
+  测试验证人Assignee: '@测试用户',
+  验证结论: '通过 / 退回',
+  验证依据: '生产验证依据',
+};
+
+function hintFor(field: string): string {
+  return FIELD_HINTS[field] ?? '来自对应节点评论 / spec 文档';
+}
+
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string): string {
+  const lines: string[] = [`状态变更：${from} → ${to}`];
+  lines.push(`标签：移除 ${STATUS_PREFIX[payload.type]}${from}，新增 ${STATUS_PREFIX[payload.type]}${to}`);
+  lines.push(`Assignee：${payload.assigneeUser ?? '（未解析）'}`);
+  lines.push(`评论：将发表「## 状态变更」结构化评论（由 render 生成）`);
+  lines.push(`关闭 Issue：${payload.closeIssue ? '是（终态原子）' : '否'}`);
+  lines.push(`校验：${validateOk ? '✓ 通过' : '✗ 未通过（见 reasons）'}`);
+  if (missing.length) lines.push(`缺口：\n${missing.map((m) => `  - ${m.field} — ${m.hint}`).join('\n')}`);
+  if (hardGate) lines.push('hard_gate：必须人工确认（humanConfirmed），无论 run 模式');
+  lines.push(`run 模式：${runMode} → ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
+  return lines.join('\n');
+}
+
+/** 一次调用编排：推导节点 → 脏检测 → 抽证据 → 查契约 → 解析 Assignee → 组装 → 校验 → 建计划 → 预览。纯计算，不应用。 */
+export function runTransition(model: StateMachine, input: TransitionInput): TransitionOutput {
+  const prefix = STATUS_PREFIX[input.type];
+  const statusLabels = input.labels.filter((l) => l.startsWith(prefix));
+  const node = statusLabels.length === 1 ? (currentNode(model, input.type, input.labels) ?? null) : null;
+
+  // 脏检测：0/≥2 状态标签，或 closed 但非终态
+  let dirtyReason: string | undefined;
+  if (statusLabels.length !== 1) {
+    dirtyReason = `脏状态：期望 1 个 ${prefix}* 标签，实际 ${statusLabels.length} 个（人工修标签后重跑）`;
+  } else if (input.state === 'closed' && node && !TERMINAL.has(node)) {
+    dirtyReason = `脏状态：Issue 已关闭但节点=${node} 非终态（${[...TERMINAL].join('/')}），疑似被提前关闭——reopen 或人工对账标签`;
+  }
+
+  if (dirtyReason) {
+    return {
+      node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [],
+      validate: { ok: false, missing: [], reasons: [dirtyReason] },
+      preview: dirtyReason, shouldConfirm: true, applied: false,
+    };
+  }
+
+  const current = node as string;
+  const target = input.to ?? allowedTransitions(model, input.type, current)[0]?.to;
+  const tr = target ? transitionFor(model, input.type, current, target) : undefined;
+
+  if (!tr) {
+    const msg = `无可用转换：from=${current} to=${target ?? '(未指定且无默认下一节点)'}——检查 to 节点名或当前标签`;
+    return {
+      node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [],
+      validate: { ok: false, missing: [], reasons: [msg] },
+      preview: msg, shouldConfirm: true, applied: false,
+    };
+  }
+
+  // 解析 Assignee：交付协同表 → config.roles → 输入；自动补 @
+  const table = parseAssigneeTable(input.body);
+  const role = tr.assigneeRole as string;
+  const fromTable = table.get(role);
+  const fromRoles = input.config?.roles?.[role];
+  const rawAssignee = input.assigneeUser ?? fromTable ?? fromRoles;
+  const assigneeUser = ensureAt(rawAssignee);
+
+  const prefilled: Record<string, string> = {};
+  if (assigneeUser) {
+    const src = input.assigneeUser ? '输入' : fromTable ? '交付协同表' : 'config.roles';
+    prefilled.assigneeUser = `${assigneeUser}（来自${src}）`;
+  }
+
+  const payload: Payload = {
+    type: input.type,
+    from: current,
+    to: tr.to,
+    fields: { ...input.fields },
+    ...(input.gateOutcome ? { gateOutcome: input.gateOutcome } : {}),
+    ...(input.reviewType ? { reviewType: input.reviewType } : {}),
+    ...(assigneeUser ? { assigneeUser } : {}),
+    ...(input.datesConfirmed !== undefined ? { datesConfirmed: input.datesConfirmed } : {}),
+    ...(input.humanConfirmed !== undefined ? { humanConfirmed: input.humanConfirmed } : {}),
+    ...(input.closeIssue !== undefined ? { closeIssue: input.closeIssue } : {}),
+  };
+
+  const facts = {
+    labels: input.labels,
+    body: input.body,
+    state: input.state,
+    hasJiraSourceLabel: input.labels.includes('source::jira'),
+  };
+  const validate = validateTransition(model, facts, payload);
+
+  // 缺口（必填未填）带 hint
+  const missing: MissingItem[] = [];
+  if (!assigneeUser) {
+    missing.push({ field: 'assigneeUser', hint: `@用户（角色=${role}）——来自交付协同表 / config.roles / 显式传入` });
+  }
+  for (const f of tr.requiredFields) {
+    const v = payload.fields[f];
+    if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
+  }
+
+  const runMode = input.runMode ?? 'semi-auto';
+  const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;
+  const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
+  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode);
+
+  return {
+    node: current,
+    next: tr.to,
+    dirty: false,
+    transition: tr,
+    prefilled,
+    missing,
+    payload,
+    validate,
+    plan,
+    preview,
+    shouldConfirm,
+    applied: false,
+  };
+}

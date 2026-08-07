@@ -96,13 +96,14 @@ state 文件不是每条命令都写，只在以下时机落盘：
 
 ## 脏状态
 
-脏状态指 Issue 上的状态标签无法推导出唯一节点。`pnpm cli node <type> <labels...>` 在下列情况返回脏信号：
+脏状态指 Issue 上的状态标签/状态无法推导出唯一、合法的当前节点。`pnpm cli transition`（或 `node`）在下列情况返回脏信号（`transition.dirty=true`）：
 
-- **0 个状态标签**：Issue 上既无 `story-status::*` 也无 `status::*`（被全部清掉）。stdout `node` 为空 / 标识未就绪。
+- **0 个状态标签**：Issue 上既无 `story-status::*` 也无 `status::*`（被全部清掉）。
 - **≥2 个状态标签**：同时挂着两个冲突的状态（如 `story-status::待评审` 和 `story-status::开发中`）。引擎无法判断真实节点。
+- **已关闭但非终态**：Issue `state=closed` 但状态标签 ≠ `已完成`（如挂着 `待发布` 却被提前 close）。`transition` 在入口检测到此组合即标脏。
 
 任何一种 → Leader **停**，不做推测性流转。把 GitLab 推导结果与 Issue 链接列给人工：
 
-> 脏状态：Issue #<iid> 当前标签=[...]，推导出 0/≥2 个状态节点。请人工确认正确状态标签后再 `/glab-flow <iid>`。
+> 脏状态：Issue 当前标签=[...]、state=<opened/closed>，推导出 0/≥2 个状态节点、或已关闭但非终态。请人工确认正确状态标签（必要时 reopen）后再 `/glab-flow <iid>`。
 
-此时不写回 GitLab、不更新 `cachedNode`（避免把错误状态固化到缓存）。用户在 GitLab UI 修好标签后重跑 `/glab-flow <iid>`，恢复流程的第 2 步会重新从 GitLab 推导出唯一节点。
+此时不写回 GitLab、不更新 `cachedNode`（避免把错误状态固化到缓存）。用户在 GitLab UI 修好标签（或 reopen 误关的 Issue）后重跑 `/glab-flow <iid>`，恢复流程的第 2 步会重新从 GitLab 推导出唯一节点。
