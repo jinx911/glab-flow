@@ -44,10 +44,10 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 |---|---|---|
 | 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → 触发 Jenkins 构建 → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins` |
 | 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
-| 待发布→生产验收中/生产验证中（发布） | Jenkins 部署（**按 release-check 的上线步骤执行**）→ 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 部署需 `jenkins` |
+| 待发布→生产验收中/生产验证中（发布） | **执行生产部署**（当前手动点击；按 release-check 上线步骤）→ 确认部署版本 → 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 生产部署恒存在（手动优先，无 Jenkins 条件） |
 | 其它转换 | 仅写 Issue | — |
 
-⚠️ release-check 是**发布计划**，在「测试中→待发布」就绪（进待发布前写好）；「发布」只**执行**该计划（deploy）。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
+⚠️ release-check 是**发布计划**，在「测试中→待发布」就绪；「发布」只**执行**该计划。**生产部署当前手动触发**（你在平台点击，完成后把生产版本号告诉 Leader）；`config.jenkins` 只管**测试环境**（提测的 `trigger_jenkins`），**生产 `deploy` 不挂 Jenkins 条件**——部署确认后必定推进 Issue。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
 
 ### 节点内部子步骤 checklist（层 2 进度可见）
 

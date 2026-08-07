@@ -64,7 +64,7 @@ const PLAYBOOK_ACTIONS: Record<string, { subskill?: string; desc: string }> = {
   create_mr_to_master: { subskill: 'git-ops', desc: '提 PR feature → master，标题=Issue 地址（含 iid）' },
   mr_review: { subskill: 'mr-review', desc: '评审 MR（推断需求/需求↔代码一致性/需求外改动/bug/回归）；无 HIGH 残留才放行，否则修复重评' },
   release_check: { subskill: 'release-check', desc: '产出上线步骤/配置清单/注意事项/回滚方案（引用 spec 上线清单 + 配置机制核查）' },
-  deploy: { subskill: 'jenkins-deploy', desc: '部署到目标环境（Jenkins）' },
+  deploy: { subskill: 'jenkins-deploy', desc: '执行生产部署——当前手动触发（你在 Jenkins/平台点击生产部署），完成后把生产版本号告诉 Leader；未来配了 prod job 可由 jenkins-deploy 驱动。部署确认后才推进 Issue' },
 };
 
 function conditionActive(when: string | undefined, config?: { deployBranch?: string; jenkins?: boolean }): boolean {
