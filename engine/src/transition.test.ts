@@ -18,6 +18,7 @@ const TEST_DONE_FIELDS = {
   测试结论: '通过',
   回归范围或证据: 'r',
   阻塞发布问题均已验证通过: '是',
+  feature分支MR评审结论: '通过，无 HIGH 残留',
 };
 
 describe('transition — dirty detection', () => {
@@ -73,7 +74,7 @@ describe('transition — assignee resolution', () => {
 describe('transition — G11 normalization flows through', () => {
   const f = (val: string) => runTransition(model, baseInput({
     labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-    fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: val },
+    fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: val, feature分支MR评审结论: '通过，无 HIGH 残留' },
     datesConfirmed: true,
   }));
   it('accepts 已验证', () => expect(f('已验证').validate.ok).toBe(true));
@@ -93,6 +94,13 @@ describe('transition — missing fields carry hints', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true }));
     expect(r.next).toBe('测试中');
     expect(r.missing.find((m) => m.field === '测试说明')?.hint).toMatch(/上线步骤与配置清单/);
+  });
+  it('requires feature MR review before 待发布 (blocks when missing)', () => {
+    const fieldsWithoutMR = { ...TEST_DONE_FIELDS };
+    delete (fieldsWithoutMR as Record<string, string>).feature分支MR评审结论;
+    const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: fieldsWithoutMR, datesConfirmed: true }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.find((m) => m.field === 'feature分支MR评审结论')?.hint).toMatch(/MR 代码评审/);
   });
 });
 

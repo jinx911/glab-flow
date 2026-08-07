@@ -96,12 +96,14 @@ stdin `{type,iid,labels,body,notes,state,to?,fields?,…,config?,runMode?}` → 
 | 提测缺上线配置清单 | spec-author.md + nodes.md | B |
 | 多仓库未建模（轻量） | config.jenkins.jobs + nodes 待发布泛化 + jenkins-deploy 多 job | A/B |
 | 沙箱 git/ssh、长评论 -F | tools.md | B |
+| MR 评审门禁前置（审查 ③） | state-machine 必填 `feature分支MR评审结论` + G14 + nodes/gate/SKILL/guards | A/B |
 
 ## 6. 不在本次范围（YAGNI）
 
 - 状态机加 `repos[]` 维度、plan 多仓写回（多仓用 config+render+sub-skill 解决，不进状态机）。
 - 节点内子阶段编排（层 2 黑盒，属下一题）。
-- MR 评审门禁前置（P2，需新 G + nodes 改动，单独一轮）。
+
+> MR 评审门禁前置（原列此节）已落地：测试中→待发布 新增必填 `feature分支MR评审结论`（G14，G1 强制），见 §5。
 
 ## 7. 验证
 

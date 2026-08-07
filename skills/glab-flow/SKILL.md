@@ -159,6 +159,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - Assignee 必须 `@用户`（G6），不接受角色名占位。
 - 不建 Jira（G13）：流程只在 GitLab Issue 上走，不外建工单。
 - 测试问题挂父需求（G11）：阻塞发布问题全部验证通过才放行待发布。
+- feature MR 评审前置（G14）：测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）。
 
 ## 内容生成
 

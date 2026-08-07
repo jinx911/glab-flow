@@ -67,6 +67,7 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 - 待评审缺评审意见 → 委派 `review-preview` 预审产出问题清单。
 - 开发中缺代码/自测 → 委派 `git-ops` + `tdd-guide` + `codegraph` 做开发。
 - 测试中缺测试计划 → 委派 `test-design` / `test-flow`/`apifox` 相关 agent。
+- 测试中→待发布 缺 `feature分支MR评审结论`（G14）→ 委派 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留才填「通过」放行；有残留则留在测试中修复，不进 待发布。
 
 agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 步重新取证、第 2 步重新校验，直到 `ok:true` 再建计划。换句话说：**门禁不通过 → 回去干活，而不是改门禁**。
 

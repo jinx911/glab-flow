@@ -36,6 +36,7 @@ const FIELD_HINTS: Record<string, string> = {
   测试结论: '通过 / 退回',
   回归范围或证据: '回归范围或证据链接',
   阻塞发布问题均已验证通过: '是 / 已验证 / 无阻塞（来自测试问题评论的验证结果）',
+  feature分支MR评审结论: 'feature→master MR 代码评审结论（用 code-review sub-skill 跑全 MR diff）；填「通过，无 HIGH 残留」或退回',
   发布日期: '发布日期',
   生产版本: '各仓部署版本号（多仓用分号分隔）',
   发布记录或回滚信息: '发布记录 + 回滚方案（来自 release-check 产出）',
