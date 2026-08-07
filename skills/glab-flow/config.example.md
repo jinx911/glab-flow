@@ -27,18 +27,34 @@ run_mode: "semi-auto"                     # semi-auto（默认）| full-auto
 
 # deploy_branch: "test"                  # 自动部署分支；不配则发布节点跳过合并
 
-# jenkins:
+# roles:                                  # 角色→默认 @用户；Issue 无交付协同表时兜底，减少反复反问
+#   产品: "@pm"
+#   研发: "@dev"
+#   测试: "@qa"
+
+# jenkins:                                # 单仓：只给 job_name
 #   job_name: "oa-service"
 #   branch_param: "oa_branch"            # 默认 oa_branch
 #   default_params: { deploy_type: "api", test_version: "kn" }
 
-# databases:
-#   main: { mcp: "mcp__platform-local__mysql_query", desc: "主数据库" }
+# jenkins:                                # 多仓：按仓库映射 job + 参数（与单 job_name 二选一或共存）
+#   jobs:
+#     oa-service: { job_name: oa-service, branch_param: oa_branch }
+#     oa-frontend: { job_name: oa-frontend, branch_param: GIT_BRANCH, env_param: DEPLOY_ENV, default_params: { RUN_LINT: "true" } }
 
-# test_environments:
-#   default:
-#     url: "http://your-test-env.example.com"
+# databases:                              # 按环境命名
+#   local: { mcp: "mcp__platform-local__mysql_query", desc: "本地主库" }
+#   # stage: { mcp: "mcp__platform-stage__mysql_query", desc: "预发库（只读）" }
+
+# test_environments:                      # 多环境分别列出
+#   local:
+#     url: "http://tenant.oa.com"
 #     account: ""
 #     password: ""
-#     desc: "默认测试环境"
+#     desc: "本地全栈"
+#   stage:
+#     url: "http://stage.oa.com"
+#     account: ""
+#     password: ""
+#     desc: "预发环境"
 ```

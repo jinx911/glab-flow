@@ -1,14 +1,15 @@
 import { readFileSync } from 'node:fs';
-import { loadModel, currentNode } from './model.js';
+import { loadModel, currentNode, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
 import { toFacts } from './gitlab.js';
 import { renderStatusChange } from './render.js';
-import { buildReturnPlan } from './plan.js';
+import { buildReturnPlan, buildForwardPlan } from './plan.js';
+import { runTransition } from './transition.js';
 import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
-import { initState } from './state.js';
-import type { InitStateInput } from './state.js';
-import type { Payload, WritePlan } from './types.js';
+import { initState, markProgressDone, resetProgress } from './state.js';
+import type { InitStateInput, RunState } from './state.js';
+import type { Payload, TransitionInput } from './types.js';
 
 const model = loadModel();
 
@@ -22,7 +23,7 @@ async function main() {
     case 'node': {
       const [type, ...labels] = args;
       const node = currentNode(model, type as 'story' | 'bug', labels);
-      console.log(JSON.stringify({ node }));
+      console.log(JSON.stringify({ node, progressSteps: progressStepsFor(model, node) }));
       break;
     }
     case 'validate': {
@@ -38,19 +39,12 @@ async function main() {
     }
     case 'plan': {
       const input = JSON.parse(readStdin()) as { payload: Payload };
-      const p = input.payload;
-      const prefix = p.type === 'story' ? 'story-status' : 'status';
-      const plan: WritePlan = {
-        issueIid: Number(args[0] ?? 0),
-        ops: [
-          { kind: 'remove_label', value: `${prefix}::${p.from}` },
-          { kind: 'add_label', value: `${prefix}::${p.to}` },
-          { kind: 'set_assignee', username: p.assigneeUser ?? '' },
-          { kind: 'add_comment', body: renderStatusChange(p) },
-          ...(p.closeIssue ? [{ kind: 'close_issue' as const }] : []),
-        ],
-      };
-      console.log(JSON.stringify(plan));
+      console.log(JSON.stringify(buildForwardPlan(input.payload, Number(args[0] ?? 0))));
+      break;
+    }
+    case 'transition': {
+      const input = JSON.parse(readStdin()) as TransitionInput;
+      console.log(JSON.stringify(runTransition(model, input)));
       break;
     }
     case 'evidence': {
@@ -85,8 +79,16 @@ async function main() {
       console.log(JSON.stringify(state));
       break;
     }
+    case 'progress': {
+      const input = JSON.parse(readStdin()) as { state: RunState; step?: string; resetToNode?: string; now: string };
+      let s = input.state;
+      if (input.resetToNode !== undefined) s = resetProgress(s, input.resetToNode, input.now);
+      if (input.step) s = markProgressDone(s, input.step, input.now);
+      console.log(JSON.stringify(s));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | plan-return | evidence | config | state-init');
+      console.error('commands: node | validate | render | plan | transition | plan-return | evidence | config | state-init | progress');
       process.exit(1);
   }
 }

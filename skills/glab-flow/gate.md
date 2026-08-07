@@ -7,46 +7,48 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
 门禁是 glab-flow 流转的安全阀：在每个节点，Leader 必须按固定的 6 步仪式走完，才能把 Issue 推到下一节点。仪式把"取证 → 校验 → 计划 → 预览 → 确认 → 应用"串成一条不可跳序的管线，再叠加 run 模式（semi/full-auto）与 hard_gate 红线，确保每一次状态变更都可审计、可回溯、可中止。本文件规定仪式每一步的命令与判定，以及 run 模式如何影响"预览→应用"那一跳。
 
-## 节点门禁仪式（6 步，每节点固定）
+## 节点门禁仪式（transition 一键，每节点固定）
 
-每个节点、每次流转都按这 6 步走，不省略、不换序。
+仪式仍是「取证 → 校验 → 计划 → 预览 → 确认 → 应用」不可跳序的管线；前 4 步（取证/校验/计划/预览）由 `transition` **一次调用**完成，Leader 只在「确认 → 应用」那一跳介入。
 
-1. **取证**。Leader 从 GitLab 拉评论，交给引擎抽证据：
-
-   ```bash
-   glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100" | pnpm cli evidence
-   ```
-
-   stdin 是 GitLab notes 数组（`[{body}, ...]`），stdout 是引擎从 `## 状态变更` 评论块里抽出的结构化证据（确认人/日期/结论/阻塞问题验证等）。这些证据是后续护栏判定（G1 必填、G3 hard_gate 人工确认、G11 阻塞全验证）的输入。`<host>`/`<id>` 从配置（`config.md`）取，不硬编码。
-
-2. **校验**。Leader 把 `{type, labels, payload}` 喂给护栏：
+1. **一键 transition（取证+校验+计划+预览）**。Leader 先做 2 次只读 glab（`glab issue view <iid> --output json` 取 labels/body/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取评论），把结果喂给：
 
    ```bash
-   pnpm cli validate
+   pnpm cli transition
    ```
 
-   stdin 是 JSON `{type: 'story'|'bug', labels: string[], payload: Payload}`，stdout 是 `{ok: boolean, missing: string[], reasons: string[], ...}`，对应 G1–G13（见 `guards.md`）。`ok:false` → **停**，把 `missing` 与 `reasons` 列给用户，问需要补什么（证据、确认人、日期确认等）。补齐后重跑 `validate`，直到 `ok:true` 才进下一步。绝不在 `ok:false` 下推进状态。
+   stdin JSON `{type, iid, labels, body, notes, state, to?, fields?, …, runMode?, config?}`，stdout 一次给出：
+   - `dirty` / `dirtyReason`（脏则停，见下文「脏状态」）；
+   - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」）；
+   - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）；
+   - `validate`（G1–G14，`reasons` 自带补救动作；`ok:false` 则 `plan` 为空、不推进）；
+   - `plan`（`WritePlan`：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist，进度可见）+ `preview`（散文 diff）+ `shouldConfirm`。
 
-3. **建计划**。校验通过后，按流转方向建写回计划：
-   - **正向**（进下一节点）：`pnpm cli plan <iid>`，stdin JSON `{payload}`，stdout 是 `WritePlan`（标签 add/remove、Assignee、评论、是否 close）。
-   - **退回**（门禁退回，G2 二值）：`pnpm cli plan-return <iid>`，stdin JSON `{type, from, target, issues, confirmer, date, assigneeUser?}`，stdout 是退回专用 `WritePlan`。
+   `transition` 内部即「`evidence`（取证）→ `validate`（校验）→ `plan`（计划）→ `render`（预览）」的顺序编排；退回（G2 二值）仍走 `plan-return`。
 
-   走哪条由门禁结论决定——通过走 `plan`，退回走 `plan-return`，不存在"半退半进"。
+2. **执行 playbook + 确认/应用**。`playbook` 是本转换的完整动作包，代码侧步骤在前、Issue 写回（`isWriteback:true`）恒为末步。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
+   - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——与 run_mode 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认 ≠ 参数确认，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
+   - **末步 issue_writeback**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令：
+     - **标签 + Assignee**：`glab issue update <iid> [--label <add1,add2>] [--unlabel <rm1,rm2>] --assignee <@user>`；无 `harnessClone` 时加 `-R <host>/<group>/<project>` 限定项目（见 `SKILL.md`「GitLab 读写」，数字 project_id 不适用 `-R`、改用 `glab api`）。
+     - **评论**：短正文 `glab issue note <iid> -m "<正文>"`；长正文（含 backtick/表格）写临时文件后 `glab issue note <iid> -F <file>`，避开 shell 转义。
+     - **终态（已完成）**：`glab issue close <iid>`。G12 终态原子——标签替换 + Assignee + 评论 + 关闭必须**同一次**完成（`closeIssue: true` 的 plan 一次跑完），不能先关 Issue 再补评论。
 
-4. **预览**。Leader 把 `WritePlan` 翻译成具体的 glab 命令序列，以 diff 形式展示给用户：哪些标签 add、哪些 unlabel、Assignee 改成谁、会发什么评论（正文由 `pnpm cli render` 或 plan 自带 body 生成）、是否 close Issue。预览的目的是让用户在不可逆的 glab 调用之前看到确切后果。
+   Assignee 用 `prefilled.assigneeUser`（已解析+补@）；`missing` 非空（有缺口）不推进，按 hint 委派对应 sub-skill 补齐后回第 1 步重取。**顺序铁律：代码侧步骤全部成功后，才执行 issue_writeback**（代码到位 → 才标记节点）。
 
-5. **确认/应用**。按 run 模式（见下节）决定是 AskUserQuestion 后应用还是自动应用。应用阶段 Leader 直接跑 glab（不在引擎里做 I/O）：
-   - **标签 + Assignee**：`glab issue update <iid> --label <add1,add2> --unlabel <rm1,rm2> --assignee <@user>`
-   - **评论**：`glab issue note <iid> -m "<由 render/plan 生成的正文>"`
-   - **终态（已完成）**：`glab issue close <iid>`。G12 要求终态原子——标签替换 + Assignee + 评论 + 关闭必须**同一次**完成（`closeIssue: true` 的 plan 一次跑完），不能先关 Issue 再补评论。
-
-   Assignee 必须是具体 `@用户`（G6），从 Issue 正文「交付协同」表解析角色对应的 @用户；缺则反问用户，不接受角色名占位。
-
-6. **冻结**。两条不可逾越的冻结线（详见 `guards.md`）：
+3. **冻结**。两条不可逾越的冻结线（详见 `guards.md`）：
    - **G7 不改原文**：永不 `glab issue update <iid> --description ...`，Issue 正文一旦创建即冻结。
    - **G8 不编评论**：永不 edit/delete 已发评论；评论只新增，不改写历史。
 
-   此外：门禁是**二值**的（G2）——通过走 `plan`，退回走 `plan-return`，没有"附带条件通过"；`hard_gate`（待发布 / 生产验收中 / 已完成）必须 `humanConfirmed`（G3），无论 run 模式如何都要人工拍板，这是不可关闭的红线。
+   门禁**二值**（G2）——通过走 `transition`/`plan`，退回走 `plan-return`，没有"附带条件通过"；`hard_gate`（待发布 / 生产验收中 / 已完成）必须 `humanConfirmed`（G3），无论 run 模式如何都要人工拍板，这是不可关闭的红线。
+
+### 脏状态（`transition.dirty=true` 直接识别）
+
+Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
+
+- **0/≥2 状态标签**：状态标签被清掉或冲突（`pnpm cli node` 推不出唯一节点）。
+- **closed 但非终态**：Issue 已关闭但节点 ≠ 已完成（疑似被提前关闭）——reopen 或人工对账标签后重跑（详见 `resume.md`）。
+
+两种都不写回 GitLab、不更新 `cachedNode`。用户在 GitLab UI 修好后重跑 `transition` 会重新识别。
 
 ## run 模式（表）
 
@@ -67,6 +69,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 - 待评审缺评审意见 → 委派 `review-preview` 预审产出问题清单。
 - 开发中缺代码/自测 → 委派 `git-ops` + `tdd-guide` + `codegraph` 做开发。
 - 测试中缺测试计划 → 委派 `test-design` / `test-flow`/`apifox` 相关 agent。
+- 测试中→待发布 缺 `feature分支MR评审结论`（G14）→ playbook 的 `create_mr_to_master`（git-ops 提 PR feature→master，标题=Issue 地址）+ `mr_review`（`mr-review` sub-skill，优先 mr-review-lite、降级 code-review）跑全 MR diff，无 CRITICAL/HIGH 残留才填「通过」放行；有残留则留在测试中修复重评，不进 待发布。
 
 agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 步重新取证、第 2 步重新校验，直到 `ok:true` 再建计划。换句话说：**门禁不通过 → 回去干活，而不是改门禁**。
 

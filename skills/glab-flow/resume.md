@@ -62,6 +62,8 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
 
    不一致常见于：用户或他人在 GitLab UI 手改了标签、或上次写回失败但本地 state 已更新。绝不能反过来用 `cachedNode` 去"纠正"GitLab 标签。
 
+   **进度对账（层 2）**：若 `state.progress.node !== GitLab 当前节点`（节点在 flow 外被改过、或上次换节点时未重置），`progress.done` 已失效——用 `pnpm cli progress`（stdin `{state, resetToNode: <GitLab 节点>, now}`）重置后再展示「子步骤 ✓/☐」。一致则直接拿 `nodeProgress`（来自 `node`/`transition`）对照 `progress.done` 涂黑已完成项。
+
 4. **从当前节点继续 SKILL.md 编排循环**。节点定了之后，按 `SKILL.md` 的"Leader 每轮编排"走：查 `nodes.md` 契约 → 判断证据是否齐 → `validate` → `plan`/`plan-return` → 门禁预览确认（见 `gate.md`）→ glab 应用。恢复只是把 Leader 重新放到正确的节点上，后续动作与首次进入完全相同。
 
 ## state schema 参考
@@ -82,6 +84,7 @@ state 文件的 TypeScript 权威定义在 `engine/src/state.ts` 的 `RunState` 
 | `lastActions[]` | string[] | 最近动作审计尾迹（用于续接与回看） |
 | `spawnedAgents[]` | string[] | 本 flow 已委派过的 agent 名单（去重/记账） |
 | `lessonsCaptured` | number | 已反哺的 lesson 条数（已完成节点反哺 context/faq/cases 时 +1） |
+| `progress` | `{ node, done[] }` | 节点内子步骤进度（层 2）：`node` = 这批 done 所属节点；换节点时重置 |
 | `updatedAt` | string (ISO) | state 最后写入时间 |
 
 ## 持久化时机
@@ -96,13 +99,14 @@ state 文件不是每条命令都写，只在以下时机落盘：
 
 ## 脏状态
 
-脏状态指 Issue 上的状态标签无法推导出唯一节点。`pnpm cli node <type> <labels...>` 在下列情况返回脏信号：
+脏状态指 Issue 上的状态标签/状态无法推导出唯一、合法的当前节点。`pnpm cli transition`（或 `node`）在下列情况返回脏信号（`transition.dirty=true`）：
 
-- **0 个状态标签**：Issue 上既无 `story-status::*` 也无 `status::*`（被全部清掉）。stdout `node` 为空 / 标识未就绪。
+- **0 个状态标签**：Issue 上既无 `story-status::*` 也无 `status::*`（被全部清掉）。
 - **≥2 个状态标签**：同时挂着两个冲突的状态（如 `story-status::待评审` 和 `story-status::开发中`）。引擎无法判断真实节点。
+- **已关闭但非终态**：Issue `state=closed` 但状态标签 ≠ `已完成`（如挂着 `待发布` 却被提前 close）。`transition` 在入口检测到此组合即标脏。
 
 任何一种 → Leader **停**，不做推测性流转。把 GitLab 推导结果与 Issue 链接列给人工：
 
-> 脏状态：Issue #<iid> 当前标签=[...]，推导出 0/≥2 个状态节点。请人工确认正确状态标签后再 `/glab-flow <iid>`。
+> 脏状态：Issue 当前标签=[...]、state=<opened/closed>，推导出 0/≥2 个状态节点、或已关闭但非终态。请人工确认正确状态标签（必要时 reopen）后再 `/glab-flow <iid>`。
 
-此时不写回 GitLab、不更新 `cachedNode`（避免把错误状态固化到缓存）。用户在 GitLab UI 修好标签后重跑 `/glab-flow <iid>`，恢复流程的第 2 步会重新从 GitLab 推导出唯一节点。
+此时不写回 GitLab、不更新 `cachedNode`（避免把错误状态固化到缓存）。用户在 GitLab UI 修好标签（或 reopen 误关的 Issue）后重跑 `/glab-flow <iid>`，恢复流程的第 2 步会重新从 GitLab 推导出唯一节点。

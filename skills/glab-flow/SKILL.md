@@ -53,17 +53,19 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | 命令 | 作用 |
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
-| `validate` | 护栏校验：stdin `{type,labels,payload}` → `{ok,missing,reasons}` |
+| `transition` | **一键流转（首选）**：stdin `{type,iid,labels,body,notes,state,to?,fields?,…,runMode?,config?}` → 一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,preview,shouldConfirm}`。把下面 8 步里的 6 步确定性计算（推导/抽证据/查契约/预填/校验/建计划/预览）全收拢 |
+| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload}` → `{ok,missing,reasons}` |
 | `render` | 渲染评论正文 |
 | `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload}` |
 | `plan-return` | 退回建写回计划：stdin `{type,from,target,issues,confirmer,date,assigneeUser?}` |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
+| `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |
 
 ## GitLab 读写（Leader 直接 glab CLI）
 
-Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，不在环境里配 token）。两条路径，由配置决定走哪条：
+Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，不在环境里配 token）。三条路径，由配置决定走哪条：
 
 - **有 `gitlab.harnessClone`**：在配置提供的 harness 克隆目录跑 `glab issue …`，glab 自动从 remote 推断 host/project。
 
@@ -72,6 +74,13 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
   glab issue update <iid> --label ... --unlabel ... --assignee <@user>
   glab issue note <iid> -m "<正文>"
   glab issue close <iid>
+  ```
+
+- **无 `harnessClone`、又想用子命令（不用 `glab api`）**：给子命令带 `-R <host>/<group>/<project>` 限定项目（最轻量）。`<project>` 取 config 的 `project_path`；若只配了数字 `project_id` 则不适用此路，走下面的 `glab api`。
+
+  ```bash
+  glab issue view <iid> -R <host>/<group>/<project> --output json
+  glab issue update <iid> -R <host>/<group>/<project> --label ... --unlabel ... --assignee <@user>
   ```
 
 - **无 `harnessClone` 或需显式调用**：用 `glab api`，host 与 path 来自配置（`gitlab.host` / `gitlab.projectId`）：
@@ -83,18 +92,29 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 `<host>` 与 `<id>` 一律从 `GlabConfig` 取，不在命令里硬编码域名或项目号。
 
-## Leader 每轮编排
+## Leader 每轮编排（一键流转）
 
-每个节点、每轮都按这 8 步走（门禁细节见 `gate.md`）：
+每个节点用 `transition` 一次算完确定性部分，Leader 只做「读 → 确认 → 写」三件事（门禁细节见 `gate.md`）：
 
-1. **读状态**：用 config 提供的 `host`/`projectId`/`harnessClone`，跑 `glab issue view <iid> --output json` → 取 labels/description；`cd "$ENGINE_ROOT" && pnpm cli node <type> <labels...>` 得当前节点。0 或 ≥2 个状态标签 → 脏状态，停，列给人工（见 `resume.md` 脏状态处理）。
-2. **查契约**：从 `nodes.md` 取当前节点的下一节点 / 必填项 / 门禁 / Assignee 角色。
-3. **判断证据是否齐**：证据齐 → 起草 Payload；不齐 → 委派节点工作 agent（见下文「内容生成」）生成缺失内容（评论/分支/spec 文档），不推进状态。
-4. **护栏校验**：`cd "$ENGINE_ROOT" && pnpm cli validate`（stdin `{type,labels,payload}`）。`ok:false` → 停，把 `missing`+`reasons` 列给用户问需要补什么。
-5. **构建写计划**：正向 `cd "$ENGINE_ROOT" && pnpm cli plan <iid>`（stdin `{payload}`）；退回 `cd "$ENGINE_ROOT" && pnpm cli plan-return <iid>`（门禁二值，见 `gate.md`）。
-6. **预览确认**：把计划翻译成 glab 命令序列，以 diff 形式展示给用户（标签 add/remove、Assignee、评论正文、是否 close）。
-7. **应用（Leader 直接跑 glab）**：按 `gate.md` 的 run 模式决定 AskUserQuestion 后应用还是护栏 ok 即自动应用；`hard_gate` 两模式都强制人工。命令见上文「GitLab 读写」。
-8. **下一节点**：写回成功后更新 state 缓存（见下文），循环到「已完成」或用户停。
+1. **读状态（2 次只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取评论。读哪条路径见上文「GitLab 读写」。
+2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
+   - `node` / `next` / `dirty`（脏：0/≥2 状态标签，或已 closed 但非终态 → 停，见 `resume.md`）
+   - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
+   - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
+   - `validate`（G1–G14，`reasons` 自带补救动作）
+   - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist，进度可见）+ `preview`（散文 diff）+ `shouldConfirm`
+3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
+   - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
+   - 末步 `issue_writeback`：把 `plan` 翻译成 glab 命令序列（标签 add/unlabel、`--assignee <@user>`、评论长则 `-F <file>`、终态 `close`，见 `gate.md`）。
+   - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
+   - Issue 写回成功后更新 state 缓存（见下文），循环到「已完成」或用户停。
+   - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
+
+`transition` = `node` + `evidence` + `validate` + `plan` + `render` 的确定性编排 + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。
+
+### 批量推进（可选）
+
+full-auto 下可连续推进多个节点：Leader 端循环 `transition →（shouldConfirm? 确认 : 直放）→ 执行 plan → 重新拉取 → 再 transition`，遇 `!validate.ok`（缺口）/ hard_gate / 终态即停。引擎只提供 `transition` 原语，循环在 Leader（保纯计算）。
 
 ### 状态缓存
 
@@ -142,6 +162,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - Assignee 必须 `@用户`（G6），不接受角色名占位。
 - 不建 Jira（G13）：流程只在 GitLab Issue 上走，不外建工单。
 - 测试问题挂父需求（G11）：阻塞发布问题全部验证通过才放行待发布。
+- feature MR 评审前置（G14）：测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）。
 
 ## 内容生成
 
@@ -149,7 +170,8 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 - 需求/方案 → `sub-skills/spec-author.md`
 - 开发 → `sub-skills/git-ops.md` / `sub-skills/tdd-guide.md` / `sub-skills/code-review.md`
-- 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`
+- 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`（API）/ `sub-skills/test-flow-e2e.md`（前端 E2E）
+- 测试→待发布 MR 评审 → `sub-skills/mr-review.md`（G14，无 HIGH 残留才放行）
 - 发布 → `sub-skills/jenkins-deploy.md`（Jenkins 触发前必须单独确认 job/分支/部署参数；发布流转确认不等于构建参数确认）
 - 运行时工具（非 vendor）见 `tools.md`（codegraph / *-reviewer / apifox-* / glab / MySQL MCP）
 
@@ -186,4 +208,4 @@ glab-flow 的同伴文件（与 SKILL.md 同目录 `skills/glab-flow/`，自包�
 - `resume.md` —— 恢复 / 脏状态处理 / GitLab 对账。
 - `learn.md` —— 自我迭代闭环（capture / apply / upgrade ritual）。
 - `tools.md` —— 运行时工具依赖清单（glab / codegraph / *-reviewer / apifox-* / MySQL MCP，非 vendor）。
-- `sub-skills/*.md` —— 7 个内置子 skill（spec-author / git-ops / tdd-guide / code-review / test-design / test-flow-apifox / jenkins-deploy）。
+- `sub-skills/*.md` —— 9 个内置子 skill（spec-author / git-ops / tdd-guide / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）。

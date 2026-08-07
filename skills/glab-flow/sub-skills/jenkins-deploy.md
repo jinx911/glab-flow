@@ -8,11 +8,12 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 # Jenkins Deploy — 交互式部署
 
 **配置来源**：job 名 / 分支参数名 / 默认参数来自 glab-flow 配置（见 `../config.md`）：
-- `jenkins.job_name` —— 目标构建作业名
+- `jenkins.job_name` —— 单仓目标构建作业名
+- `jenkins.jobs` —— 多仓作业映射（键=仓库名，值=`{ job_name, branch_param?, env_param?, default_params? }`）；配了之后按当前操作仓库选 job + 参数模板
 - `jenkins.branch_param` —— 分支参数名，默认 `oa_branch`
 - `jenkins.default_params` —— 默认构建参数键值表
 
-`jenkins.job_name` 为空 → 不启用 Jenkins 能力（发布节点跳过构建触发）。
+`jenkins.job_name` 与 `jenkins.jobs` 都空 → 不启用 Jenkins 能力（发布节点跳过构建触发）。
 
 ## Job 参数映射（参考）
 
@@ -44,6 +45,7 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 ### 1. 确定 Job
 
 - 编排器/用户指定 job 名 → 直接使用
+- 否则若 config 有 `jenkins.jobs` → 按当前操作仓库取对应 job（多仓常态，OA 跨 oa-service/oa-frontend 等）
 - 否则读 glab-flow config `jenkins.job_name` → 用之
 - 都无 → AskUserQuestion multiSelect 让用户选择（支持多项目）
 - 用户说"部署 N 个项目" → 按上下文推断
@@ -90,15 +92,18 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 
 用户确认后才能触发构建。
 
-### 4. 触发构建
+### 4. 触发构建（默认非阻塞）
 
-**单项目**：`jenkins_build_and_watch` 阻塞等待结果。
+> **默认用非阻塞触发 + 延时轮询，不要用 `jenkins_build_and_watch` 阻塞。** 内网 Jenkins 的 watch 轮询常因 DNS 解析失败/超时干等数百秒；非阻塞触发后用 `jenkins status`（`jenkins_get_build`）自查更可靠。
 
-**多项目并行**：
-1. 所有项目同时调用 `jenkins_build`（非阻塞）触发
-2. 记录 queue URL / build number
-3. 轮询 `jenkins_get_build` 检查状态，或用户自行查询构建状态
-4. 不阻塞用户其他工作
+**单项目（默认）**：
+1. `jenkins_build`（非阻塞）触发，记录 queue URL / build number
+2. 延时用 `jenkins_get_build` 轮询状态（或交由用户用 `jenkins status` 查）
+3. 不阻塞用户其他工作
+
+**多项目并行**：所有项目同时 `jenkins_build` 触发 → 各自记录 build number → 轮询 `jenkins_get_build`。
+
+仅在用户明确要求「等它跑完」且环境 watch 可达时，才用 `jenkins_build_and_watch`；watch 超时/失败立即回退到 `jenkins_get_build` 兜底。
 
 ### 5. 结果展示
 

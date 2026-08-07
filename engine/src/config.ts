@@ -2,15 +2,37 @@ import { parse as parseYaml } from 'yaml';
 
 export type RunMode = 'semi-auto' | 'full-auto';
 
+export interface JenkinsJobConfig {
+  jobName: string;
+  branchParam?: string;
+  envParam?: string;
+  defaultParams?: Record<string, string>;
+}
+
 export interface GlabConfig {
   gitlab: { host: string; projectId: string; harnessClone?: string };
   workspace: { root: string };
   branchNaming: { format: string; typeMap: Record<string, string> };
   runMode: RunMode;
   deployBranch?: string;
-  jenkins?: { jobName: string; branchParam: string; defaultParams: Record<string, string> };
+  /** 角色 → 默认 @用户，Issue 无交付协同表时兜底，减少反复反问 */
+  roles?: Record<string, string>;
+  /** 单 job（jobName）或多仓 job 映射（jobs），二者可共存 */
+  jenkins?: {
+    jobName?: string;
+    branchParam: string;
+    defaultParams: Record<string, string>;
+    jobs?: Record<string, JenkinsJobConfig>;
+  };
   databases?: Record<string, { mcp: string; desc?: string }>;
   testEnvironments?: Record<string, { url: string; account?: string; password?: string; desc?: string }>;
+}
+
+interface RawJenkinsJob {
+  job_name?: string;
+  branch_param?: string;
+  env_param?: string;
+  default_params?: Record<string, string>;
 }
 
 interface RawConfig {
@@ -19,7 +41,8 @@ interface RawConfig {
   branch_naming?: { format?: string; type_map?: Record<string, string> };
   run_mode?: string;
   deploy_branch?: string;
-  jenkins?: { job_name?: string; branch_param?: string; default_params?: Record<string, string> };
+  roles?: Record<string, unknown>;
+  jenkins?: { job_name?: string; branch_param?: string; default_params?: Record<string, string>; jobs?: Record<string, RawJenkinsJob> };
   databases?: Record<string, { mcp?: string; desc?: string }>;
   test_environments?: Record<string, { url?: string; account?: string; password?: string; desc?: string }>;
 }
@@ -67,8 +90,34 @@ export function parseConfig(markdown: string): GlabConfig {
     },
     runMode,
     ...(raw.deploy_branch ? { deployBranch: raw.deploy_branch } : {}),
-    ...(raw.jenkins?.job_name
-      ? { jenkins: { jobName: raw.jenkins.job_name, branchParam: raw.jenkins.branch_param ?? 'oa_branch', defaultParams: raw.jenkins.default_params ?? {} } }
+    ...(raw.roles
+      ? { roles: Object.fromEntries(Object.entries(raw.roles).map(([k, v]) => [k, String(v)])) }
+      : {}),
+    ...(raw.jenkins && (raw.jenkins.job_name || (raw.jenkins.jobs && Object.keys(raw.jenkins.jobs).length > 0))
+      ? {
+          jenkins: {
+            ...(raw.jenkins.job_name ? { jobName: raw.jenkins.job_name } : {}),
+            branchParam: raw.jenkins.branch_param ?? 'oa_branch',
+            defaultParams: raw.jenkins.default_params ?? {},
+            ...(raw.jenkins.jobs
+              ? {
+                  jobs: Object.fromEntries(
+                    Object.entries(raw.jenkins.jobs)
+                      .filter(([, v]) => v?.job_name)
+                      .map(([k, v]) => [
+                        k,
+                        {
+                          jobName: v!.job_name as string,
+                          ...(v!.branch_param ? { branchParam: v!.branch_param } : {}),
+                          ...(v!.env_param ? { envParam: v!.env_param } : {}),
+                          ...(v!.default_params ? { defaultParams: v!.default_params } : {}),
+                        },
+                      ]),
+                  ),
+                }
+              : {}),
+          },
+        }
       : {}),
     ...(raw.databases
       ? { databases: Object.fromEntries(Object.entries(raw.databases).map(([k, v]) => [k, { mcp: v.mcp ?? '', ...(v.desc ? { desc: v.desc } : {}) }])) }
