@@ -20,6 +20,7 @@ export interface StateMachine {
   bug: { states: string[]; transitions: Transition[] };
   reviews: Record<string, string>;
   roleFields: Record<Role, string[]>;
+  progressSteps?: Record<string, string[]>;
 }
 
 export interface Payload {
@@ -110,6 +111,8 @@ export interface TransitionOutput {
   validate: GuardResult;
   plan?: WritePlan;
   playbook: PlaybookStep[];
+  /** 当前节点的内部子步骤 checklist（进度可见，层 2）。 */
+  nodeProgress: string[];
   preview: string;
   shouldConfirm: boolean;
   applied: false;

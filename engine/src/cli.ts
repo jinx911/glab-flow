@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { loadModel, currentNode } from './model.js';
+import { loadModel, currentNode, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
 import { toFacts } from './gitlab.js';
 import { renderStatusChange } from './render.js';
@@ -23,7 +23,7 @@ async function main() {
     case 'node': {
       const [type, ...labels] = args;
       const node = currentNode(model, type as 'story' | 'bug', labels);
-      console.log(JSON.stringify({ node }));
+      console.log(JSON.stringify({ node, progressSteps: progressStepsFor(model, node) }));
       break;
     }
     case 'validate': {

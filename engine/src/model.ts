@@ -43,3 +43,9 @@ export function returnTarget(model: StateMachine, type: IssueType, from: string,
 export function allowedTransitions(model: StateMachine, type: IssueType, from: string): Transition[] {
   return transitions(model, type).filter((t) => t.from === from);
 }
+
+/** 当前节点的内部子步骤 checklist（无则空数组）。 */
+export function progressStepsFor(model: StateMachine, node: string | null): string[] {
+  if (!node) return [];
+  return model.progressSteps?.[node] ?? [];
+}

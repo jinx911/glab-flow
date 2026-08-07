@@ -194,6 +194,20 @@ describe('transition — per-transition side-effect playbook', () => {
   });
 });
 
+describe('transition — node progress checklist (layer 2 visibility)', () => {
+  it('surfaces 开发中 sub-steps in nodeProgress and preview', () => {
+    const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true }));
+    expect(r.nodeProgress).toEqual(['技术方案', '编码实现', '自测', '代码评审']);
+    expect(r.preview).toContain('当前节点子步骤');
+    expect(r.preview).toContain('代码评审');
+  });
+  it('surfaces 草稿中 sub-steps (entry node)', () => {
+    const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::草稿中'], body: TABLE_BODY, fields: {} }));
+    expect(r.next).toBe('待评审');
+    expect(r.nodeProgress).toEqual(['需求澄清', '六清楚草稿']);
+  });
+});
+
 describe('transition — evidence smart prefill', () => {
   const NOTE = '## 状态变更\n- 测试完成日期：2026-08-05\n- 测试结论：通过\n- 回归范围或证据：回归通过\n';
   const rest = { 测试Assignee: '@qa', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' };

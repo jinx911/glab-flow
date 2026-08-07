@@ -1,5 +1,5 @@
 import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType, Transition, PlaybookStep } from './types.js';
-import { currentNode, transitionFor, allowedTransitions } from './model.js';
+import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
 import { buildForwardPlan } from './plan.js';
@@ -101,8 +101,9 @@ function scanFieldsFromNotes(notes: { body: string }[]): Map<string, string> {
   return map;
 }
 
-function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[]): string {
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
+  if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
   const code = playbook.filter((s) => !s.isWriteback);
   if (code.length) {
     lines.push(`动作包（代码侧，先于 Issue 写回）：\n${code.map((s, i) => `  ${i + 1}. ${s.desc}${s.subskill ? ` — ${s.subskill}` : ''}`).join('\n')}`);
@@ -134,7 +135,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
 
   if (dirtyReason) {
     return {
-      node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [], playbook: [],
+      node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
       validate: { ok: false, missing: [], reasons: [dirtyReason] },
       preview: dirtyReason, shouldConfirm: true, applied: false,
     };
@@ -147,7 +148,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (!tr) {
     const msg = `无可用转换：from=${current} to=${target ?? '(未指定且无默认下一节点)'}——检查 to 节点名或当前标签`;
     return {
-      node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [], playbook: [],
+      node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
       validate: { ok: false, missing: [], reasons: [msg] },
       preview: msg, shouldConfirm: true, applied: false,
     };
@@ -214,8 +215,9 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   const runMode = input.runMode ?? 'semi-auto';
   const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;
   const playbook = buildPlaybook(tr, input.config);
+  const nodeProgress = progressStepsFor(model, current);
   const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook);
+  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);
 
   return {
     node: current,
@@ -228,6 +230,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     validate,
     plan,
     playbook,
+    nodeProgress,
     preview,
     shouldConfirm,
     applied: false,
