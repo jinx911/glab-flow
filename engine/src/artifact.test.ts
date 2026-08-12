@@ -47,6 +47,8 @@ sha256: abc123
   it('rejects deployment evidence that misses automation or manual contract fields', () => {
     expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: automation', 'capability: jenkins-deploy', 'job: oa-service', 'branch: feature/42', 'environment: test', 'build: 123', 'version: test-v1'])], { kind: 'issue' })).toEqual([]);
     expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production'])], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass'])], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass', 'performed-at: 2026-08-12T10:00:00+00:00'])], { kind: 'issue' })).toEqual([]);
   });
 
   it('rejects MR review evidence with a failed outcome or incomplete strict fields', () => {
@@ -64,9 +66,9 @@ sha256: abc123
   it('rejects opaque note IDs and parses a complete manual deployment contract', () => {
     expect(parseArtifactReceipts([{ ...receipt(), id: 'note-99' }], { kind: 'issue' })).toEqual([]);
     expect(parseArtifactReceipts([receipt('deployment-evidence', [
-      'mode: manual', 'unavailable-reason: no Jenkins job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass',
+      'mode: manual', 'unavailable-reason: no Jenkins job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass', 'performed-at: 2026-08-12T09:30:00Z',
     ])], { kind: 'issue' })).toMatchObject([{
-      metadata: { mode: 'manual', deployedVersion: 'v1', verification: 'smoke-pass' },
+      metadata: { mode: 'manual', deployedVersion: 'v1', verification: 'smoke-pass', performedAt: '2026-08-12T09:30:00Z' },
     }]);
   });
 

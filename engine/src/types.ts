@@ -30,6 +30,7 @@ export interface ManualDeploymentEvidenceMetadata {
   deployedVersion: string;
   environment: string;
   verification: string;
+  performedAt: string;
 }
 
 export interface MrReviewEvidenceMetadata {

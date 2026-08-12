@@ -43,8 +43,9 @@ function receiptMetadata(kind: ArtifactKind, fields: Map<string, string>): Artif
       const unavailableReason = fields.get('unavailable-reason');
       const operator = fields.get('operator');
       const deployedVersion = fields.get('deployed-version');
-      if (!unavailableReason || !operator || !deployedVersion || !environment || !verification) return null;
-      return { mode, unavailableReason, operator, deployedVersion, environment, verification };
+      const performedAt = fields.get('performed-at');
+      if (!unavailableReason || !operator || !deployedVersion || !environment || !verification || !performedAt || observedAtTimestamp(performedAt) === undefined) return null;
+      return { mode, unavailableReason, operator, deployedVersion, environment, verification, performedAt };
     }
     return null;
   }
