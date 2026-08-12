@@ -133,6 +133,9 @@ describe('glab-flow process contracts', () => {
     expect(nodes).toMatch(/release-plan[\s\S]{0,80}父 Issue/);
     expect(nodes).toMatch(/mr-review[\s\S]{0,120}每个.*MR/);
     expect(nodes).toMatch(/不能.*父 Issue|父 Issue.*不能.*替代/);
+    expect(nodes).toMatch(/产物回执必须先于状态写回/);
+    expect(nodes).toMatch(/全部产物完成后才走「标签 \+ Assignee → 状态变更评论 → 最终 Issue 回读」/);
+    expect(nodes).not.toMatch(/状态写回之后才可变更标签/);
     expect(resume).toMatch(/artifactReceipts/);
     expect(resume).toMatch(/writebackAudit/);
     expect(resume).toMatch(/第一个未完成阶段|首个未完成阶段/);

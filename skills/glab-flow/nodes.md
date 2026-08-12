@@ -29,7 +29,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 | `mr-review` | 测试中 → 待发布 | **每个受影响 feature→master MR** | 总是；MR 清单为空或任一 MR 缺失即阻塞 |
 | `release-plan` | 待发布 → 生产验收中/生产验证中 | **父 Issue** | 总是 |
 
-`mr-review` 必须在每一个对应 MR 上新增并回读；父 Issue 的汇总仅供导航，**不能以父 Issue 评论替代 MR 回执**。其他种类不得写到 MR 来代替父 Issue。产物回执必须先于状态写回；状态写回之后才可变更标签。
+`mr-review` 必须在每一个对应 MR 上新增并回读；父 Issue 的汇总仅供导航，**不能以父 Issue 评论替代 MR 回执**。其他种类不得写到 MR 来代替父 Issue。产物回执必须先于状态写回；全部回执完成后，状态写回从**标签 + Assignee**开始，随后新增状态变更评论，最后回读 Issue。
 
 ### 数据型需求 profile
 
