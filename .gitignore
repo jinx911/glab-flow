@@ -1,5 +1,6 @@
 node_modules/
 engine/dist/
 .glab-flow/
+.worktrees/
 .DS_Store
 *.log
