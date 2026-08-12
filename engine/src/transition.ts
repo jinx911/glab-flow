@@ -106,7 +106,7 @@ function scanFieldsFromNotes(notes: { body: string }[]): Map<string, string> {
 
 function receiptLabel(receipt: ArtifactReceipt): string {
   const target = receipt.target.kind === 'issue' ? 'Issue' : `MR ${receipt.target.projectPath}!${receipt.target.iid}`;
-  return `${receipt.kind}（${target}，note=${receipt.noteId}）`;
+  return `${receipt.kind}（${target}，source=${receipt.source}，sha256=${receipt.sha256}，observedAt=${receipt.observedAt}，note=${receipt.noteId}）`;
 }
 
 function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], verifiedReceipts: ArtifactReceipt[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {

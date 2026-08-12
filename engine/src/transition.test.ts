@@ -65,6 +65,8 @@ describe('transition — artifact receipt gates', () => {
     }));
     expect(r.validate.ok).toBe(false);
     expect(r.missing.map((item) => item.field)).toContain('design');
+    expect(r.plan).toBeUndefined();
+    expect(r.shouldConfirm).toBe(true);
     expect(r.preview).toContain('design');
   });
 
@@ -83,6 +85,12 @@ describe('transition — artifact receipt gates', () => {
     expect(r.validate.ok).toBe(true);
     expect(r.verifiedReceipts.map((receipt) => receipt.noteId)).toEqual(['test-plan', 'api-review', 'web-review']);
     expect(r.preview).toContain('已验证回执');
+    expect(r.preview).toContain('Issue');
+    expect(r.preview).toContain('MR group/api!1');
+    expect(r.preview).toContain('MR group/web!2');
+    expect(r.preview).toContain('source=.glab-flow/42/test-plan.md');
+    expect(r.preview).toContain('sha256=api-review-sha');
+    expect(r.preview).toContain('observedAt=2026-08-12T10:00:00Z');
   });
 
   it('blocks 测试中→待发布 when one supplied MR lacks a review receipt', () => {
@@ -121,6 +129,19 @@ describe('transition — artifact receipt gates', () => {
     expect(dataBacked.missing.map((item) => item.field)).toContain('data-evidence');
   });
 
+  it('allows data-backed designs after design and data-evidence receipts are read back', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      ...withArtifactContext({
+        dataEvidenceProfile: 'data-backed',
+        issueNotes: [receiptNote('design'), receiptNote('data-evidence')],
+      }),
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.verifiedReceipts.map((receipt) => receipt.kind)).toEqual(['design', 'data-evidence']);
+  });
+
   it('requires deployment evidence only when the active playbook includes Jenkins', () => {
     const common = {
       labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
@@ -133,6 +154,16 @@ describe('transition — artifact receipt gates', () => {
     expect(withoutJenkins.validate.ok).toBe(true);
     expect(withJenkins.validate.ok).toBe(false);
     expect(withJenkins.missing.map((item) => item.field)).toContain('deployment-evidence');
+  });
+
+  it('allows Jenkins-active submission after deployment evidence is read back', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true, config: { jenkins: true },
+      ...withArtifactContext({ issueNotes: [receiptNote('deployment-evidence')] }),
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.verifiedReceipts.map((receipt) => receipt.kind)).toEqual(['deployment-evidence']);
   });
 
   it('blocks each-MR requirements when no MR targets were supplied', () => {
