@@ -118,6 +118,11 @@ export interface TransitionInput {
   closeIssue?: boolean;
   runMode?: RunMode;
   config?: { roles?: Record<string, string>; deployBranch?: string; jenkins?: boolean };
+  artifactContext?: {
+    dataEvidenceProfile?: 'standard' | 'data-backed';
+    issueNotes?: ReceiptNote[];
+    mergeRequests?: Array<{ projectPath: string; iid: number; notes: ReceiptNote[] }>;
+  };
 }
 
 /** `transition` 命令输出：一次调用产出节点/证据/预填/校验/计划/预览/是否需确认。引擎永不应用（applied:false）。 */
@@ -131,6 +136,7 @@ export interface TransitionOutput {
   missing: MissingItem[];
   payload?: Payload;
   validate: GuardResult;
+  verifiedReceipts: ArtifactReceipt[];
   plan?: WritePlan;
   playbook: PlaybookStep[];
   /** 当前节点的内部子步骤 checklist（进度可见，层 2）。 */

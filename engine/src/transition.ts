@@ -1,8 +1,9 @@
-import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType, Transition, PlaybookStep } from './types.js';
+import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType, Transition, PlaybookStep, ArtifactReceipt } from './types.js';
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
 import { buildForwardPlan } from './plan.js';
+import { parseArtifactReceipts, validateArtifactRequirements } from './artifact.js';
 
 const ROLES: ReadonlySet<string> = new Set(['产品', '研发', '测试']);
 const TERMINAL = new Set(['已完成']);
@@ -103,7 +104,12 @@ function scanFieldsFromNotes(notes: { body: string }[]): Map<string, string> {
   return map;
 }
 
-function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
+function receiptLabel(receipt: ArtifactReceipt): string {
+  const target = receipt.target.kind === 'issue' ? 'Issue' : `MR ${receipt.target.projectPath}!${receipt.target.iid}`;
+  return `${receipt.kind}（${target}，note=${receipt.noteId}）`;
+}
+
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], verifiedReceipts: ArtifactReceipt[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
   const code = playbook.filter((s) => !s.isWriteback);
@@ -115,6 +121,7 @@ function previewText(from: string, to: string, payload: Payload, validateOk: boo
   lines.push(`评论：将发表「## 状态变更」结构化评论（由 render 生成）`);
   lines.push(`关闭 Issue：${payload.closeIssue ? '是（终态原子）' : '否'}`);
   lines.push(`校验：${validateOk ? '✓ 通过' : '✗ 未通过（见 reasons）'}`);
+  if (verifiedReceipts.length) lines.push(`已验证回执：${verifiedReceipts.map(receiptLabel).join('；')}`);
   if (missing.length) lines.push(`缺口：\n${missing.map((m) => `  - ${m.field} — ${m.hint}`).join('\n')}`);
   if (hardGate) lines.push('hard_gate：必须人工确认（humanConfirmed），无论 run 模式');
   lines.push(`run 模式：${runMode} → ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
@@ -138,7 +145,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (dirtyReason) {
     return {
       node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
-      validate: { ok: false, missing: [], reasons: [dirtyReason] },
+      validate: { ok: false, missing: [], reasons: [dirtyReason] }, verifiedReceipts: [],
       preview: dirtyReason, shouldConfirm: true, applied: false,
     };
   }
@@ -151,7 +158,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     const msg = `无可用转换：from=${current} to=${target ?? '(未指定且无默认下一节点)'}——检查 to 节点名或当前标签`;
     return {
       node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
-      validate: { ok: false, missing: [], reasons: [msg] },
+      validate: { ok: false, missing: [], reasons: [msg] }, verifiedReceipts: [],
       preview: msg, shouldConfirm: true, applied: false,
     };
   }
@@ -202,7 +209,29 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     state: input.state,
     hasJiraSourceLabel: input.labels.includes('source::jira'),
   };
-  const validate = validateTransition(model, facts, payload);
+  const baseValidate = validateTransition(model, facts, payload);
+  const playbook = buildPlaybook(tr, input.config);
+  const artifactContext = input.artifactContext;
+  const issueReceipts = parseArtifactReceipts(artifactContext?.issueNotes ?? [], { kind: 'issue' });
+  const mergeRequests = artifactContext?.mergeRequests ?? [];
+  const mrReceipts = mergeRequests.flatMap((mergeRequest) => parseArtifactReceipts(
+    mergeRequest.notes,
+    { kind: 'mr', projectPath: mergeRequest.projectPath, iid: mergeRequest.iid },
+  ));
+  const artifactValidation = validateArtifactRequirements(
+    tr.requiredArtifacts ?? [],
+    [...issueReceipts, ...mrReceipts],
+    mergeRequests.map(({ projectPath, iid }) => ({ projectPath, iid })),
+    {
+      dataEvidenceProfile: artifactContext?.dataEvidenceProfile ?? 'standard',
+      jenkinsActive: playbook.some((step) => step.action === 'trigger_jenkins'),
+    },
+  );
+  const validate = {
+    ok: baseValidate.ok && artifactValidation.missing.length === 0,
+    missing: [...baseValidate.missing, ...artifactValidation.missing.map((item) => item.field)],
+    reasons: [...baseValidate.reasons, ...artifactValidation.missing.map((item) => `缺少回执 ${item.field}：${item.hint}`)],
+  };
 
   // 缺口（必填未填）带 hint
   const missing: MissingItem[] = [];
@@ -213,13 +242,13 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
   }
+  missing.push(...artifactValidation.missing);
 
   const runMode = input.runMode ?? 'semi-auto';
   const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;
-  const playbook = buildPlaybook(tr, input.config);
   const nodeProgress = progressStepsFor(model, current);
   const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);
+  const preview = previewText(current, tr.to, payload, validate.ok, missing, artifactValidation.receipts, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);
 
   return {
     node: current,
@@ -230,6 +259,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     missing,
     payload,
     validate,
+    verifiedReceipts: artifactValidation.receipts,
     plan,
     playbook,
     nodeProgress,

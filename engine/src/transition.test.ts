@@ -21,6 +21,139 @@ const TEST_DONE_FIELDS = {
   feature分支MR评审结论: '通过，无 HIGH 残留',
 };
 
+const DEVELOPMENT_START_FIELDS = {
+  技术方案评审通过记录或免评审结论: '通过',
+  实际开始日期: '2026-08-07',
+  研发Assignee: '@dev',
+  计划提测时间: '2026-08-08',
+  计划上线时间: '2026-08-09',
+};
+
+const TEST_SUBMISSION_FIELDS = {
+  代码评审与自测结论: '通过',
+  提测日期: '2026-08-07',
+  研发Assignee: '@dev',
+  可测试版本或环境: 'test-v1',
+  测试说明: '说明',
+};
+
+function receiptNote(kind: string, id = kind) {
+  return {
+    id,
+    observedAt: '2026-08-12T10:00:00Z',
+    body: `<!-- glab-flow:artifact-receipt:v1\nkind: ${kind}\nsource: .glab-flow/42/${kind}.md\nsha256: ${id}-sha\n-->`,
+  };
+}
+
+function withArtifactContext(artifactContext: NonNullable<TransitionInput['artifactContext']>): Pick<TransitionInput, 'artifactContext'> {
+  return { artifactContext };
+}
+
+function pendingReleaseReceipts() {
+  return {
+    issueNotes: [receiptNote('test-plan')],
+    mergeRequests: [{ projectPath: 'group/api', iid: 1, notes: [receiptNote('mr-review')] }],
+  };
+}
+
+describe('transition — artifact receipt gates', () => {
+  it('blocks 已评审→开发中 with local-only design when all fields are valid', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      ...withArtifactContext({ issueNotes: [] }),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((item) => item.field)).toContain('design');
+    expect(r.preview).toContain('design');
+  });
+
+  it('allows 测试中→待发布 only after the Issue test plan and every MR review are read back', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: TEST_DONE_FIELDS, datesConfirmed: true,
+      ...withArtifactContext({
+        issueNotes: [receiptNote('test-plan')],
+        mergeRequests: [
+          { projectPath: 'group/api', iid: 1, notes: [receiptNote('mr-review', 'api-review')] },
+          { projectPath: 'group/web', iid: 2, notes: [receiptNote('mr-review', 'web-review')] },
+        ],
+      }),
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.verifiedReceipts.map((receipt) => receipt.noteId)).toEqual(['test-plan', 'api-review', 'web-review']);
+    expect(r.preview).toContain('已验证回执');
+  });
+
+  it('blocks 测试中→待发布 when one supplied MR lacks a review receipt', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: TEST_DONE_FIELDS, datesConfirmed: true,
+      ...withArtifactContext({
+        issueNotes: [receiptNote('test-plan')],
+        mergeRequests: [
+          { projectPath: 'group/api', iid: 1, notes: [receiptNote('mr-review')] },
+          { projectPath: 'group/web', iid: 2, notes: [] },
+        ],
+      }),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((item) => item.field)).toContain('mr-review:group/web!2');
+    expect(r.preview).toContain('mr-review:group/web!2');
+  });
+
+  it('requires data evidence only for data-backed designs', () => {
+    const common = {
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      issueNotes: [receiptNote('design')],
+    };
+    const standard = runTransition(model, baseInput({
+      ...common,
+      ...withArtifactContext({ dataEvidenceProfile: 'standard', issueNotes: common.issueNotes }),
+    }));
+    const dataBacked = runTransition(model, baseInput({
+      ...common,
+      ...withArtifactContext({ dataEvidenceProfile: 'data-backed', issueNotes: common.issueNotes }),
+    }));
+    expect(standard.validate.ok).toBe(true);
+    expect(dataBacked.validate.ok).toBe(false);
+    expect(dataBacked.missing.map((item) => item.field)).toContain('data-evidence');
+  });
+
+  it('requires deployment evidence only when the active playbook includes Jenkins', () => {
+    const common = {
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+    };
+    const withoutJenkins = runTransition(model, baseInput(common));
+    const withJenkins = runTransition(model, baseInput({
+      ...common, config: { jenkins: true }, ...withArtifactContext({ issueNotes: [] }),
+    }));
+    expect(withoutJenkins.validate.ok).toBe(true);
+    expect(withJenkins.validate.ok).toBe(false);
+    expect(withJenkins.missing.map((item) => item.field)).toContain('deployment-evidence');
+  });
+
+  it('blocks each-MR requirements when no MR targets were supplied', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: TEST_DONE_FIELDS, datesConfirmed: true,
+      ...withArtifactContext({ issueNotes: [receiptNote('test-plan')], mergeRequests: [] }),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((item) => item.field)).toContain('mr-review');
+  });
+
+  it('keeps transitions without receipt requirements valid', () => {
+    const r = runTransition(model, baseInput({
+      type: 'bug', labels: ['type::bug', 'status::已确认缺陷'], body: TABLE_BODY,
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.verifiedReceipts).toEqual([]);
+  });
+});
+
 describe('transition — dirty detection', () => {
   it('flags 0 status labels', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story'] }));
@@ -75,7 +208,7 @@ describe('transition — G11 normalization flows through', () => {
   const f = (val: string) => runTransition(model, baseInput({
     labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
     fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: val, feature分支MR评审结论: '通过，无 HIGH 残留' },
-    datesConfirmed: true,
+    datesConfirmed: true, ...withArtifactContext(pendingReleaseReceipts()),
   }));
   it('accepts 已验证', () => expect(f('已验证').validate.ok).toBe(true));
   it('accepts 是(无阻塞)', () => expect(f('是(无阻塞)').validate.ok).toBe(true));
@@ -106,7 +239,7 @@ describe('transition — missing fields carry hints', () => {
 
 describe('transition — plan + preview + shouldConfirm', () => {
   it('builds forward plan when valid and previews the change', () => {
-    const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true }));
+    const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true, ...withArtifactContext(pendingReleaseReceipts()) }));
     expect(r.validate.ok).toBe(true);
     expect(r.plan?.ops.some((o) => o.kind === 'add_label')).toBe(true);
     expect(r.plan?.ops.some((o) => o.kind === 'remove_label')).toBe(true);
@@ -122,7 +255,7 @@ describe('transition — plan + preview + shouldConfirm', () => {
     expect(r.shouldConfirm).toBe(true);
   });
   it('full-auto skips confirm when ok and not hardGate', () => {
-    const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true, runMode: 'full-auto' }));
+    const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true, runMode: 'full-auto', ...withArtifactContext(pendingReleaseReceipts()) }));
     expect(r.validate.ok).toBe(true);
     expect(r.shouldConfirm).toBe(false);
   });
@@ -130,7 +263,7 @@ describe('transition — plan + preview + shouldConfirm', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
       fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
-      datesConfirmed: true, humanConfirmed: true, runMode: 'full-auto',
+      datesConfirmed: true, humanConfirmed: true, runMode: 'full-auto', ...withArtifactContext({ issueNotes: [receiptNote('release-plan')] }),
     }));
     expect(r.validate.ok).toBe(true);
     expect(r.shouldConfirm).toBe(true);
@@ -223,7 +356,7 @@ describe('transition — evidence smart prefill', () => {
   it('prefills required fields from note "- 字段：值" lines', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-      notes: [{ body: NOTE }], fields: rest, datesConfirmed: true,
+      notes: [{ body: NOTE }], fields: rest, datesConfirmed: true, ...withArtifactContext(pendingReleaseReceipts()),
     }));
     expect(r.payload?.fields.测试完成日期).toBe('2026-08-05');
     expect(r.prefilled.测试完成日期).toContain('2026-08-05');
