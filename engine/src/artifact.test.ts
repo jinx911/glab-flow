@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { parseArtifactReceipts, validateArtifactRequirements } from './artifact.js';
 
-const receipt = (kind = 'design') => ({
+function evidenceLines(kind: string): string[] {
+  if (kind === 'deployment-evidence') return ['mode: automation', 'deployment: test-v1', 'verification: smoke-pass'];
+  if (kind === 'mr-review') return ['outcome: approved', 'method: full-diff', 'high-findings: none'];
+  return [];
+}
+
+const receipt = (kind = 'design', evidence = evidenceLines(kind)) => ({
   id: '99', observedAt: '2026-08-12T10:00:00Z',
   body: `<!-- glab-flow:artifact-receipt:v1
 kind: ${kind}
 source: .glab-flow/42/spec/design.md
 sha256: abc123
+${evidence.join('\n')}
 -->`,
 });
 
@@ -37,6 +44,15 @@ sha256: abc123
     expect(parseArtifactReceipts([receipt('unrecognized-artifact')], { kind: 'issue' })).toEqual([]);
   });
 
+  it('rejects incomplete deployment and MR review receipt evidence', () => {
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: automation'])], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([receipt('mr-review', ['outcome: approved', 'method: full-diff'])], { kind: 'mr', projectPath: 'group/api', iid: 1 })).toEqual([]);
+  });
+
+  it('rejects a receipt with an invalid observed timestamp', () => {
+    expect(parseArtifactReceipts([{ ...receipt(), observedAt: 'not-a-timestamp' }], { kind: 'issue' })).toEqual([]);
+  });
+
   it('requires an mr-review receipt for every supplied MR target', () => {
     const result = validateArtifactRequirements(
       [{ kind: 'mr-review', target: 'each-mr' }],
@@ -57,6 +73,17 @@ sha256: abc123
       [],
     );
     expect(result.receipts).toMatchObject([{ noteId: 'new' }]);
+  });
+
+  it('breaks same-timestamp ties by noteId regardless of input order', () => {
+    const target = { kind: 'issue' } as const;
+    const parsed = parseArtifactReceipts([
+      { ...receipt(), id: 'a', observedAt: '2026-08-12T10:00:00Z' },
+      { ...receipt(), id: 'b', observedAt: '2026-08-12T10:00:00Z' },
+    ], target);
+    const requirements = [{ kind: 'design' as const, target: 'issue' as const }];
+    expect(validateArtifactRequirements(requirements, parsed, []).receipts[0]?.noteId).toBe('b');
+    expect(validateArtifactRequirements(requirements, [...parsed].reverse(), []).receipts[0]?.noteId).toBe('b');
   });
 
   it('activates conditional requirements only for their matching profiles', () => {

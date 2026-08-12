@@ -12,6 +12,15 @@ export interface ReceiptNote {
   url?: string;
 }
 
+export interface ArtifactReceiptMetadata {
+  mode?: 'automation' | 'manual';
+  deployment?: string;
+  verification?: string;
+  outcome?: string;
+  method?: string;
+  highFindings?: 'none';
+}
+
 export interface ArtifactReceipt {
   kind: ArtifactKind;
   target: ArtifactTarget;
@@ -20,6 +29,7 @@ export interface ArtifactReceipt {
   noteId: string;
   noteUrl?: string;
   observedAt: string;
+  metadata: ArtifactReceiptMetadata;
 }
 
 export interface Transition {

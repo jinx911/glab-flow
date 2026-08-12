@@ -1,4 +1,4 @@
-import type { ArtifactKind, ArtifactReceipt, ArtifactRequirement, ArtifactTarget, MissingItem, ReceiptNote } from './types.js';
+import type { ArtifactKind, ArtifactReceipt, ArtifactReceiptMetadata, ArtifactRequirement, ArtifactTarget, MissingItem, ReceiptNote } from './types.js';
 
 const ARTIFACT_KINDS = new Set<ArtifactKind>([
   'proposal', 'design', 'data-evidence', 'deployment-evidence', 'test-plan', 'mr-review', 'release-plan',
@@ -16,12 +16,31 @@ export interface ArtifactValidationResult {
 
 export type MergeRequestTarget = { projectPath: string; iid: number };
 
+function receiptMetadata(kind: ArtifactKind, fields: Map<string, string>): ArtifactReceiptMetadata | undefined {
+  if (kind === 'deployment-evidence') {
+    const mode = fields.get('mode');
+    const deployment = fields.get('deployment');
+    const verification = fields.get('verification');
+    if ((mode !== 'automation' && mode !== 'manual') || !deployment || !verification) return undefined;
+    return { mode, deployment, verification };
+  }
+  if (kind === 'mr-review') {
+    const outcome = fields.get('outcome');
+    const method = fields.get('method');
+    const highFindings = fields.get('high-findings');
+    if (!outcome || !method || highFindings !== 'none') return undefined;
+    return { outcome, method, highFindings };
+  }
+  return {};
+}
+
 /** Parses exact v1 receipt comment markers from Leader-provided readback notes. */
 export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarget): ArtifactReceipt[] {
   const receipts: ArtifactReceipt[] = [];
   const marker = /<!-- glab-flow:artifact-receipt:v1\r?\n([\s\S]*?)-->/g;
 
   for (const note of notes) {
+    if (Number.isNaN(Date.parse(note.observedAt))) continue;
     for (const match of note.body.matchAll(marker)) {
       const fields = new Map<string, string>();
       const content = match[1];
@@ -36,6 +55,8 @@ export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarg
       const source = fields.get('source')?.trim();
       const sha256 = fields.get('sha256')?.trim();
       if (!kind || !ARTIFACT_KINDS.has(kind as ArtifactKind) || !source || !sha256) continue;
+      const metadata = receiptMetadata(kind as ArtifactKind, fields);
+      if (!metadata) continue;
 
       receipts.push({
         kind: kind as ArtifactKind,
@@ -45,6 +66,7 @@ export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarg
         noteId: note.id,
         ...(note.url ? { noteUrl: note.url } : {}),
         observedAt: note.observedAt,
+        metadata,
       });
     }
   }
@@ -57,6 +79,12 @@ function targetKey(target: ArtifactTarget): string {
 
 function receiptKey(receipt: ArtifactReceipt): string {
   return `${receipt.kind}:${targetKey(receipt.target)}`;
+}
+
+function isLater(receipt: ArtifactReceipt, previous: ArtifactReceipt): boolean {
+  const observedAt = Date.parse(receipt.observedAt);
+  const previousObservedAt = Date.parse(previous.observedAt);
+  return observedAt > previousObservedAt || (observedAt === previousObservedAt && receipt.noteId > previous.noteId);
 }
 
 function isActive(requirement: ArtifactRequirement, options: ArtifactValidationOptions): boolean {
@@ -83,9 +111,10 @@ export function validateArtifactRequirements(
 ): ArtifactValidationResult {
   const latest = new Map<string, ArtifactReceipt>();
   for (const receipt of receipts) {
+    if (Number.isNaN(Date.parse(receipt.observedAt))) continue;
     const key = receiptKey(receipt);
     const previous = latest.get(key);
-    if (!previous || receipt.observedAt >= previous.observedAt) latest.set(key, receipt);
+    if (!previous || isLater(receipt, previous)) latest.set(key, receipt);
   }
 
   const verified = new Map<string, ArtifactReceipt>();

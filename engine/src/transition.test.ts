@@ -37,11 +37,17 @@ const TEST_SUBMISSION_FIELDS = {
   测试说明: '说明',
 };
 
-function receiptNote(kind: string, id = kind) {
+function evidenceLines(kind: string): string[] {
+  if (kind === 'deployment-evidence') return ['mode: automation', 'deployment: test-v1', 'verification: smoke-pass'];
+  if (kind === 'mr-review') return ['outcome: approved', 'method: full-diff', 'high-findings: none'];
+  return [];
+}
+
+function receiptNote(kind: string, id = kind, evidence = evidenceLines(kind)) {
   return {
     id,
     observedAt: '2026-08-12T10:00:00Z',
-    body: `<!-- glab-flow:artifact-receipt:v1\nkind: ${kind}\nsource: .glab-flow/42/${kind}.md\nsha256: ${id}-sha\n-->`,
+    body: `<!-- glab-flow:artifact-receipt:v1\nkind: ${kind}\nsource: .glab-flow/42/${kind}.md\nsha256: ${id}-sha\n${evidence.join('\n')}\n-->`,
   };
 }
 
@@ -164,6 +170,29 @@ describe('transition — artifact receipt gates', () => {
     }));
     expect(r.validate.ok).toBe(true);
     expect(r.verifiedReceipts.map((receipt) => receipt.kind)).toEqual(['deployment-evidence']);
+  });
+
+  it('blocks Jenkins-active submission with incomplete deployment evidence', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true, config: { jenkins: true },
+      ...withArtifactContext({ issueNotes: [receiptNote('deployment-evidence', 'incomplete-deploy', ['mode: automation'])] }),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((item) => item.field)).toContain('deployment-evidence');
+  });
+
+  it('blocks G14 when an MR review receipt lacks high-findings', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: TEST_DONE_FIELDS, datesConfirmed: true,
+      ...withArtifactContext({
+        issueNotes: [receiptNote('test-plan')],
+        mergeRequests: [{ projectPath: 'group/api', iid: 1, notes: [receiptNote('mr-review', 'incomplete-review', ['outcome: approved', 'method: full-diff'])] }],
+      }),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((item) => item.field)).toContain('mr-review:group/api!1');
   });
 
   it('blocks each-MR requirements when no MR targets were supplied', () => {
