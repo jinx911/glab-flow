@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { parseArtifactReceipts } from './artifact.js';
 
 const PROJECT_ROOT = process.cwd();
 const ENGINE_SRC = 'engine/src';
@@ -152,6 +153,66 @@ describe('glab-flow process contracts', () => {
     expect(tools).toMatch(/能力发现/);
   });
 
+  it('publishes executable receipt templates and supplies readback context to transition', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const gate = readProjectFile('skills/glab-flow/gate.md');
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const specAuthor = readProjectFile('skills/glab-flow/sub-skills/spec-author.md');
+    const testDesign = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
+    const mrReview = readProjectFile('skills/glab-flow/sub-skills/mr-review.md');
+    const jenkinsDeploy = readProjectFile('skills/glab-flow/sub-skills/jenkins-deploy.md');
+    const releaseCheck = readProjectFile('agents/release-check.md');
+
+    // The parser is deliberately strict; the user-facing canonical templates must
+    // therefore name every required machine field instead of leaving an executable
+    // ellipsis for an Agent to guess.
+    expect(nodes).toMatch(/### 唯一可执行的回执模板/);
+    expect(nodes).toMatch(/kind: design/);
+    expect(nodes).toMatch(/source: \.glab-flow\/42\/spec\/design\.md/);
+    expect(nodes).toMatch(/sha256: a{64}/);
+    expect(nodes).toMatch(/outcome: passed[\s\S]{0,120}method: mr-review-lite[\s\S]{0,120}high-findings: none/);
+    expect(nodes).toMatch(/mode: automation[\s\S]{0,500}capability:[\s\S]{0,500}job:[\s\S]{0,500}branch:[\s\S]{0,500}environment:[\s\S]{0,500}build:[\s\S]{0,500}version:[\s\S]{0,500}verification:/);
+    expect(nodes).toMatch(/mode: manual[\s\S]{0,500}unavailable-reason:[\s\S]{0,500}operator:[\s\S]{0,500}performed-at: 2026-08-12T09:30:00Z[\s\S]{0,500}deployed-version:[\s\S]{0,500}environment:[\s\S]{0,500}verification:/);
+    expect(nodes).not.toMatch(/artifact-receipt:v1 \.\.\./);
+
+    for (const doc of [skill, gate, specAuthor, testDesign, mrReview, jenkinsDeploy, releaseCheck]) {
+      expect(doc).toMatch(/唯一可执行的回执模板|nodes\.md.*回执模板|回执模板.*nodes\.md/);
+    }
+
+    for (const doc of [skill, gate]) {
+      expect(doc).toMatch(/artifactContext/);
+      expect(doc).toMatch(/projectId/);
+      expect(doc).toMatch(/issueNotes/);
+      expect(doc).toMatch(/mergeRequests/);
+      expect(doc).toMatch(/projectPath/);
+      expect(doc).toMatch(/dataEvidenceProfile/);
+      expect(doc).toMatch(/回读.*artifactContext|artifactContext.*回读/);
+      expect(doc).toMatch(/state.*不.*替代|缓存.*不.*替代/);
+    }
+
+    // release_check prepares the plan early, but only the release transition gates
+    // on its re-read receipt. The earlier testing transition must remain ungated.
+    expect(nodes).toMatch(/测试中→待发布[\s\S]{0,900}产生.*release-plan[\s\S]{0,900}不.*要求.*release-plan.*回执/);
+    expect(nodes).toMatch(/待发布→生产验收中[\s\S]{0,900}release-plan.*回执/);
+    expect(releaseCheck).toMatch(/测试中→待发布.*产生/);
+    expect(releaseCheck).toMatch(/待发布→生产验收中[\s\S]{0,240}回读.*release-plan|待发布→生产验收中[\s\S]{0,240}release-plan.*回读/);
+  });
+
+  it('keeps every canonical marker parseable by the runtime receipt parser', () => {
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const markers = [...nodes.matchAll(/<!-- glab-flow:artifact-receipt:v1\r?\n[\s\S]*?-->/g)].map((match) => match[0]);
+    const target = { kind: 'issue', projectId: 'template-project', iid: 1 } as const;
+    const receipts = markers.flatMap((body, index) => parseArtifactReceipts([{
+      id: String(index + 1),
+      observedAt: '2026-08-12T10:00:00Z',
+      body,
+    }], target));
+
+    expect(receipts.map((receipt) => receipt.kind)).toEqual([
+      'design', 'mr-review', 'deployment-evidence', 'deployment-evidence',
+    ]);
+  });
+
   it('requires code evidence before review-preview blocks on existing system behavior', () => {
     const reviewPreview = readProjectFile('agents/review-preview.md');
     const tools = readProjectFile('skills/glab-flow/tools.md');
@@ -203,7 +264,13 @@ describe('glab-flow process contracts', () => {
   });
 
   it('keeps reusable docs free of issue-specific identifiers', () => {
-    const combinedDocs = REUSABLE_DOCS.map(readProjectFile).join('\n');
+    // Canonical receipt markers deliberately contain parser-valid synthetic values
+    // (including UTC timestamps). They are templates, not run output; all text
+    // outside such markers must remain free of run-specific identifiers.
+    const combinedDocs = REUSABLE_DOCS
+      .map(readProjectFile)
+      .join('\n')
+      .replace(/<!-- glab-flow:artifact-receipt:v1\r?\n[\s\S]*?-->/g, '');
 
     assertNoPattern(combinedDocs, [
       /issues\/\d+/,

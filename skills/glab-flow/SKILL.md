@@ -53,7 +53,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | 命令 | 作用 |
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
-| `transition` | **一键流转（首选）**：stdin `{type,iid,labels,body,notes,state,to?,fields?,…,runMode?,config?}` → 一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,preview,shouldConfirm}`。把下面 8 步里的 6 步确定性计算（推导/抽证据/查契约/预填/校验/建计划/预览）全收拢 |
+| `transition` | **一键流转（首选）**：stdin 必须包含普通 Issue 字段和 `artifactContext`（`projectId`、回读的 `issueNotes`、受影响 MR 的 `mergeRequests`、`dataEvidenceProfile`）；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,preview,shouldConfirm}`。把下面 8 步里的 6 步确定性计算（推导/抽证据/查契约/预填/校验/建计划/预览）全收拢 |
 | `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload}` → `{ok,missing,reasons}` |
 | `render` | 渲染评论正文 |
 | `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload}` |
@@ -98,8 +98,8 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 每个节点用 `transition` 一次算完确定性部分，Leader 只做「读 → 确认 → 写」三件事（门禁细节见 `gate.md`）：
 
-1. **读状态（2 次只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取评论。读哪条路径见上文「GitLab 读写」。
-2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
+1. **读状态与回执目标（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论；有受影响 MR 时，逐个读取该 MR 的 notes。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读这些目标，不能以 state 缓存替代。
+2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields 和完整 `artifactContext` 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。`artifactContext` **必须**含 config 的 `projectId`、刚回读的 `issueNotes`、每个受影响 MR 的 `{projectPath, iid, notes}` 以及显式的 `dataEvidenceProfile`。MR 不适用时 `mergeRequests` 传空数组，绝不省略其它字段。引擎一次产出：
    - `node` / `next` / `dirty`（脏：0/≥2 状态标签，或已 closed 但非终态 → 停，见 `resume.md`）
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
@@ -107,8 +107,8 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist，进度可见）+ `preview`（散文 diff）+ `shouldConfirm`
 3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
-   - 正式产物不能只留在本地：每一个 `proposal`、`design`、`test-plan`、`release-plan` 都必须先追加到**父 Issue** 的产物回执；`mr-review` 必须追加到**每一个对应 feature→master MR**，父 Issue 的汇总不能替代 MR 回执。回执使用稳定标记 `<!-- glab-flow:artifact-receipt:v1 ... -->`，包含 `kind`、`source`、`sha256` 与可读摘要。完整目标映射、数据型与部署型附加证据见 `nodes.md`。
-   - **Agent 无关的固定回执序列**：先生成本地产物并计算 SHA-256 → 向声明的目标**新增**回执评论 → 回读同一 Issue/MR → 解析 marker、kind、source、SHA-256 → 用纯计算 `state-receipt` 写入已验证 state 缓存 → 才能用 `progress` 标记关联子步骤完成。任何 Agent（包括 Codex、Claude Code 或人工 Leader）都必须执行此序列；本地文件存在不等于完成。
+   - 正式产物不能只留在本地：在其声明的**门禁转换**前，每一个 `proposal`、`design`、`test-plan`、`release-plan` 都必须追加到**父 Issue**的回执；`mr-review` 必须追加到**每一个对应 feature→master MR**，父 Issue 的汇总不能替代 MR 回执。回执必须逐字采用 `nodes.md`「唯一可执行的回执模板」的 `<!-- glab-flow:artifact-receipt:v1` marker，其中列出基础的 `kind`、`source`、`sha256` 以及 MR/部署的全部严格字段。`release-plan` 在测试中→待发布提前产生，但只在待发布→生产验收中/生产验证中的最终状态写回前首次要求并回读回执，不得倒逼前一转换。
+   - **Agent 无关的固定回执序列**：先生成本地产物并计算 SHA-256 → 向声明的目标**新增**回执评论 → 回读同一 Issue/MR → 解析 `nodes.md`「唯一可执行的回执模板」的 marker/字段 → 将**这些刚回读的 notes**放入下一次 `transition.artifactContext` → 用纯计算 `state-receipt` 写入已验证 state 缓存 → 才能用 `progress` 标记关联子步骤完成。任何 Agent（包括 Codex、Claude Code 或人工 Leader）都必须执行此序列；本地文件或 state 缓存存在不等于完成。
    - 所有代码侧动作和全部产物回执均已回读后，才执行末步 `issue_writeback`。状态写回严格串行：**标签 + Assignee → 状态变更评论 →（终态时 close）→ 最终 Issue 回读**。每一阶段都以 `state-writeback` 记录成功或失败，不能并发、不能跳过。
    - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
    - 任何回执、标签/Assignee、状态评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。

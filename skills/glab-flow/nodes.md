@@ -17,7 +17,89 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 ## 正式产物回执（完成前必须回读）
 
-本地 `.glab-flow/<iid>/spec/` 只是工作副本；正式产物只有在 GitLab 目标上**新增回执、回读并解析成功**后才可标记完成。所有 Agent 使用同一 marker：`<!-- glab-flow:artifact-receipt:v1 ... -->`，其中至少含 `kind`、`source`、`sha256`，并在评论正文提供人工可读的摘要。Leader 将回读得到的 Note ID/时间写入派生 state 缓存后，才可用 `progress` 标记子步骤完成。
+本地 `.glab-flow/<iid>/spec/` 只是工作副本；正式产物只有在 GitLab 目标上**新增回执、回读并解析成功**后才可标记完成。所有 Agent 必须使用下方「唯一可执行的回执模板」：marker 内的基础字段始终是 `kind`、`source`、`sha256`，并在评论正文提供人工可读的摘要。Leader 将回读得到的 Note ID/时间写入派生 state 缓存后，才可用 `progress` 标记子步骤完成。
+
+### 唯一可执行的回执模板
+
+以下是 `artifact.ts` 能解析的规范评论。复制相应的完整结构并替换示例值；不得省略字段、改名字段或用省略号代替字段。`source` 是本次产物相对 `<workspace.root>` 的路径，`sha256` 是该文件的完整 SHA-256；在 marker 后追加面向人的摘要即可。
+
+**普通父 Issue 产物**（`proposal`、`design`、`data-evidence`、`test-plan` 或 `release-plan` 只替换 `kind` 与实际文件路径）：
+
+```markdown
+<!-- glab-flow:artifact-receipt:v1
+kind: design
+source: .glab-flow/42/spec/design.md
+sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+-->
+
+## 产物回执：技术方案
+
+已生成并供本 Issue 评审。
+```
+
+**MR 评审**（必须写在该 MR，不是父 Issue）：
+
+```markdown
+<!-- glab-flow:artifact-receipt:v1
+kind: mr-review
+source: .glab-flow/42/reviews/group-api!17.md
+sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+outcome: passed
+method: mr-review-lite
+high-findings: none
+-->
+
+## 产物回执：MR 评审
+
+group/api!17 已通过评审，无 CRITICAL/HIGH 残留。
+```
+
+`method` 只允许 `mr-review-lite` 或 `code-review`；`outcome` 必须为 `passed`，`high-findings` 必须为 `none`。
+
+**自动化部署证据**：
+
+```markdown
+<!-- glab-flow:artifact-receipt:v1
+kind: deployment-evidence
+source: .glab-flow/42/deployment/test-oa-service.md
+sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+mode: automation
+capability: jenkins-deploy
+job: oa-service
+branch: feature/42
+environment: test
+build: 123
+version: test-v1
+verification: smoke-pass
+-->
+
+## 产物回执：自动化部署
+
+测试环境构建已验证。
+```
+
+**手工部署降级证据**：
+
+```markdown
+<!-- glab-flow:artifact-receipt:v1
+kind: deployment-evidence
+source: .glab-flow/42/deployment/production-manual.md
+sha256: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+mode: manual
+unavailable-reason: Jenkins job access unavailable
+operator: @release-operator
+performed-at: 2026-08-12T09:30:00Z
+deployed-version: v1.4.0
+environment: production
+verification: production-smoke-pass
+-->
+
+## 产物回执：手工部署
+
+已由发布负责人完成生产部署并验证。
+```
+
+`performed-at` 必须是 UTC 的 `Z` 结尾时间，例如上例；它不是 Issue 评论创建时间的替代品。
 
 | 产物 kind | 产生节点/转换 | 唯一回执目标 | 条件 |
 |---|---|---|---|
@@ -27,7 +109,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 | `deployment-evidence` | 开发中 → 测试中 | **父 Issue** | playbook 启用 Jenkins |
 | `test-plan` | 测试中 → 待发布 | **父 Issue** | 总是 |
 | `mr-review` | 测试中 → 待发布 | **每个受影响 feature→master MR** | 总是；MR 清单为空或任一 MR 缺失即阻塞 |
-| `release-plan` | 待发布 → 生产验收中/生产验证中 | **父 Issue** | 总是 |
+| `release-plan` | 测试中 → 待发布时产生；待发布 → 生产验收中/生产验证中时校验 | **父 Issue** | 只在发布转换前要求并重新回读；不得阻塞测试中 → 待发布 |
 
 `mr-review` 必须在每一个对应 MR 上新增并回读；父 Issue 的汇总仅供导航，**不能以父 Issue 评论替代 MR 回执**。其他种类不得写到 MR 来代替父 Issue。产物回执必须先于状态写回；全部回执完成后，状态写回从**标签 + Assignee**开始，随后新增状态变更评论，最后回读 Issue。
 
@@ -56,9 +138,11 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 配置多的需求尤其必要；缺这份清单是提测阶段最常见的返工点。
 
-### 测试中→待发布：MR 评审前置（G14）+ 发布计划就绪
+### 测试中→待发布：MR 评审前置（G14）+ 提前产出发布计划
 
-进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` 写**发布计划**（上线步骤/配置/注意事项/回滚）。两者都就绪才进待发布——待发布节点本身只剩「上线前确认 + 执行 deploy」。这是为了避免阻塞 bug 漏到「待发布」之后、以及发布时才发现没上线计划。
+进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」，但**测试中→待发布不要求 `release-plan` 的 GitLab 回执**，也不因它缺失阻塞这次转换。该文件和摘要可以在此时准备好。
+
+进入发布转换后，Leader 在**待发布→生产验收中/生产验证中**的最终状态写回前，向父 Issue 新增下方模板的 `release-plan` 回执，回读同一 Issue 并将结果传给 `transition.artifactContext`；这是首次强制门禁，也是恢复时必须重新核验的门禁。测试中阶段的本地文件或缓存均不能预先满足这次发布门禁。
 
 ### 转换副作用 playbook（推进节点 = 完整动作包，不只是改 Issue）
 
@@ -67,11 +151,11 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|
 | 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → **触发 Jenkins 构建（交互问 job/分支/test_version/DEPLOY_ENV/force_package 等参数 → 清单确认）** → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins`；**参数确认独立于 run_mode** |
-| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
+| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check 产生 release-plan**（写上线步骤/配置/注意事项/回滚；此转换不校验其回执）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
 | 待发布→生产验收中/生产验证中（发布） | **执行生产部署**（当前手动点击；按 release-check 上线步骤）→ 确认部署版本 → 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 生产部署恒存在（手动优先，无 Jenkins 条件） |
 | 其它转换 | 仅写 Issue | — |
 
-⚠️ release-check 是**发布计划**，在「测试中→待发布」就绪；「发布」只**执行**该计划。**生产部署当前手动触发**（你在平台点击，完成后把生产版本号告诉 Leader）；`config.jenkins` 只管**测试环境**（提测的 `trigger_jenkins`），**生产 `deploy` 不挂 Jenkins 条件**——部署确认后必定推进 Issue。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
+⚠️ release-check 是**发布计划**，在「测试中→待发布」产生；「发布」只**执行**该计划，并在最终状态写回前按本页模板新增、回读 `release-plan` 回执。**生产部署当前手动触发**（你在平台点击，完成后把生产版本号告诉 Leader）；`config.jenkins` 只管**测试环境**（提测的 `trigger_jenkins`），**生产 `deploy` 不挂 Jenkins 条件**——部署确认后必定推进 Issue。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
 
 ### 节点内部子步骤 checklist（层 2 进度可见）
 

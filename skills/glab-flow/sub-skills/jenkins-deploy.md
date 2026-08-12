@@ -49,7 +49,7 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 - **automation**：能力和 job 都可用，继续下列流程；回执应包含发现到的能力、job/分支/环境参数、构建号或版本与验证结果。
 - **manual（手工）**：工具不可调用、job 不可访问或自动化明确不可用时，停止自动触发，由人工执行；回执必须记录不可用原因、操作者、执行时间、部署版本/环境与读回或测试验证结果。
 
-两种模式都不能跳过父 Issue 的 `deployment-evidence` **产物回执**：Leader 新增 `glab-flow:artifact-receipt:v1` 评论并回读解析后，才可标记部署步骤完成或推进测试中。手工降级仍须对实际环境/版本征得用户确认。
+两种模式都不能跳过父 Issue 的 `deployment-evidence` **产物回执**：Leader 新增 `nodes.md`「唯一可执行的回执模板」中的自动化或手工 `glab-flow:artifact-receipt:v1` 评论并回读解析后，才可标记部署步骤完成或推进测试中。自动化模板严格包含 `mode`、`capability`、`job`、`branch`、`environment`、`build`、`version`、`verification`；手工模板严格包含 `mode`、`unavailable-reason`、`operator`、`performed-at`（UTC `Z`）、`deployed-version`、`environment`、`verification`。下一次 `transition.artifactContext` 必须传 `projectId` 和刚回读的 `issueNotes`，state 缓存不替代回读。手工降级仍须对实际环境/版本征得用户确认。
 
 ### 1. 确定 Job
 

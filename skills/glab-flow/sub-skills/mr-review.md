@@ -36,7 +36,7 @@ MR 评审优先用 **`mr-review-lite`**（外部运行时 skill，见 `../tools.
 
 - **无 CRITICAL、无未解决 HIGH** → MR 评审通过，填 `feature分支MR评审结论` = 「通过，无 HIGH 残留」，Leader 继续推进待发布（issue_writeback）。
 - **有 CRITICAL/HIGH** → **不放行**：留在测试中，转 `git-ops`/`tdd-guide` 修复 → 重新推送 → 重评 MR，直到通过。这正是「不通过→修复→重复」的循环（见 `../gate.md`「证据不足时」）。
-- 每个受影响 feature→master MR 都必须有自己的正式 `mr-review` 回执：Leader 在**该 MR**新增 `glab-flow:artifact-receipt:v1` 评论，含 MR 路径/IID、结果、评审方法、CRITICAL/HIGH 无残留声明，随后**回读该 MR**并解析回执。父 Issue 可汇总链接和结论，但不能替代任一 MR 的回执；MR 清单为空、无访问权或有一个未回读都会阻塞 G14。
+- 每个受影响 feature→master MR 都必须有自己的正式 `mr-review` 回执：Leader 在**该 MR**新增 `nodes.md`「唯一可执行的回执模板」的 `glab-flow:artifact-receipt:v1` 评论，模板要求 MR 路径/IID对应的 source、`outcome: passed`、`method: mr-review-lite` 或 `code-review`、以及 `high-findings: none`，随后**回读该 MR**并解析回执。父 Issue 可汇总链接和结论，但不能替代任一 MR 的回执；MR 清单为空、无访问权或有一个未回读都会阻塞 G14。下一次 `transition.artifactContext.mergeRequests` 必须逐个传 `{projectPath, iid, notes}` 的回读结果，state 缓存不替代回读。
 - 评审意见（含问题清单 + 门槛结论）可另挂父 Issue 评论（`glab issue note`，G8 只新增；G13 不建独立 Bug Issue），但这是面向父需求的摘要，不是 MR 回执替代品。
 
 ## glab-flow 上下文

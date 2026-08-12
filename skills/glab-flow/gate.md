@@ -11,13 +11,13 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
 仪式仍是「取证 → 校验 → 计划 → 预览 → 确认 → 应用」不可跳序的管线；前 4 步（取证/校验/计划/预览）由 `transition` **一次调用**完成，Leader 只在「确认 → 应用」那一跳介入。
 
-1. **一键 transition（取证+校验+计划+预览）**。Leader 先做 2 次只读 glab（`glab issue view <iid> --output json` 取 labels/body/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取评论），把结果喂给：
+1. **一键 transition（取证+校验+计划+预览）**。Leader 先只读 glab：`glab issue view <iid> --output json` 取 labels/body/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论；有受影响 MR 时逐个取该 MR 的 notes。把刚回读的结果喂给：
 
    ```bash
    pnpm cli transition
    ```
 
-   stdin JSON `{type, iid, labels, body, notes, state, to?, fields?, …, runMode?, config?}`，stdout 一次给出：
+   stdin JSON 除普通 Issue 字段外，**必须**带 `artifactContext`：`projectId` 取 config 的项目 ID，`issueNotes` 是父 Issue 的本次回读，`mergeRequests` 是每个受影响 MR 的 `{projectPath, iid, notes}`，`dataEvidenceProfile` 明确为 `standard` 或 `data-backed`。不适用 MR 时传 `mergeRequests: []`；不可从 state 缓存补造这些输入。stdout 一次给出：
    - `dirty` / `dirtyReason`（脏则停，见下文「脏状态」）；
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」）；
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）；
@@ -28,7 +28,8 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
 2. **执行 playbook + 确认/应用**。`playbook` 是本转换的完整动作包，代码侧步骤在前、Issue 写回（`isWriteback:true`）恒为末步。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
    - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——与 run_mode 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认 ≠ 参数确认，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
-   - **产物回执先行（所有 Agent 相同）**：正式产物生成后必须依次执行「新增回执评论 → 回读其目标 → 解析 `glab-flow:artifact-receipt:v1` marker → 记录 state 缓存 → 标记 progress」。`proposal`、`design`、`test-plan`、`release-plan` 的目标为父 Issue；`mr-review` 的目标是每一个受影响 MR，父 Issue 汇总不能替代 MR-local 回执。完成所有要求的回执前，`transition.validate.ok=false`，不得完成受约束子步骤或推进节点。
+   - **产物回执先行（所有 Agent 相同）**：正式产物到达其声明门禁时，依次执行「按 `nodes.md`『唯一可执行的回执模板』新增评论 → 回读其目标 → 解析所有严格字段 → 将回读 notes 放入下一次 `transition.artifactContext` → 记录 state 缓存 → 标记 progress」。`proposal`、`design`、`test-plan`、`release-plan` 的目标为父 Issue；`mr-review` 的目标是每一个受影响 MR，父 Issue 汇总不能替代 MR-local 回执。完成当前转换要求的回执前，`transition.validate.ok=false`，不得完成受约束子步骤或推进节点；state 缓存只是审计派生值，不能替代回读输入。
+   - **发布计划生命周期**：`release-check` 在测试中→待发布时产生 `release-plan`，但这次转换不要求其回执。待发布→生产验收中/生产验证中时，在最终状态写回前才按 `nodes.md` 模板新增、回读并在 `artifactContext` 中校验 `release-plan`；恢复同样必须重新回读，不能把早期文件或缓存当作已验证回执。
    - **末步 issue_writeback**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令。所有代码侧步骤和产物回执回读成功后，按严格串行顺序执行：**标签 + Assignee → 状态变更评论 →（终态时 close）→ 最终 Issue 回读**。每一阶段 append 一条 state 审计记录：
      - **标签 + Assignee**：`glab issue update <iid> [--label <add1,add2>] [--unlabel <rm1,rm2>] --assignee <@user>`；无 `harnessClone` 时加 `-R <host>/<group>/<project>` 限定项目（见 `SKILL.md`「GitLab 读写」，数字 project_id 不适用 `-R`、改用 `glab api`）。
      - **评论**：短正文 `glab issue note <iid> -m "<正文>"`；长正文（含 backtick/表格）写临时文件后 `glab issue note <iid> -F <file>`，避开 shell 转义。
