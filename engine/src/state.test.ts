@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { initState, markProgressDone, recordVerifiedReceipt, recordWritebackAudit, resetProgress, setDataEvidenceProfile } from './state.js';
+import { initState, markProgressDone, normalizeRunState, recordVerifiedReceipt, recordWritebackAudit, resetProgress, setDataEvidenceProfile, tryMarkProgressDone } from './state.js';
 import type { ArtifactReceipt } from './types.js';
 
 describe('initState', () => {
@@ -54,19 +54,19 @@ describe('progress tracking', () => {
   const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
 
   const designReceipt: ArtifactReceipt = {
-    kind: 'design', target: { kind: 'issue' }, source: '.glab-flow/1/spec/design.md', sha256: 'design-sha', noteId: '9', observedAt: '2026-08-12T10:00:00Z',
+    kind: 'design', target: { kind: 'issue', projectId: '1', iid: 1 }, source: '.glab-flow/1/spec/design.md', sha256: 'design-sha', noteId: '9', observedAt: '2026-08-12T10:00:00Z',
   };
 
   it('uses state receipts by default to complete the matching governed progress step', () => {
     const withReceipt = recordVerifiedReceipt(base, designReceipt, 't1');
-    const r = markProgressDone(resetProgress(withReceipt, '已评审', 't2'), '技术方案 design.md', 't3');
+    const r = tryMarkProgressDone(resetProgress(withReceipt, '已评审', 't2'), '技术方案 design.md', 't3');
     expect(r.ok).toBe(true);
     if (!r.ok) throw new Error('expected stored receipt to satisfy the progress gate');
     expect(r.state.progress.done).toEqual(['技术方案 design.md']);
   });
 
   it('supplements stored receipts with supplied receipts', () => {
-    const r = markProgressDone(resetProgress(base, '测试中', 't1'), '测试计划', 't2', [{
+    const r = tryMarkProgressDone(resetProgress(base, '测试中', 't1'), '测试计划', 't2', [{
       ...designReceipt,
       kind: 'test-plan',
       noteId: '10',
@@ -78,25 +78,18 @@ describe('progress tracking', () => {
   it('marks ungated development steps done (idempotent, immutable)', () => {
     const atDev = resetProgress(base, '开发中', 't1');
     const s1 = markProgressDone(atDev, '技术方案', 't2');
-    expect(s1.ok).toBe(true);
-    if (!s1.ok) throw new Error(s1.error.code);
-    expect(s1.state.progress.done).toEqual(['技术方案']);
-    expect(s1.state.updatedAt).toBe('t2');
-    const s2 = markProgressDone(s1.state, '技术方案', 't3', [designReceipt]);
-    expect(s2.ok).toBe(true);
-    if (!s2.ok) throw new Error(s2.error.code);
-    expect(s2.state.progress.done).toEqual(['技术方案']); // idempotent
-    expect(s2.state).toBe(s1.state); // same ref, no new object
-    const s3 = markProgressDone(s1.state, '编码实现', 't4');
-    expect(s3.ok).toBe(true);
-    if (!s3.ok) throw new Error(s3.error.code);
-    expect(s3.state.progress.done).toEqual(['技术方案', '编码实现']);
+    expect(s1.progress.done).toEqual(['技术方案']);
+    expect(s1.updatedAt).toBe('t2');
+    const s2 = markProgressDone(s1, '技术方案', 't3');
+    expect(s2.progress.done).toEqual(['技术方案']); // idempotent
+    expect(s2).toBe(s1); // same ref, no new object
+    const s3 = markProgressDone(s1, '编码实现', 't4');
+    expect(s3.progress.done).toEqual(['技术方案', '编码实现']);
   });
 
   it('resetProgress clears done when node changes', () => {
     const marked = markProgressDone(resetProgress(base, '开发中', 't1'), '技术方案', 't2');
-    if (!marked.ok) throw new Error(marked.error.code);
-    const atDev = resetProgress(marked.state, '开发中', 't1');
+    const atDev = resetProgress(marked, '开发中', 't1');
     expect(atDev.progress).toEqual({ node: '开发中', done: ['技术方案'] });
     const atTest = resetProgress(atDev, '测试中', 't3');
     expect(atTest.progress).toEqual({ node: '测试中', done: [] });
@@ -110,7 +103,7 @@ describe('progress tracking', () => {
 
   it('rejects marking a governed progress step done without its verified receipt', () => {
     const atDev = resetProgress(base, '已评审', 't1');
-    const r = markProgressDone(atDev, '技术方案 design.md', 't2');
+    const r = tryMarkProgressDone(atDev, '技术方案 design.md', 't2');
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error('expected receipt gate to block progress');
     expect(r.error).toEqual({ code: 'missing_artifact_receipt', required: 'design', step: '技术方案 design.md' });
@@ -123,7 +116,7 @@ describe('progress tracking', () => {
     ['发布计划就绪', 'release-plan'],
     ['上线前确认', 'release-plan'],
   ] as const)('requires %s receipt before marking %s complete', (step, kind) => {
-    const r = markProgressDone(base, step, 't1');
+    const r = tryMarkProgressDone(base, step, 't1');
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error('expected receipt gate to block progress');
     expect(r.error.required).toBe(kind);
@@ -133,7 +126,7 @@ describe('progress tracking', () => {
 describe('artifact receipt and writeback recovery state', () => {
   const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
   const designReceipt: ArtifactReceipt = {
-    kind: 'design', target: { kind: 'issue' }, source: '.glab-flow/1/spec/design.md', sha256: 'design-sha', noteId: '9', observedAt: '2026-08-12T10:00:00Z',
+    kind: 'design', target: { kind: 'issue', projectId: '1', iid: 1 }, source: '.glab-flow/1/spec/design.md', sha256: 'design-sha', noteId: '9', observedAt: '2026-08-12T10:00:00Z',
   };
 
   it('records a verified receipt idempotently after GitLab readback', () => {
@@ -162,5 +155,24 @@ describe('artifact receipt and writeback recovery state', () => {
       { ...metadataSuccess, at: 't1' },
       { ...commentFailure, at: 't2' },
     ]);
+  });
+
+  it('rejects an Issue receipt from a different project or Issue', () => {
+    const foreign: ArtifactReceipt = { ...designReceipt, target: { kind: 'issue', projectId: 'other', iid: 1 } };
+    expect(recordVerifiedReceipt(base, foreign, 't1')).toBe(base);
+    const r = tryMarkProgressDone(resetProgress(base, '已评审', 't1'), '技术方案 design.md', 't2', [foreign]);
+    expect(r.ok).toBe(false);
+  });
+
+  it('normalizes legacy persisted state before receipt, audit, and progress operations', () => {
+    const legacy = { ...base } as Partial<typeof base>;
+    delete legacy.artifactReceipts;
+    delete legacy.writebackAudit;
+    delete legacy.dataEvidenceProfile;
+    const normalized = normalizeRunState(legacy as typeof base);
+    expect(normalized).toMatchObject({ artifactReceipts: [], writebackAudit: [] });
+    expect(recordVerifiedReceipt(legacy as typeof base, designReceipt, 't1').artifactReceipts).toEqual([designReceipt]);
+    expect(recordWritebackAudit(legacy as typeof base, { target: 'issue', stage: 'metadata', status: 'succeeded', detail: 'read back' }, 't1').writebackAudit).toHaveLength(1);
+    expect(tryMarkProgressDone(legacy as typeof base, '编码实现', 't1')).toMatchObject({ ok: true, state: { artifactReceipts: [], writebackAudit: [] } });
   });
 });

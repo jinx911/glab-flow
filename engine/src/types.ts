@@ -2,7 +2,7 @@ export type IssueType = 'story' | 'bug';
 export type Role = '产品' | '研发' | '测试';
 
 export type ArtifactKind = 'proposal' | 'design' | 'data-evidence' | 'deployment-evidence' | 'test-plan' | 'mr-review' | 'release-plan';
-export type ArtifactTarget = { kind: 'issue' } | { kind: 'mr'; projectPath: string; iid: number };
+export type ArtifactTarget = { kind: 'issue'; projectId: string; iid: number } | { kind: 'mr'; projectPath: string; iid: number };
 export type ArtifactRequirement = { kind: ArtifactKind; target: 'issue' | 'each-mr'; when?: 'data-backed' | 'jenkins' };
 
 export interface ReceiptNote {
@@ -149,6 +149,8 @@ export interface TransitionInput {
   runMode?: RunMode;
   config?: { roles?: Record<string, string>; deployBranch?: string; jenkins?: boolean };
   artifactContext?: {
+    /** Parent Issue 的项目身份；缺失时 Issue 回执不可作为可验证证据。 */
+    projectId?: string;
     dataEvidenceProfile?: 'standard' | 'data-backed';
     issueNotes?: ReceiptNote[];
     mergeRequests?: Array<{ projectPath: string; iid: number; notes: ReceiptNote[] }>;

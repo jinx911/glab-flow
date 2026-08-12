@@ -1,4 +1,4 @@
-import { markProgressDone, recordVerifiedReceipt, recordWritebackAudit, resetProgress } from './state.js';
+import { normalizeRunState, recordVerifiedReceipt, recordWritebackAudit, resetProgress, tryMarkProgressDone } from './state.js';
 import type { ProgressResult, RunState, WritebackAuditInput } from './state.js';
 import type { ArtifactReceipt } from './types.js';
 
@@ -14,11 +14,11 @@ export type ProgressCommandOutput = RunState | Extract<ProgressResult, { ok: fal
 
 /** Keep successful `progress` CLI output backward compatible: only error responses are wrapped. */
 export function progressCommand(input: ProgressCommandInput): ProgressCommandOutput {
-  let state = input.state;
+  let state = normalizeRunState(input.state);
   if (input.resetToNode !== undefined) state = resetProgress(state, input.resetToNode, input.now);
   if (!input.step) return state;
 
-  const result = markProgressDone(state, input.step, input.now, input.verifiedReceipts);
+  const result = tryMarkProgressDone(state, input.step, input.now, input.verifiedReceipts);
   return result.ok ? result.state : result;
 }
 

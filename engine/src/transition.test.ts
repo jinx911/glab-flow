@@ -52,7 +52,7 @@ function receiptNote(kind: string, id = '99', evidence = evidenceLines(kind)) {
 }
 
 function withArtifactContext(artifactContext: NonNullable<TransitionInput['artifactContext']>): Pick<TransitionInput, 'artifactContext'> {
-  return { artifactContext };
+  return { artifactContext: { projectId: '3915', ...artifactContext } };
 }
 
 function pendingReleaseReceipts() {

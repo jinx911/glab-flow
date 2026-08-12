@@ -17,17 +17,19 @@ ${evidence.join('\n')}
 -->`,
 });
 
+const issueTarget = { kind: 'issue', projectId: '3915', iid: 42 } as const;
+
 describe('artifact receipts', () => {
   it('parses a complete versioned receipt marker', () => {
-    expect(parseArtifactReceipts([receipt()], { kind: 'issue' })).toMatchObject([
-      { kind: 'design', target: { kind: 'issue' }, noteId: '99', sha256: 'abc123' },
+    expect(parseArtifactReceipts([receipt()], issueTarget)).toMatchObject([
+      { kind: 'design', target: issueTarget, noteId: '99', sha256: 'abc123' },
     ]);
   });
 
   it('rejects markers missing source or sha256', () => {
     expect(parseArtifactReceipts([
       { id: '1', observedAt: '2026-08-12T10:00:00Z', body: '<!-- glab-flow:artifact-receipt:v1\nkind: design\n-->' },
-    ], { kind: 'issue' })).toEqual([]);
+    ], issueTarget)).toEqual([]);
   });
 
   it('rejects a marker with an unsupported version header', () => {
@@ -37,18 +39,18 @@ kind: design
 source: .glab-flow/42/spec/design.md
 sha256: abc123
 -->`,
-    }], { kind: 'issue' })).toEqual([]);
+    }], issueTarget)).toEqual([]);
   });
 
   it('rejects a marker with an unsupported kind', () => {
-    expect(parseArtifactReceipts([receipt('unrecognized-artifact')], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([receipt('unrecognized-artifact')], issueTarget)).toEqual([]);
   });
 
   it('rejects deployment evidence that misses automation or manual contract fields', () => {
-    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: automation', 'capability: jenkins-deploy', 'job: oa-service', 'branch: feature/42', 'environment: test', 'build: 123', 'version: test-v1'])], { kind: 'issue' })).toEqual([]);
-    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production'])], { kind: 'issue' })).toEqual([]);
-    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass'])], { kind: 'issue' })).toEqual([]);
-    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass', 'performed-at: 2026-08-12T10:00:00+00:00'])], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: automation', 'capability: jenkins-deploy', 'job: oa-service', 'branch: feature/42', 'environment: test', 'build: 123', 'version: test-v1'])], issueTarget)).toEqual([]);
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production'])], issueTarget)).toEqual([]);
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass'])], issueTarget)).toEqual([]);
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass', 'performed-at: 2026-08-12T10:00:00+00:00'])], issueTarget)).toEqual([]);
   });
 
   it('rejects MR review evidence with a failed outcome or incomplete strict fields', () => {
@@ -59,15 +61,15 @@ sha256: abc123
   });
 
   it('rejects a receipt with an invalid observed timestamp', () => {
-    expect(parseArtifactReceipts([{ ...receipt(), observedAt: 'not-a-timestamp' }], { kind: 'issue' })).toEqual([]);
-    expect(parseArtifactReceipts([{ ...receipt(), observedAt: '2026-08-12T10:00:00+00:00' }], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([{ ...receipt(), observedAt: 'not-a-timestamp' }], issueTarget)).toEqual([]);
+    expect(parseArtifactReceipts([{ ...receipt(), observedAt: '2026-08-12T10:00:00+00:00' }], issueTarget)).toEqual([]);
   });
 
   it('rejects opaque note IDs and parses a complete manual deployment contract', () => {
-    expect(parseArtifactReceipts([{ ...receipt(), id: 'note-99' }], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([{ ...receipt(), id: 'note-99' }], issueTarget)).toEqual([]);
     expect(parseArtifactReceipts([receipt('deployment-evidence', [
       'mode: manual', 'unavailable-reason: no Jenkins job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass', 'performed-at: 2026-08-12T09:30:00Z',
-    ])], { kind: 'issue' })).toMatchObject([{
+    ])], issueTarget)).toMatchObject([{
       metadata: { mode: 'manual', deployedVersion: 'v1', verification: 'smoke-pass', performedAt: '2026-08-12T09:30:00Z' },
     }]);
   });
@@ -82,7 +84,7 @@ sha256: abc123
   });
 
   it('uses only the latest receipt for each target and kind', () => {
-    const target = { kind: 'issue' } as const;
+    const target = issueTarget;
     const result = validateArtifactRequirements(
       [{ kind: 'design', target: 'issue' }],
       [
@@ -95,7 +97,7 @@ sha256: abc123
   });
 
   it('breaks same-timestamp ties by numeric noteId regardless of input order', () => {
-    const target = { kind: 'issue' } as const;
+    const target = issueTarget;
     const parsed = parseArtifactReceipts([
       { ...receipt(), id: '9', observedAt: '2026-08-12T10:00:00Z' },
       { ...receipt(), id: '10', observedAt: '2026-08-12T10:00:00Z' },

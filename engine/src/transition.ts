@@ -212,7 +212,9 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   const baseValidate = validateTransition(model, facts, payload);
   const playbook = buildPlaybook(tr, input.config);
   const artifactContext = input.artifactContext;
-  const issueReceipts = parseArtifactReceipts(artifactContext?.issueNotes ?? [], { kind: 'issue' });
+  const issueReceipts = artifactContext?.projectId
+    ? parseArtifactReceipts(artifactContext.issueNotes ?? [], { kind: 'issue', projectId: artifactContext.projectId, iid: input.iid })
+    : [];
   const mergeRequests = artifactContext?.mergeRequests ?? [];
   const mrReceipts = mergeRequests.flatMap((mergeRequest) => parseArtifactReceipts(
     mergeRequest.notes,
