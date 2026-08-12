@@ -188,6 +188,13 @@ describe('glab-flow process contracts', () => {
       expect(doc).toMatch(/dataEvidenceProfile/);
       expect(doc).toMatch(/回读.*artifactContext|artifactContext.*回读/);
       expect(doc).toMatch(/state.*不.*替代|缓存.*不.*替代/);
+      expect(doc).toMatch(/id.*String\(id\)/);
+      expect(doc).toMatch(/body.*body/);
+      expect(doc).toMatch(/observedAt.*created_at/);
+      expect(doc).toMatch(/url.*web_url/);
+      expect(doc).toMatch(/created_at.*UTC|UTC.*created_at/);
+      expect(doc).toMatch(/malformed readback|格式.*回读|回读.*格式/);
+      expect(doc).toMatch(/projectId[\s\S]{0,600}issueNotes[\s\S]{0,600}mergeRequests[\s\S]{0,600}projectPath[\s\S]{0,240}iid[\s\S]{0,240}notes/);
     }
 
     // release_check prepares the plan early, but only the release transition gates

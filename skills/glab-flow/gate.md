@@ -24,6 +24,32 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
    - `validate`（G1–G14，`reasons` 自带补救动作；`ok:false` 则 `plan` 为空、不推进）；
    - `plan`（`WritePlan`：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist，进度可见）+ `preview`（散文 diff）+ `shouldConfirm`。
 
+   **回读映射是 transition 输入的一部分，不是口头约定。** 将每条 GitLab note 的 `{id, body, created_at, web_url?}` 转为 `ReceiptNote` 的 `{id: String(id), body, observedAt: created_at, url: web_url?}`；`url` 仅在 GitLab 给出 `web_url` 时出现。`created_at` 必须是 `artifact.ts` 接受的规范 UTC `Z` 时间（秒级或毫秒级）。缺失、非 UTC `Z` 格式或无效时间就是**格式错误的回读**：停止 receipt 校验并报告 `malformed readback`，重新读取/修正输入，不得以 state 缓存继续。
+
+   将映射结果 JSON 序列化进这一个完整 shape；`projectId` 是当前 `GlabConfig.gitlab.projectId`，而非 state 中的旧值：
+
+   ```ts
+   const toReceiptNote = ({ id, body, created_at, web_url }: GitLabNote) => ({
+     id: String(id),
+     body,
+     observedAt: created_at,
+     ...(web_url ? { url: web_url } : {}),
+   });
+
+   const artifactContext = {
+     projectId: config.gitlab.projectId,
+     issueNotes: issueReadback.notes.map(toReceiptNote),
+     mergeRequests: mergeRequestReadbacks.map(({ projectPath, iid, notes }) => ({
+       projectPath,
+       iid,
+       notes: notes.map(toReceiptNote),
+     })),
+     dataEvidenceProfile,
+   };
+   ```
+
+   `mergeRequests` 可以是空数组，其他四个字段不可省略；每次写回回读后都重新构造这个对象，`artifactReceipts` 和 state 缓存不能代替它。
+
    `transition` 内部即「`evidence`（取证）→ `validate`（校验）→ `plan`（计划）→ `render`（预览）」的顺序编排；退回（G2 二值）仍走 `plan-return`。
 
 2. **执行 playbook + 确认/应用**。`playbook` 是本转换的完整动作包，代码侧步骤在前、Issue 写回（`isWriteback:true`）恒为末步。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：

@@ -105,6 +105,34 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
    - `validate`（G1–G14，`reasons` 自带补救动作）
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist，进度可见）+ `preview`（散文 diff）+ `shouldConfirm`
+
+#### `artifactContext` 的 GitLab 回读映射（每次 transition 必做）
+
+不要把 `glab api` 原始 note 直接放进 stdin。将每条 GitLab note 的 `{id, body, created_at, web_url?}` 精确映射为引擎的 `ReceiptNote`：`{id: String(id), body, observedAt: created_at, url: web_url?}`。`created_at` 必须是 `artifact.ts` 接受的规范 UTC `Z` 时间（秒级或毫秒级）；缺失、非 UTC `Z` 格式或无效时间即为**格式错误的回读**：停止本次 receipt 校验，报告 `malformed readback`，重新读取/修正输入，绝不能继续使用 state 缓存。
+
+将下列对象 JSON 序列化后作为 `transition` stdin 的 `artifactContext`。`projectId` 取当前 `GlabConfig.gitlab.projectId`；`issueNotes` 与每个 MR 的 `notes` 都是刚回读后按 `toReceiptNote` 映射的完整数组：
+
+```ts
+const toReceiptNote = ({ id, body, created_at, web_url }: GitLabNote) => ({
+  id: String(id),
+  body,
+  observedAt: created_at,
+  ...(web_url ? { url: web_url } : {}),
+});
+
+const artifactContext = {
+  projectId: config.gitlab.projectId,
+  issueNotes: issueReadback.notes.map(toReceiptNote),
+  mergeRequests: mergeRequestReadbacks.map(({ projectPath, iid, notes }) => ({
+    projectPath,
+    iid,
+    notes: notes.map(toReceiptNote),
+  })),
+  dataEvidenceProfile,
+};
+```
+
+即使没有受影响 MR，也传 `mergeRequests: []`；但 `projectId`、`issueNotes`、`mergeRequests`、`dataEvidenceProfile` 始终存在。Leader 回读后先构造此输入、再调用 `transition`；`artifactReceipts`/state 仅用于审计展示，不能替代这个读取映射。
 3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
    - 正式产物不能只留在本地：在其声明的**门禁转换**前，每一个 `proposal`、`design`、`test-plan`、`release-plan` 都必须追加到**父 Issue**的回执；`mr-review` 必须追加到**每一个对应 feature→master MR**，父 Issue 的汇总不能替代 MR 回执。回执必须逐字采用 `nodes.md`「唯一可执行的回执模板」的 `<!-- glab-flow:artifact-receipt:v1` marker，其中列出基础的 `kind`、`source`、`sha256` 以及 MR/部署的全部严格字段。`release-plan` 在测试中→待发布提前产生，但只在待发布→生产验收中/生产验证中的最终状态写回前首次要求并回读回执，不得倒逼前一转换。
