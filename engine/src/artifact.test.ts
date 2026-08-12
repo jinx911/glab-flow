@@ -23,6 +23,20 @@ describe('artifact receipts', () => {
     ], { kind: 'issue' })).toEqual([]);
   });
 
+  it('rejects a marker with an unsupported version header', () => {
+    expect(parseArtifactReceipts([{
+      ...receipt(), body: `<!-- glab-flow:artifact-receipt:v2
+kind: design
+source: .glab-flow/42/spec/design.md
+sha256: abc123
+-->`,
+    }], { kind: 'issue' })).toEqual([]);
+  });
+
+  it('rejects a marker with an unsupported kind', () => {
+    expect(parseArtifactReceipts([receipt('unrecognized-artifact')], { kind: 'issue' })).toEqual([]);
+  });
+
   it('requires an mr-review receipt for every supplied MR target', () => {
     const result = validateArtifactRequirements(
       [{ kind: 'mr-review', target: 'each-mr' }],
