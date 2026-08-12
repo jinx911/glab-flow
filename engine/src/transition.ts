@@ -1,4 +1,4 @@
-import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType, Transition, PlaybookStep, ArtifactReceipt } from './types.js';
+import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType, Transition, PlaybookStep, ArtifactReceipt, DataEvidenceProfile } from './types.js';
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
@@ -55,6 +55,10 @@ const FIELD_HINTS: Record<string, string> = {
 
 function hintFor(field: string): string {
   return FIELD_HINTS[field] ?? '来自对应节点评论 / spec 文档';
+}
+
+function isDataEvidenceProfile(value: unknown): value is DataEvidenceProfile {
+  return value === 'standard' || value === 'data-backed';
 }
 
 /** 副作用动作 → 执行它的 sub-skill + 人类可读说明（Issue 写回由 buildPlaybook 末步追加）。 */
@@ -225,15 +229,23 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     [...issueReceipts, ...mrReceipts],
     mergeRequests.map(({ projectPath, iid }) => ({ projectPath, iid })),
     {
-      dataEvidenceProfile: artifactContext?.dataEvidenceProfile ?? 'standard',
+      dataEvidenceProfile: isDataEvidenceProfile(artifactContext?.dataEvidenceProfile)
+        ? artifactContext?.dataEvidenceProfile
+        : undefined,
       jenkinsActive: playbook.some((step) => step.action === 'trigger_jenkins'),
       artifactManifest: artifactContext?.artifactManifest,
     },
   );
   const requiresDataEvidenceProfile = input.type === 'story'
     && ((tr.from === '草稿中' && tr.to === '待评审') || (tr.from === '已评审' && tr.to === '开发中'));
-  const dataEvidenceProfileMissing: MissingItem[] = requiresDataEvidenceProfile && artifactContext?.dataEvidenceProfile === undefined
-    ? [{ field: 'dataEvidenceProfile', hint: '在草稿中→待评审前明确选择 standard 或 data-backed，并用 state-data-evidence-profile 持久化；已评审→开发中时将该选择传入 artifactContext' }]
+  const rawDataEvidenceProfile = artifactContext?.dataEvidenceProfile;
+  const dataEvidenceProfileMissing: MissingItem[] = requiresDataEvidenceProfile && !isDataEvidenceProfile(rawDataEvidenceProfile)
+    ? [{
+      field: 'dataEvidenceProfile',
+      hint: rawDataEvidenceProfile === undefined
+        ? '在草稿中→待评审前明确选择 standard 或 data-backed，并用 state-data-evidence-profile 持久化；已评审→开发中时将该选择传入 artifactContext'
+        : `dataEvidenceProfile 无效（收到 ${String(rawDataEvidenceProfile)}）：仅可选择 standard 或 data-backed；修正后重新传入 artifactContext`,
+    }]
     : [];
   const validate = {
     ok: baseValidate.ok && artifactValidation.missing.length === 0 && dataEvidenceProfileMissing.length === 0,

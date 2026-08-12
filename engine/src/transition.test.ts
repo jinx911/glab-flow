@@ -94,6 +94,40 @@ describe('transition — artifact receipt gates', () => {
     expect(r.validate.reasons.join('\n')).toContain('dataEvidenceProfile');
   });
 
+  it.each([
+    {
+      name: '草稿中→待评审',
+      input: {
+        labels: ['type::story', 'story-status::草稿中'], body: TABLE_BODY,
+        ...withArtifactContext({
+          dataEvidenceProfile: 'bogus' as unknown as 'standard',
+          issueNotes: [receiptNote('proposal')],
+        }),
+      },
+    },
+    {
+      name: '已评审→开发中',
+      input: {
+        labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+        fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+        ...withArtifactContext({
+          dataEvidenceProfile: 'bogus' as unknown as 'standard',
+          issueNotes: [receiptNote('design')],
+        }),
+      },
+    },
+  ])('blocks $name when the supplied data evidence profile is invalid', ({ input }) => {
+    const r = runTransition(model, baseInput(input));
+
+    expect(r.validate.ok).toBe(false);
+    expect(r.plan).toBeUndefined();
+    expect(r.missing).toContainEqual(expect.objectContaining({
+      field: 'dataEvidenceProfile',
+      hint: expect.stringContaining('无效'),
+    }));
+    expect(r.validate.reasons.join('\n')).toContain('standard 或 data-backed');
+  });
+
   it('blocks 已评审→开发中 with local-only design when all fields are valid', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
