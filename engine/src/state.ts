@@ -19,7 +19,11 @@ export type WritebackAuditInput = Omit<WritebackAuditEntry, 'at'>;
 
 export type ProgressResult =
   | { ok: true; state: RunState }
-  | { ok: false; state: RunState; reason: string };
+  | {
+    ok: false;
+    state: RunState;
+    error: { code: 'missing_artifact_receipt'; required: ArtifactKind; step: string };
+  };
 
 export interface RunState {
   iid: string;
@@ -112,7 +116,6 @@ export function recordWritebackAudit(state: RunState, audit: WritebackAuditInput
     item.target === entry.target
     && item.stage === entry.stage
     && item.status === entry.status
-    && item.at === entry.at
     && item.detail === entry.detail
   )) return state;
   return {
@@ -124,7 +127,8 @@ export function recordWritebackAudit(state: RunState, audit: WritebackAuditInput
 }
 
 const PROGRESS_RECEIPTS: Readonly<Record<string, ArtifactKind>> = {
-  技术方案: 'design',
+  六清楚草稿: 'proposal',
+  '技术方案 design.md': 'design',
   测试计划: 'test-plan',
   发布计划就绪: 'release-plan',
   上线前确认: 'release-plan',
@@ -137,8 +141,9 @@ function hasIssueReceipt(receipts: ArtifactReceipt[], kind: ArtifactKind): boole
 /** 标记当前节点的一个子步骤完成；受产物回执约束的步骤必须已由 GitLab Issue 回读确认。 */
 export function markProgressDone(state: RunState, step: string, now: string, verifiedReceipts: ArtifactReceipt[] = []): ProgressResult {
   const requiredReceipt = PROGRESS_RECEIPTS[step];
-  if (requiredReceipt && !hasIssueReceipt(verifiedReceipts, requiredReceipt)) {
-    return { ok: false, state, reason: `无法完成「${step}」：缺少已回读确认的 Issue ${requiredReceipt} 回执` };
+  const receipts = [...state.artifactReceipts, ...verifiedReceipts];
+  if (requiredReceipt && !hasIssueReceipt(receipts, requiredReceipt)) {
+    return { ok: false, state, error: { code: 'missing_artifact_receipt', required: requiredReceipt, step } };
   }
   if (state.progress.done.includes(step)) return { ok: true, state };
   return {

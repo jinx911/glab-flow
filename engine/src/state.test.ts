@@ -57,27 +57,45 @@ describe('progress tracking', () => {
     kind: 'design', target: { kind: 'issue' }, source: '.glab-flow/1/spec/design.md', sha256: 'design-sha', noteId: '9', observedAt: '2026-08-12T10:00:00Z',
   };
 
-  it('markProgressDone adds a step (idempotent, immutable)', () => {
+  it('uses state receipts by default to complete the matching governed progress step', () => {
+    const withReceipt = recordVerifiedReceipt(base, designReceipt, 't1');
+    const r = markProgressDone(resetProgress(withReceipt, '已评审', 't2'), '技术方案 design.md', 't3');
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error('expected stored receipt to satisfy the progress gate');
+    expect(r.state.progress.done).toEqual(['技术方案 design.md']);
+  });
+
+  it('supplements stored receipts with supplied receipts', () => {
+    const r = markProgressDone(resetProgress(base, '测试中', 't1'), '测试计划', 't2', [{
+      ...designReceipt,
+      kind: 'test-plan',
+      noteId: '10',
+      source: '.glab-flow/1/spec/test-plan.md',
+    }]);
+    expect(r.ok).toBe(true);
+  });
+
+  it('marks ungated development steps done (idempotent, immutable)', () => {
     const atDev = resetProgress(base, '开发中', 't1');
-    const s1 = markProgressDone(atDev, '技术方案', 't2', [designReceipt]);
+    const s1 = markProgressDone(atDev, '技术方案', 't2');
     expect(s1.ok).toBe(true);
-    if (!s1.ok) throw new Error(s1.reason);
+    if (!s1.ok) throw new Error(s1.error.code);
     expect(s1.state.progress.done).toEqual(['技术方案']);
     expect(s1.state.updatedAt).toBe('t2');
     const s2 = markProgressDone(s1.state, '技术方案', 't3', [designReceipt]);
     expect(s2.ok).toBe(true);
-    if (!s2.ok) throw new Error(s2.reason);
+    if (!s2.ok) throw new Error(s2.error.code);
     expect(s2.state.progress.done).toEqual(['技术方案']); // idempotent
     expect(s2.state).toBe(s1.state); // same ref, no new object
     const s3 = markProgressDone(s1.state, '编码实现', 't4');
     expect(s3.ok).toBe(true);
-    if (!s3.ok) throw new Error(s3.reason);
+    if (!s3.ok) throw new Error(s3.error.code);
     expect(s3.state.progress.done).toEqual(['技术方案', '编码实现']);
   });
 
   it('resetProgress clears done when node changes', () => {
-    const marked = markProgressDone(resetProgress(base, '开发中', 't1'), '技术方案', 't2', [designReceipt]);
-    if (!marked.ok) throw new Error(marked.reason);
+    const marked = markProgressDone(resetProgress(base, '开发中', 't1'), '技术方案', 't2');
+    if (!marked.ok) throw new Error(marked.error.code);
     const atDev = resetProgress(marked.state, '开发中', 't1');
     expect(atDev.progress).toEqual({ node: '开发中', done: ['技术方案'] });
     const atTest = resetProgress(atDev, '测试中', 't3');
@@ -91,15 +109,16 @@ describe('progress tracking', () => {
   });
 
   it('rejects marking a governed progress step done without its verified receipt', () => {
-    const atDev = resetProgress(base, '开发中', 't1');
-    const r = markProgressDone(atDev, '技术方案', 't2');
+    const atDev = resetProgress(base, '已评审', 't1');
+    const r = markProgressDone(atDev, '技术方案 design.md', 't2');
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error('expected receipt gate to block progress');
-    expect(r.reason).toContain('design');
+    expect(r.error).toEqual({ code: 'missing_artifact_receipt', required: 'design', step: '技术方案 design.md' });
     expect(r.state).toBe(atDev);
   });
 
   it.each([
+    ['六清楚草稿', 'proposal'],
     ['测试计划', 'test-plan'],
     ['发布计划就绪', 'release-plan'],
     ['上线前确认', 'release-plan'],
@@ -107,7 +126,7 @@ describe('progress tracking', () => {
     const r = markProgressDone(base, step, 't1');
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error('expected receipt gate to block progress');
-    expect(r.reason).toContain(kind);
+    expect(r.error.required).toBe(kind);
   });
 });
 
@@ -138,6 +157,10 @@ describe('artifact receipt and writeback recovery state', () => {
       { ...metadataSuccess, at: 't1' },
       { ...commentFailure, at: 't2' },
     ]);
-    expect(recordWritebackAudit(s, commentFailure, 't2')).toBe(s);
+    expect(recordWritebackAudit(s, commentFailure, 't3')).toBe(s);
+    expect(s.writebackAudit).toEqual([
+      { ...metadataSuccess, at: 't1' },
+      { ...commentFailure, at: 't2' },
+    ]);
   });
 });
