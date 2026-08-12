@@ -16,22 +16,46 @@ export interface ArtifactValidationResult {
 
 export type MergeRequestTarget = { projectPath: string; iid: number };
 
-function receiptMetadata(kind: ArtifactKind, fields: Map<string, string>): ArtifactReceiptMetadata | undefined {
+const ISO_UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const GITLAB_NOTE_ID = /^\d+$/;
+
+function observedAtTimestamp(observedAt: string): number | undefined {
+  if (!ISO_UTC_INSTANT.test(observedAt)) return undefined;
+  const timestamp = Date.parse(observedAt);
+  return Number.isNaN(timestamp) ? undefined : timestamp;
+}
+
+function receiptMetadata(kind: ArtifactKind, fields: Map<string, string>): ArtifactReceiptMetadata | null | undefined {
   if (kind === 'deployment-evidence') {
     const mode = fields.get('mode');
-    const deployment = fields.get('deployment');
+    const environment = fields.get('environment');
     const verification = fields.get('verification');
-    if ((mode !== 'automation' && mode !== 'manual') || !deployment || !verification) return undefined;
-    return { mode, deployment, verification };
+    if (mode === 'automation') {
+      const capability = fields.get('capability');
+      const job = fields.get('job');
+      const branch = fields.get('branch');
+      const build = fields.get('build');
+      const version = fields.get('version');
+      if (!capability || !job || !branch || !environment || !build || !version || !verification) return null;
+      return { mode, capability, job, branch, environment, build, version, verification };
+    }
+    if (mode === 'manual') {
+      const unavailableReason = fields.get('unavailable-reason');
+      const operator = fields.get('operator');
+      const deployedVersion = fields.get('deployed-version');
+      if (!unavailableReason || !operator || !deployedVersion || !environment || !verification) return null;
+      return { mode, unavailableReason, operator, deployedVersion, environment, verification };
+    }
+    return null;
   }
   if (kind === 'mr-review') {
     const outcome = fields.get('outcome');
     const method = fields.get('method');
     const highFindings = fields.get('high-findings');
-    if (!outcome || !method || highFindings !== 'none') return undefined;
+    if (outcome !== 'passed' || (method !== 'mr-review-lite' && method !== 'code-review') || highFindings !== 'none') return null;
     return { outcome, method, highFindings };
   }
-  return {};
+  return undefined;
 }
 
 /** Parses exact v1 receipt comment markers from Leader-provided readback notes. */
@@ -40,7 +64,7 @@ export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarg
   const marker = /<!-- glab-flow:artifact-receipt:v1\r?\n([\s\S]*?)-->/g;
 
   for (const note of notes) {
-    if (Number.isNaN(Date.parse(note.observedAt))) continue;
+    if (observedAtTimestamp(note.observedAt) === undefined || !GITLAB_NOTE_ID.test(note.id)) continue;
     for (const match of note.body.matchAll(marker)) {
       const fields = new Map<string, string>();
       const content = match[1];
@@ -56,7 +80,7 @@ export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarg
       const sha256 = fields.get('sha256')?.trim();
       if (!kind || !ARTIFACT_KINDS.has(kind as ArtifactKind) || !source || !sha256) continue;
       const metadata = receiptMetadata(kind as ArtifactKind, fields);
-      if (!metadata) continue;
+      if (metadata === null) continue;
 
       receipts.push({
         kind: kind as ArtifactKind,
@@ -66,7 +90,7 @@ export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarg
         noteId: note.id,
         ...(note.url ? { noteUrl: note.url } : {}),
         observedAt: note.observedAt,
-        metadata,
+        ...(metadata ? { metadata } : {}),
       });
     }
   }
@@ -82,9 +106,9 @@ function receiptKey(receipt: ArtifactReceipt): string {
 }
 
 function isLater(receipt: ArtifactReceipt, previous: ArtifactReceipt): boolean {
-  const observedAt = Date.parse(receipt.observedAt);
-  const previousObservedAt = Date.parse(previous.observedAt);
-  return observedAt > previousObservedAt || (observedAt === previousObservedAt && receipt.noteId > previous.noteId);
+  const observedAt = observedAtTimestamp(receipt.observedAt)!;
+  const previousObservedAt = observedAtTimestamp(previous.observedAt)!;
+  return observedAt > previousObservedAt || (observedAt === previousObservedAt && BigInt(receipt.noteId) > BigInt(previous.noteId));
 }
 
 function isActive(requirement: ArtifactRequirement, options: ArtifactValidationOptions): boolean {
@@ -111,7 +135,7 @@ export function validateArtifactRequirements(
 ): ArtifactValidationResult {
   const latest = new Map<string, ArtifactReceipt>();
   for (const receipt of receipts) {
-    if (Number.isNaN(Date.parse(receipt.observedAt))) continue;
+    if (observedAtTimestamp(receipt.observedAt) === undefined || !GITLAB_NOTE_ID.test(receipt.noteId)) continue;
     const key = receiptKey(receipt);
     const previous = latest.get(key);
     if (!previous || isLater(receipt, previous)) latest.set(key, receipt);

@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseArtifactReceipts, validateArtifactRequirements } from './artifact.js';
 
 function evidenceLines(kind: string): string[] {
-  if (kind === 'deployment-evidence') return ['mode: automation', 'deployment: test-v1', 'verification: smoke-pass'];
-  if (kind === 'mr-review') return ['outcome: approved', 'method: full-diff', 'high-findings: none'];
+  if (kind === 'deployment-evidence') return ['mode: automation', 'capability: jenkins-deploy', 'job: oa-service', 'branch: feature/42', 'environment: test', 'build: 123', 'version: test-v1', 'verification: smoke-pass'];
+  if (kind === 'mr-review') return ['outcome: passed', 'method: mr-review-lite', 'high-findings: none'];
   return [];
 }
 
@@ -26,7 +26,7 @@ describe('artifact receipts', () => {
 
   it('rejects markers missing source or sha256', () => {
     expect(parseArtifactReceipts([
-      { id: '1', observedAt: 't', body: '<!-- glab-flow:artifact-receipt:v1\nkind: design\n-->' },
+      { id: '1', observedAt: '2026-08-12T10:00:00Z', body: '<!-- glab-flow:artifact-receipt:v1\nkind: design\n-->' },
     ], { kind: 'issue' })).toEqual([]);
   });
 
@@ -44,13 +44,30 @@ sha256: abc123
     expect(parseArtifactReceipts([receipt('unrecognized-artifact')], { kind: 'issue' })).toEqual([]);
   });
 
-  it('rejects incomplete deployment and MR review receipt evidence', () => {
-    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: automation'])], { kind: 'issue' })).toEqual([]);
-    expect(parseArtifactReceipts([receipt('mr-review', ['outcome: approved', 'method: full-diff'])], { kind: 'mr', projectPath: 'group/api', iid: 1 })).toEqual([]);
+  it('rejects deployment evidence that misses automation or manual contract fields', () => {
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: automation', 'capability: jenkins-deploy', 'job: oa-service', 'branch: feature/42', 'environment: test', 'build: 123', 'version: test-v1'])], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([receipt('deployment-evidence', ['mode: manual', 'unavailable-reason: no job', 'operator: @dev', 'deployed-version: v1', 'environment: production'])], { kind: 'issue' })).toEqual([]);
+  });
+
+  it('rejects MR review evidence with a failed outcome or incomplete strict fields', () => {
+    const target = { kind: 'mr', projectPath: 'group/api', iid: 1 } as const;
+    expect(parseArtifactReceipts([receipt('mr-review', ['outcome: failed', 'method: mr-review-lite', 'high-findings: none'])], target)).toEqual([]);
+    expect(parseArtifactReceipts([receipt('mr-review', ['outcome: passed', 'method: full-diff', 'high-findings: none'])], target)).toEqual([]);
+    expect(parseArtifactReceipts([receipt('mr-review', ['outcome: passed', 'method: code-review'])], target)).toEqual([]);
   });
 
   it('rejects a receipt with an invalid observed timestamp', () => {
     expect(parseArtifactReceipts([{ ...receipt(), observedAt: 'not-a-timestamp' }], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([{ ...receipt(), observedAt: '2026-08-12T10:00:00+00:00' }], { kind: 'issue' })).toEqual([]);
+  });
+
+  it('rejects opaque note IDs and parses a complete manual deployment contract', () => {
+    expect(parseArtifactReceipts([{ ...receipt(), id: 'note-99' }], { kind: 'issue' })).toEqual([]);
+    expect(parseArtifactReceipts([receipt('deployment-evidence', [
+      'mode: manual', 'unavailable-reason: no Jenkins job', 'operator: @dev', 'deployed-version: v1', 'environment: production', 'verification: smoke-pass',
+    ])], { kind: 'issue' })).toMatchObject([{
+      metadata: { mode: 'manual', deployedVersion: 'v1', verification: 'smoke-pass' },
+    }]);
   });
 
   it('requires an mr-review receipt for every supplied MR target', () => {
@@ -67,23 +84,23 @@ sha256: abc123
     const result = validateArtifactRequirements(
       [{ kind: 'design', target: 'issue' }],
       [
-        ...parseArtifactReceipts([{ ...receipt(), id: 'old', observedAt: '2026-08-12T09:00:00Z' }], target),
-        ...parseArtifactReceipts([{ ...receipt(), id: 'new', observedAt: '2026-08-12T11:00:00Z' }], target),
+        ...parseArtifactReceipts([{ ...receipt(), id: '9', observedAt: '2026-08-12T09:00:00Z' }], target),
+        ...parseArtifactReceipts([{ ...receipt(), id: '10', observedAt: '2026-08-12T11:00:00Z' }], target),
       ],
       [],
     );
-    expect(result.receipts).toMatchObject([{ noteId: 'new' }]);
+    expect(result.receipts).toMatchObject([{ noteId: '10' }]);
   });
 
-  it('breaks same-timestamp ties by noteId regardless of input order', () => {
+  it('breaks same-timestamp ties by numeric noteId regardless of input order', () => {
     const target = { kind: 'issue' } as const;
     const parsed = parseArtifactReceipts([
-      { ...receipt(), id: 'a', observedAt: '2026-08-12T10:00:00Z' },
-      { ...receipt(), id: 'b', observedAt: '2026-08-12T10:00:00Z' },
+      { ...receipt(), id: '9', observedAt: '2026-08-12T10:00:00Z' },
+      { ...receipt(), id: '10', observedAt: '2026-08-12T10:00:00Z' },
     ], target);
     const requirements = [{ kind: 'design' as const, target: 'issue' as const }];
-    expect(validateArtifactRequirements(requirements, parsed, []).receipts[0]?.noteId).toBe('b');
-    expect(validateArtifactRequirements(requirements, [...parsed].reverse(), []).receipts[0]?.noteId).toBe('b');
+    expect(validateArtifactRequirements(requirements, parsed, []).receipts[0]?.noteId).toBe('10');
+    expect(validateArtifactRequirements(requirements, [...parsed].reverse(), []).receipts[0]?.noteId).toBe('10');
   });
 
   it('activates conditional requirements only for their matching profiles', () => {

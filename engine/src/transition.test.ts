@@ -38,12 +38,12 @@ const TEST_SUBMISSION_FIELDS = {
 };
 
 function evidenceLines(kind: string): string[] {
-  if (kind === 'deployment-evidence') return ['mode: automation', 'deployment: test-v1', 'verification: smoke-pass'];
-  if (kind === 'mr-review') return ['outcome: approved', 'method: full-diff', 'high-findings: none'];
+  if (kind === 'deployment-evidence') return ['mode: automation', 'capability: jenkins-deploy', 'job: oa-service', 'branch: feature/42', 'environment: test', 'build: 123', 'version: test-v1', 'verification: smoke-pass'];
+  if (kind === 'mr-review') return ['outcome: passed', 'method: mr-review-lite', 'high-findings: none'];
   return [];
 }
 
-function receiptNote(kind: string, id = kind, evidence = evidenceLines(kind)) {
+function receiptNote(kind: string, id = '99', evidence = evidenceLines(kind)) {
   return {
     id,
     observedAt: '2026-08-12T10:00:00Z',
@@ -83,19 +83,19 @@ describe('transition — artifact receipt gates', () => {
       ...withArtifactContext({
         issueNotes: [receiptNote('test-plan')],
         mergeRequests: [
-          { projectPath: 'group/api', iid: 1, notes: [receiptNote('mr-review', 'api-review')] },
-          { projectPath: 'group/web', iid: 2, notes: [receiptNote('mr-review', 'web-review')] },
+          { projectPath: 'group/api', iid: 1, notes: [receiptNote('mr-review', '100')] },
+          { projectPath: 'group/web', iid: 2, notes: [receiptNote('mr-review', '101')] },
         ],
       }),
     }));
     expect(r.validate.ok).toBe(true);
-    expect(r.verifiedReceipts.map((receipt) => receipt.noteId)).toEqual(['test-plan', 'api-review', 'web-review']);
+    expect(r.verifiedReceipts.map((receipt) => receipt.noteId)).toEqual(['99', '100', '101']);
     expect(r.preview).toContain('已验证回执');
     expect(r.preview).toContain('Issue');
     expect(r.preview).toContain('MR group/api!1');
     expect(r.preview).toContain('MR group/web!2');
     expect(r.preview).toContain('source=.glab-flow/42/test-plan.md');
-    expect(r.preview).toContain('sha256=api-review-sha');
+    expect(r.preview).toContain('sha256=100-sha');
     expect(r.preview).toContain('observedAt=2026-08-12T10:00:00Z');
   });
 
@@ -176,19 +176,19 @@ describe('transition — artifact receipt gates', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
       fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true, config: { jenkins: true },
-      ...withArtifactContext({ issueNotes: [receiptNote('deployment-evidence', 'incomplete-deploy', ['mode: automation'])] }),
+      ...withArtifactContext({ issueNotes: [receiptNote('deployment-evidence', '98', ['mode: automation'])] }),
     }));
     expect(r.validate.ok).toBe(false);
     expect(r.missing.map((item) => item.field)).toContain('deployment-evidence');
   });
 
-  it('blocks G14 when an MR review receipt lacks high-findings', () => {
+  it('blocks G14 when an MR review receipt has a rejected outcome', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
       fields: TEST_DONE_FIELDS, datesConfirmed: true,
       ...withArtifactContext({
         issueNotes: [receiptNote('test-plan')],
-        mergeRequests: [{ projectPath: 'group/api', iid: 1, notes: [receiptNote('mr-review', 'incomplete-review', ['outcome: approved', 'method: full-diff'])] }],
+        mergeRequests: [{ projectPath: 'group/api', iid: 1, notes: [receiptNote('mr-review', '98', ['outcome: failed', 'method: mr-review-lite', 'high-findings: none'])] }],
       }),
     }));
     expect(r.validate.ok).toBe(false);

@@ -12,14 +12,33 @@ export interface ReceiptNote {
   url?: string;
 }
 
-export interface ArtifactReceiptMetadata {
-  mode?: 'automation' | 'manual';
-  deployment?: string;
-  verification?: string;
-  outcome?: string;
-  method?: string;
-  highFindings?: 'none';
+export interface AutomationDeploymentEvidenceMetadata {
+  mode: 'automation';
+  capability: string;
+  job: string;
+  branch: string;
+  environment: string;
+  build: string;
+  version: string;
+  verification: string;
 }
+
+export interface ManualDeploymentEvidenceMetadata {
+  mode: 'manual';
+  unavailableReason: string;
+  operator: string;
+  deployedVersion: string;
+  environment: string;
+  verification: string;
+}
+
+export interface MrReviewEvidenceMetadata {
+  outcome: 'passed';
+  method: 'mr-review-lite' | 'code-review';
+  highFindings: 'none';
+}
+
+export type ArtifactReceiptMetadata = AutomationDeploymentEvidenceMetadata | ManualDeploymentEvidenceMetadata | MrReviewEvidenceMetadata;
 
 export interface ArtifactReceipt {
   kind: ArtifactKind;
@@ -29,7 +48,7 @@ export interface ArtifactReceipt {
   noteId: string;
   noteUrl?: string;
   observedAt: string;
-  metadata: ArtifactReceiptMetadata;
+  metadata?: ArtifactReceiptMetadata;
 }
 
 export interface Transition {
