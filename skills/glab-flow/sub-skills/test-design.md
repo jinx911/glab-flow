@@ -73,7 +73,7 @@ UI 渲染、弹窗文案、按钮显隐分支、交互时序这类验收标准�
 
 ## glab-flow 上下文
 
-- **节点归属**：「测试中」节点（`../nodes.md`），Leader Read 本文件内联执行或 spawn `general-purpose` 以本文件为 prompt。产出 `test-plan.md` 落 `.glab-flow/<iid>/spec/`。
+- **节点归属**：「测试中」节点（`../nodes.md`），Leader Read 本文件内联执行或 spawn `general-purpose` 以本文件为 prompt。产出 `test-plan.md` 落 `.glab-flow/<iid>/spec/`。产出后 Leader 必须向**父 Issue**新增 `nodes.md`「唯一可执行的回执模板」的 `kind: test-plan` **产物回执**，回读、解析并写入 state 缓存后，才可标记「测试计划」完成或推进待发布；下一次 `transition.artifactContext` 仍须传 `projectId` 与刚回读的 `issueNotes`，state 缓存不替代回读。
 - **单 Leader**：不组建多 agent 团队，不引入团队编排、阶段闸门或状态机管道。需要探索时 spawn 至多一个 `general-purpose`。
 - **测试问题挂评论**：测试执行中发现的问题挂父 GitLab Issue 评论（`glab issue note`，见 `../gate.md`）。**阻塞发布的问题须全部验证通过才放行待发布**（G11，见 `../guards.md`）——test-design 产出的用例是「全部验证」的依据，遗漏会导致门禁不放行。
 - **门禁对齐**：test-plan.md 是「测试验收」门禁的输入（见 `../nodes.md` / `../gate.md`）；计划缺失或 AC 未全覆盖 → Leader 不推进状态。

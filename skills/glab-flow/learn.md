@@ -26,11 +26,16 @@ Leader 在每轮编排中识别并记录以下信号，写入本 run 专属的 l
 ```
 
 - **每 run 一文件**：`<HHmm>` 是 run 启动时的本地时分（24h 制，如 `1432`），保证同一 Issue 多次 run 不互相覆盖。
-- **格式**：JSONL（每条 lesson 一行 JSON），字段 `{node, signal, detail, at}`：
+- **格式**：JSONL（每条 lesson 一行 JSON）。兼容的核心字段是 `{node, signal, detail, at}`；新 capture 可附加可统计字段：
   - `node` —— 节点类型（如 `需求评审中` / `待发布`）。
   - `signal` —— 信号分类（见下文清单）。
   - `detail` —— 人类可读的具体观察，包含足够上下文（Issue iid、触发条件、发生了什么）。
   - `at` —— ISO 时间戳。
+  - `trigger?` —— 触发条件（如回读失败、工具不可用、证据缺失）。
+  - `impact?` —— `blocked` / `partial-write` / `manual-work` / `quality-risk`。
+  - `resolution?` —— 实际如何恢复或修复。
+  - `recurrence?` —— `first-seen` / `repeat`。
+- **兼容与边界**：`trigger`、`impact`、`resolution`、`recurrence` 全部**可选**；已有只有核心字段的旧记录仍然有效。它们只用于后续蒸馏/统计，**不参与 transition/guard 门禁**，缺少这些字段绝不能阻塞 flow。
 - **计数**：每写一条 lesson，`state.lessonsCaptured++`（state.json 内字段，见 `SKILL.md`「状态缓存」）。该计数不驱动任何门禁，仅供 upgrade ritual 判断本 run 是否值得升级——举例：若 lessons 过少（如不足 3 条），curator 可跳过 distill；此为启发式判断，非硬规则，无固定阈值。
 
 **采集的信号清单**（不在捕获时分析，只记录原始事实）：

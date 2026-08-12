@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { parseArtifactReceipts } from './artifact.js';
 
 const PROJECT_ROOT = process.cwd();
 const ENGINE_SRC = 'engine/src';
@@ -16,8 +17,13 @@ const REUSABLE_DOCS = [
   'docs/plans/2026-07-29-glab-flow-isolation-infra.md',
   'skills/glab-flow/SKILL.md',
   'skills/glab-flow/gate.md',
+  'skills/glab-flow/nodes.md',
+  'skills/glab-flow/resume.md',
   'skills/glab-flow/tools.md',
   'skills/glab-flow/learn.md',
+  'skills/glab-flow/sub-skills/spec-author.md',
+  'skills/glab-flow/sub-skills/test-design.md',
+  'skills/glab-flow/sub-skills/mr-review.md',
   'skills/glab-flow/sub-skills/jenkins-deploy.md',
   'agents/review-preview.md',
   'agents/release-check.md',
@@ -98,6 +104,122 @@ describe('glab-flow process contracts', () => {
     assertNoPattern(combinedDocs, STALE_WRITEBACK_PATTERNS);
   });
 
+  it('requires Agent-independent artifact receipt writeback, readback, and recovery', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const gate = readProjectFile('skills/glab-flow/gate.md');
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const resume = readProjectFile('skills/glab-flow/resume.md');
+    const specAuthor = readProjectFile('skills/glab-flow/sub-skills/spec-author.md');
+    const testDesign = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
+    const mrReview = readProjectFile('skills/glab-flow/sub-skills/mr-review.md');
+    const jenkinsDeploy = readProjectFile('skills/glab-flow/sub-skills/jenkins-deploy.md');
+    const tools = readProjectFile('skills/glab-flow/tools.md');
+
+    for (const doc of [skill, gate]) {
+      expect(doc).toMatch(/产物回执/);
+      expect(doc).toMatch(/append|新增/);
+      expect(doc).toMatch(/回读/);
+      expect(doc).toMatch(/解析/);
+      expect(doc).toMatch(/state|缓存/);
+      expect(doc).toMatch(/进度|progress/);
+      expect(doc).toMatch(/标签[\s\S]{0,120}Assignee[\s\S]{0,120}状态变更评论[\s\S]{0,120}最终.*回读/);
+      expect(doc).toMatch(/失败[\s\S]{0,100}停止|停止[\s\S]{0,100}失败/);
+      expect(doc).toMatch(/恢复[\s\S]{0,160}回读/);
+    }
+
+    expect(skill).toMatch(/glab-flow:artifact-receipt:v1/);
+    expect(nodes).toMatch(/proposal[\s\S]{0,80}父 Issue/);
+    expect(nodes).toMatch(/design[\s\S]{0,80}父 Issue/);
+    expect(nodes).toMatch(/test-plan[\s\S]{0,80}父 Issue/);
+    expect(nodes).toMatch(/release-plan[\s\S]{0,80}父 Issue/);
+    expect(nodes).toMatch(/mr-review[\s\S]{0,120}每个.*MR/);
+    expect(nodes).toMatch(/不能.*父 Issue|父 Issue.*不能.*替代/);
+    expect(nodes).toMatch(/产物回执必须先于状态写回/);
+    expect(nodes).toMatch(/全部产物完成后才走「标签 \+ Assignee → 状态变更评论 → 最终 Issue 回读」/);
+    expect(nodes).not.toMatch(/状态写回之后才可变更标签/);
+    expect(resume).toMatch(/artifactReceipts/);
+    expect(resume).toMatch(/writebackAudit/);
+    expect(resume).toMatch(/第一个未完成阶段|首个未完成阶段/);
+    expect(specAuthor).toMatch(/data-backed|数据型/);
+    expect(specAuthor).toMatch(/代码数据流/);
+    expect(specAuthor).toMatch(/只读.*生产|生产.*只读/);
+    expect(testDesign).toMatch(/test-plan/);
+    expect(testDesign).toMatch(/产物回执/);
+    expect(mrReview).toMatch(/每个.*MR/);
+    expect(mrReview).toMatch(/MR.*回读|回读.*MR/);
+    expect(jenkinsDeploy).toMatch(/能力发现/);
+    expect(jenkinsDeploy).toMatch(/手工|manual/);
+    expect(jenkinsDeploy).toMatch(/产物回执/);
+    expect(tools).toMatch(/能力发现/);
+  });
+
+  it('publishes executable receipt templates and supplies readback context to transition', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const gate = readProjectFile('skills/glab-flow/gate.md');
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const specAuthor = readProjectFile('skills/glab-flow/sub-skills/spec-author.md');
+    const testDesign = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
+    const mrReview = readProjectFile('skills/glab-flow/sub-skills/mr-review.md');
+    const jenkinsDeploy = readProjectFile('skills/glab-flow/sub-skills/jenkins-deploy.md');
+    const releaseCheck = readProjectFile('agents/release-check.md');
+
+    // The parser is deliberately strict; the user-facing canonical templates must
+    // therefore name every required machine field instead of leaving an executable
+    // ellipsis for an Agent to guess.
+    expect(nodes).toMatch(/### 唯一可执行的回执模板/);
+    expect(nodes).toMatch(/kind: design/);
+    expect(nodes).toMatch(/source: \.glab-flow\/42\/spec\/design\.md/);
+    expect(nodes).toMatch(/sha256: a{64}/);
+    expect(nodes).toMatch(/outcome: passed[\s\S]{0,120}method: mr-review-lite[\s\S]{0,120}high-findings: none/);
+    expect(nodes).toMatch(/mode: automation[\s\S]{0,500}capability:[\s\S]{0,500}job:[\s\S]{0,500}branch:[\s\S]{0,500}environment:[\s\S]{0,500}build:[\s\S]{0,500}version:[\s\S]{0,500}verification:/);
+    expect(nodes).toMatch(/mode: manual[\s\S]{0,500}unavailable-reason:[\s\S]{0,500}operator:[\s\S]{0,500}performed-at: 2026-08-12T09:30:00Z[\s\S]{0,500}deployed-version:[\s\S]{0,500}environment:[\s\S]{0,500}verification:/);
+    expect(nodes).not.toMatch(/artifact-receipt:v1 \.\.\./);
+
+    for (const doc of [skill, gate, specAuthor, testDesign, mrReview, jenkinsDeploy, releaseCheck]) {
+      expect(doc).toMatch(/唯一可执行的回执模板|nodes\.md.*回执模板|回执模板.*nodes\.md/);
+    }
+
+    for (const doc of [skill, gate]) {
+      expect(doc).toMatch(/artifactContext/);
+      expect(doc).toMatch(/projectId/);
+      expect(doc).toMatch(/issueNotes/);
+      expect(doc).toMatch(/mergeRequests/);
+      expect(doc).toMatch(/projectPath/);
+      expect(doc).toMatch(/dataEvidenceProfile/);
+      expect(doc).toMatch(/回读.*artifactContext|artifactContext.*回读/);
+      expect(doc).toMatch(/state.*不.*替代|缓存.*不.*替代/);
+      expect(doc).toMatch(/id.*String\(id\)/);
+      expect(doc).toMatch(/body.*body/);
+      expect(doc).toMatch(/observedAt.*created_at/);
+      expect(doc).toMatch(/url.*web_url/);
+      expect(doc).toMatch(/created_at.*UTC|UTC.*created_at/);
+      expect(doc).toMatch(/malformed readback|格式.*回读|回读.*格式/);
+      expect(doc).toMatch(/projectId[\s\S]{0,600}issueNotes[\s\S]{0,600}mergeRequests[\s\S]{0,600}projectPath[\s\S]{0,240}iid[\s\S]{0,240}notes/);
+    }
+
+    // release_check prepares the plan early, but only the release transition gates
+    // on its re-read receipt. The earlier testing transition must remain ungated.
+    expect(nodes).toMatch(/测试中→待发布[\s\S]{0,900}产生.*release-plan[\s\S]{0,900}不.*要求.*release-plan.*回执/);
+    expect(nodes).toMatch(/待发布→生产验收中[\s\S]{0,900}release-plan.*回执/);
+    expect(releaseCheck).toMatch(/测试中→待发布.*产生/);
+    expect(releaseCheck).toMatch(/待发布→生产验收中[\s\S]{0,240}回读.*release-plan|待发布→生产验收中[\s\S]{0,240}release-plan.*回读/);
+  });
+
+  it('keeps every canonical marker parseable by the runtime receipt parser', () => {
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const markers = [...nodes.matchAll(/<!-- glab-flow:artifact-receipt:v1\r?\n[\s\S]*?-->/g)].map((match) => match[0]);
+    const target = { kind: 'issue', projectId: 'template-project', iid: 1 } as const;
+    const receipts = markers.flatMap((body, index) => parseArtifactReceipts([{
+      id: String(index + 1),
+      observedAt: '2026-08-12T10:00:00Z',
+      body,
+    }], target));
+
+    expect(receipts.map((receipt) => receipt.kind)).toEqual([
+      'design', 'mr-review', 'deployment-evidence', 'deployment-evidence',
+    ]);
+  });
+
   it('requires code evidence before review-preview blocks on existing system behavior', () => {
     const reviewPreview = readProjectFile('agents/review-preview.md');
     const tools = readProjectFile('skills/glab-flow/tools.md');
@@ -136,14 +258,32 @@ describe('glab-flow process contracts', () => {
     expect(skill).toMatch(/一次性/);
   });
 
+  it('keeps structured lesson fields optional and out of transition gates', () => {
+    const learn = readProjectFile('skills/glab-flow/learn.md');
+
+    expect(learn).toMatch(/trigger/);
+    expect(learn).toMatch(/impact/);
+    expect(learn).toMatch(/resolution/);
+    expect(learn).toMatch(/recurrence/);
+    expect(learn).toMatch(/可选/);
+    expect(learn).toMatch(/旧.*记录.*有效|已有.*记录.*有效/);
+    expect(learn).toMatch(/不.*门禁|不.*gate/);
+  });
+
   it('keeps reusable docs free of issue-specific identifiers', () => {
-    const combinedDocs = REUSABLE_DOCS.map(readProjectFile).join('\n');
+    // Canonical receipt markers deliberately contain parser-valid synthetic values
+    // (including UTC timestamps). They are templates, not run output; all text
+    // outside such markers must remain free of run-specific identifiers.
+    const combinedDocs = REUSABLE_DOCS
+      .map(readProjectFile)
+      .join('\n')
+      .replace(/<!-- glab-flow:artifact-receipt:v1\r?\n[\s\S]*?-->/g, '');
 
     assertNoPattern(combinedDocs, [
       /issues\/\d+/,
       /merge_requests\/\d+/,
       /(^|[^A-Za-z0-9_])#\d+\b/,
-      /\b[A-Z][A-Z0-9]+-\d+\b/,
+      /\b(?!SHA-256\b)[A-Z][A-Z0-9]+-\d+\b/,
     ]);
   });
 });

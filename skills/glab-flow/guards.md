@@ -13,6 +13,6 @@
 - **G9** 不臆造人/结论（禁"待确认"占位）
 - **G10** 日期需用户确认（datesConfirmed）
 - **G11** 阻塞发布问题全部验证通过才放行 待发布（需求与 Bug 均适用）—— 肯定同义集合：`是` / `已验证` / `已通过` / `无阻塞` / `通过` / `true` / `yes`，或以「是」开头的附注（如 `是(无阻塞)`、`是。详细…`）；`否` / `未` / `false` / 空 / `待确认` 拒
-- **G12** 终态原子：标签替换+Assignee+评论+关闭 Issue 必须同一次操作（closeIssue）
+- **G12** 终态有序且可回读：标签替换+Assignee → 状态变更评论 → close Issue → 最终回读必须属于同一已批准 WritePlan，按序执行；任何阶段失败立即停止，不能先关 Issue 再补评论。
 - **G13** 不建 Jira
 - **G14** feature→master MR 评审前置：测试中→待发布 必填 `feature分支MR评审结论`（由 G1 强制非空）——用 `code-review` sub-skill 跑全 MR diff，确认无 CRITICAL/HIGH 残留再放行。避免阻塞 bug 漏到「待发布」才被 mr-review 发现、已过测试验收还得回头重提测
