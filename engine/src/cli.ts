@@ -7,9 +7,9 @@ import { buildReturnPlan, buildForwardPlan } from './plan.js';
 import { runTransition } from './transition.js';
 import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
-import { initState, markProgressDone, resetProgress } from './state.js';
-import type { InitStateInput, RunState } from './state.js';
-import type { Payload, TransitionInput } from './types.js';
+import { initState, markProgressDone, recordVerifiedReceipt, recordWritebackAudit, resetProgress } from './state.js';
+import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
+import type { ArtifactReceipt, Payload, TransitionInput } from './types.js';
 
 const model = loadModel();
 
@@ -80,15 +80,27 @@ async function main() {
       break;
     }
     case 'progress': {
-      const input = JSON.parse(readStdin()) as { state: RunState; step?: string; resetToNode?: string; now: string };
+      const input = JSON.parse(readStdin()) as { state: RunState; step?: string; resetToNode?: string; verifiedReceipts?: ArtifactReceipt[]; now: string };
       let s = input.state;
       if (input.resetToNode !== undefined) s = resetProgress(s, input.resetToNode, input.now);
-      if (input.step) s = markProgressDone(s, input.step, input.now);
-      console.log(JSON.stringify(s));
+      const result = input.step
+        ? markProgressDone(s, input.step, input.now, input.verifiedReceipts)
+        : { ok: true as const, state: s };
+      console.log(JSON.stringify(result));
+      break;
+    }
+    case 'state-receipt': {
+      const input = JSON.parse(readStdin()) as { state: RunState; receipt: ArtifactReceipt; now: string };
+      console.log(JSON.stringify(recordVerifiedReceipt(input.state, input.receipt, input.now)));
+      break;
+    }
+    case 'state-writeback': {
+      const input = JSON.parse(readStdin()) as { state: RunState; audit: WritebackAuditInput; now: string };
+      console.log(JSON.stringify(recordWritebackAudit(input.state, input.audit, input.now)));
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | plan-return | evidence | config | state-init | progress');
+      console.error('commands: node | validate | render | plan | transition | plan-return | evidence | config | state-init | state-receipt | state-writeback | progress');
       process.exit(1);
   }
 }
