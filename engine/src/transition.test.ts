@@ -44,15 +44,26 @@ function evidenceLines(kind: string): string[] {
 }
 
 function receiptNote(kind: string, id = '99', evidence = evidenceLines(kind)) {
+  const sha256 = 'a'.repeat(64);
   return {
     id,
     observedAt: '2026-08-12T10:00:00Z',
-    body: `<!-- glab-flow:artifact-receipt:v1\nkind: ${kind}\nsource: .glab-flow/42/${kind}.md\nsha256: ${id}-sha\n${evidence.join('\n')}\n-->`,
+    body: `<!-- glab-flow:artifact-receipt:v1\nkind: ${kind}\nsource: .glab-flow/42/${kind}.md\nsha256: ${sha256}\n${evidence.join('\n')}\n-->`,
   };
 }
 
 function withArtifactContext(artifactContext: NonNullable<TransitionInput['artifactContext']>): Pick<TransitionInput, 'artifactContext'> {
-  return { artifactContext: { projectId: '3915', ...artifactContext } };
+  const notes = [
+    ...(artifactContext.issueNotes ?? []),
+    ...(artifactContext.mergeRequests ?? []).flatMap((mr) => mr.notes),
+  ];
+  const artifactManifest = notes.reduce<NonNullable<TransitionInput['artifactContext']>['artifactManifest']>((manifest, note) => {
+    const kind = note.body.match(/^kind: ([a-z-]+)$/m)?.[1];
+    const source = note.body.match(/^source: (.+)$/m)?.[1];
+    const sha256 = note.body.match(/^sha256: (.+)$/m)?.[1];
+    return kind && source && sha256 ? { ...manifest, [kind]: { source, sha256 } } : manifest;
+  }, {});
+  return { artifactContext: { projectId: '3915', ...artifactContext, artifactManifest: artifactContext.artifactManifest ?? artifactManifest } };
 }
 
 function pendingReleaseReceipts() {
@@ -63,6 +74,26 @@ function pendingReleaseReceipts() {
 }
 
 describe('transition — artifact receipt gates', () => {
+  it('requires data evidence profile selection when a story enters review', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::草稿中'], body: TABLE_BODY,
+      ...withArtifactContext({ issueNotes: [receiptNote('proposal')] }),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing).toContainEqual(expect.objectContaining({ field: 'dataEvidenceProfile' }));
+  });
+
+  it('blocks 已评审→开发中 when no explicit data evidence profile is supplied', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      ...withArtifactContext({ issueNotes: [receiptNote('design')] }),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing).toContainEqual(expect.objectContaining({ field: 'dataEvidenceProfile' }));
+    expect(r.validate.reasons.join('\n')).toContain('dataEvidenceProfile');
+  });
+
   it('blocks 已评审→开发中 with local-only design when all fields are valid', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
@@ -95,7 +126,7 @@ describe('transition — artifact receipt gates', () => {
     expect(r.preview).toContain('MR group/api!1');
     expect(r.preview).toContain('MR group/web!2');
     expect(r.preview).toContain('source=.glab-flow/42/test-plan.md');
-    expect(r.preview).toContain('sha256=100-sha');
+    expect(r.preview).toContain(`sha256=${'a'.repeat(64)}`);
     expect(r.preview).toContain('observedAt=2026-08-12T10:00:00Z');
   });
 
@@ -146,6 +177,21 @@ describe('transition — artifact receipt gates', () => {
     }));
     expect(r.validate.ok).toBe(true);
     expect(r.verifiedReceipts.map((receipt) => receipt.kind)).toEqual(['design', 'data-evidence']);
+  });
+
+  it('blocks 已评审→开发中 when the read-back design source or hash is stale against the local manifest', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      ...withArtifactContext({
+        dataEvidenceProfile: 'standard',
+        issueNotes: [receiptNote('design')],
+        artifactManifest: { design: { source: '.glab-flow/42/spec/design.md', sha256: 'b'.repeat(64) } },
+      }),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing).toContainEqual(expect.objectContaining({ field: 'artifactManifest.design' }));
+    expect(r.verifiedReceipts).toEqual([]);
   });
 
   it('requires deployment evidence only when the active playbook includes Jenkins', () => {

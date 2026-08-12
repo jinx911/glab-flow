@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { progressCommand, stateReceiptCommand, stateWritebackCommand } from './cli-commands.js';
+import { progressCommand, stateDataEvidenceProfileCommand, stateReceiptCommand, stateWritebackCommand } from './cli-commands.js';
 import { initState } from './state.js';
 import type { ArtifactReceipt } from './types.js';
 
@@ -9,6 +9,13 @@ const designReceipt: ArtifactReceipt = {
 };
 
 describe('CLI state command handlers', () => {
+  it('persists an explicit data evidence profile through the pure CLI handler', () => {
+    expect(stateDataEvidenceProfileCommand({ state: base, profile: 'data-backed', now: 't1' })).toMatchObject({
+      dataEvidenceProfile: 'data-backed',
+      updatedAt: 't1',
+    });
+  });
+
   it('uses state-receipt output as progress input and returns bare state on success', () => {
     const withReceipt = stateReceiptCommand({ state: base, receipt: designReceipt, now: 't1' });
     const output = progressCommand({ state: { ...withReceipt, progress: { node: '已评审', done: [] } }, step: '技术方案 design.md', now: 't2' });

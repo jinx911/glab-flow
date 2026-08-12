@@ -21,7 +21,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 ### 唯一可执行的回执模板
 
-以下是 `artifact.ts` 能解析的规范评论。复制相应的完整结构并替换示例值；不得省略字段、改名字段或用省略号代替字段。`source` 是本次产物相对 `<workspace.root>` 的路径，`sha256` 是该文件的完整 SHA-256；在 marker 后追加面向人的摘要即可。
+以下是 `artifact.ts` 能解析的规范评论。复制相应的完整结构并替换示例值；不得省略字段、改名字段或用省略号代替字段。`source` 是本次产物相对 `<workspace.root>` 的路径，`sha256` 是该文件的完整 SHA-256（**恰好 64 位小写十六进制**）；在 marker 后追加面向人的摘要即可。每次 `transition` 还必须携带 Leader 从当前本地文件计算的 `artifactManifest`，引擎只接受 `source` 与 `sha256` 同 manifest 完全一致的最新回读回执；旧文件、旧 hash 或仅有 state 缓存都不能放行。
 
 **普通父 Issue 产物**（`proposal`、`design`、`data-evidence`、`test-plan` 或 `release-plan` 只替换 `kind` 与实际文件路径）：
 
@@ -115,7 +115,7 @@ verification: production-smoke-pass
 
 ### 数据型需求 profile
 
-在草稿中 → 待评审时，Leader 显式选择并保存 `standard` 或 `data-backed`，绝不凭关键词自行猜测。`data-backed` 必须在技术方案前追加 `data-evidence` 回执，至少包括：**代码数据流**、数据源/真理源决策；如请求生产数据，还须有**只读生产取证**及所用路由/授权约束。`standard` 不需要这条附加回执。
+在草稿中 → 待评审前，Leader 显式选择并保存 `standard` 或 `data-backed`，绝不凭关键词自行猜测：`echo '{"state":...,"profile":"data-backed","now":"..."}' | pnpm cli state-data-evidence-profile`。该选择必须在已评审 → 开发中时作为 `artifactContext.dataEvidenceProfile` 再次提供；缺失即阻塞。`data-backed` 必须在技术方案前追加 `data-evidence` 回执，至少包括：**代码数据流**、数据源/真理源决策；如请求生产数据，还须有**只读生产取证**及所用路由/授权约束。`standard` 不需要这条附加回执。
 
 ### 回执与状态写回固定顺序
 

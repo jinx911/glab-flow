@@ -2,8 +2,11 @@ export type IssueType = 'story' | 'bug';
 export type Role = '产品' | '研发' | '测试';
 
 export type ArtifactKind = 'proposal' | 'design' | 'data-evidence' | 'deployment-evidence' | 'test-plan' | 'mr-review' | 'release-plan';
+export type DataEvidenceProfile = 'standard' | 'data-backed';
 export type ArtifactTarget = { kind: 'issue'; projectId: string; iid: number } | { kind: 'mr'; projectPath: string; iid: number };
 export type ArtifactRequirement = { kind: ArtifactKind; target: 'issue' | 'each-mr'; when?: 'data-backed' | 'jenkins' };
+/** Leader-calculated source and SHA-256 of each current local artifact. */
+export type ArtifactManifest = Partial<Record<ArtifactKind, { source: string; sha256: string }>>;
 
 export interface ReceiptNote {
   id: string;
@@ -151,7 +154,9 @@ export interface TransitionInput {
   artifactContext?: {
     /** Parent Issue 的项目身份；缺失时 Issue 回执不可作为可验证证据。 */
     projectId?: string;
-    dataEvidenceProfile?: 'standard' | 'data-backed';
+    dataEvidenceProfile?: DataEvidenceProfile;
+    /** Expected current local artifacts; every active requirement needs an entry. */
+    artifactManifest?: ArtifactManifest;
     issueNotes?: ReceiptNote[];
     mergeRequests?: Array<{ projectPath: string; iid: number; notes: ReceiptNote[] }>;
   };

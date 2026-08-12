@@ -1,8 +1,8 @@
 import type { IssueType } from './types.js';
-import type { ArtifactKind, ArtifactReceipt } from './types.js';
+import type { ArtifactKind, ArtifactReceipt, DataEvidenceProfile } from './types.js';
 import type { RunMode } from './config.js';
 
-export type DataEvidenceProfile = 'standard' | 'data-backed';
+export type { DataEvidenceProfile } from './types.js';
 export type WritebackAuditTarget = 'issue' | `mr:${string}!${number}`;
 export type WritebackAuditStage = 'artifact-comment' | 'metadata' | 'state-comment' | 'readback';
 export type WritebackAuditStatus = 'succeeded' | 'failed';

@@ -62,6 +62,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
 | `state-receipt` | 记录已经由 Leader 回读验证的产物回执；只更新本地派生缓存，不写 GitLab |
+| `state-data-evidence-profile` | 保存草稿中→待评审时明确选定的 `standard` / `data-backed` 数据取证档案 |
 | `state-writeback` | 追加串行写回阶段的成功/失败审计；用于恢复时定位首个未完成阶段 |
 | `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |
 
@@ -120,6 +121,11 @@ const toReceiptNote = ({ id, body, created_at, web_url }: GitLabNote) => ({
   ...(web_url ? { url: web_url } : {}),
 });
 
+// 对每个本轮 active artifact 计算其当前本地文件的 source 与完整 SHA-256。
+const artifactManifest = {
+  design: { source: `.glab-flow/${iid}/spec/design.md`, sha256: designSha256 },
+};
+
 const artifactContext = {
   projectId: config.gitlab.projectId,
   issueNotes: issueReadback.notes.map(toReceiptNote),
@@ -129,10 +135,11 @@ const artifactContext = {
     notes: notes.map(toReceiptNote),
   })),
   dataEvidenceProfile,
+  artifactManifest,
 };
 ```
 
-即使没有受影响 MR，也传 `mergeRequests: []`；但 `projectId`、`issueNotes`、`mergeRequests`、`dataEvidenceProfile` 始终存在。Leader 回读后先构造此输入、再调用 `transition`；`artifactReceipts`/state 仅用于审计展示，不能替代这个读取映射。
+即使没有受影响 MR，也传 `mergeRequests: []`；但 `projectId`、`issueNotes`、`mergeRequests`、`dataEvidenceProfile`、`artifactManifest` 始终存在。每个本轮 active required artifact 都必须有 manifest 项，且回读回执的 source/hash 必须逐字匹配；多个 MR 若共用同一 review 文件，可共用 `mr-review` 的 manifest 项。Leader 回读后先构造此输入、再调用 `transition`；`artifactReceipts`/state 仅用于审计展示，不能替代这个读取映射。
 3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
    - 正式产物不能只留在本地：在其声明的**门禁转换**前，每一个 `proposal`、`design`、`test-plan`、`release-plan` 都必须追加到**父 Issue**的回执；`mr-review` 必须追加到**每一个对应 feature→master MR**，父 Issue 的汇总不能替代 MR 回执。回执必须逐字采用 `nodes.md`「唯一可执行的回执模板」的 `<!-- glab-flow:artifact-receipt:v1` marker，其中列出基础的 `kind`、`source`、`sha256` 以及 MR/部署的全部严格字段。`release-plan` 在测试中→待发布提前产生，但只在待发布→生产验收中/生产验证中的最终状态写回前首次要求并回读回执，不得倒逼前一转换。

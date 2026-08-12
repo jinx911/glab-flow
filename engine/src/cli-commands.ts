@@ -1,5 +1,5 @@
-import { normalizeRunState, recordVerifiedReceipt, recordWritebackAudit, resetProgress, tryMarkProgressDone } from './state.js';
-import type { ProgressResult, RunState, WritebackAuditInput } from './state.js';
+import { normalizeRunState, recordVerifiedReceipt, recordWritebackAudit, resetProgress, setDataEvidenceProfile, tryMarkProgressDone } from './state.js';
+import type { DataEvidenceProfile, ProgressResult, RunState, WritebackAuditInput } from './state.js';
 import type { ArtifactReceipt } from './types.js';
 
 export interface ProgressCommandInput {
@@ -24,6 +24,11 @@ export function progressCommand(input: ProgressCommandInput): ProgressCommandOut
 
 export function stateReceiptCommand(input: { state: RunState; receipt: ArtifactReceipt; now: string }): RunState {
   return recordVerifiedReceipt(input.state, input.receipt, input.now);
+}
+
+/** Persist Leader's explicit selection made before entering review. */
+export function stateDataEvidenceProfileCommand(input: { state: RunState; profile: DataEvidenceProfile; now: string }): RunState {
+  return setDataEvidenceProfile(input.state, input.profile, input.now);
 }
 
 export function stateWritebackCommand(input: { state: RunState; audit: WritebackAuditInput; now: string }): RunState {

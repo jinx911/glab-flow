@@ -70,6 +70,7 @@ const REPLAY_INPUT: Omit<TransitionInput, 'type' | 'iid' | 'labels' | 'fields'> 
 
 const PROJECT_ID = '3915';
 const OBSERVED_AT = '2026-08-12T10:00:00Z';
+const SHA256 = 'a'.repeat(64);
 
 function receiptNote(sourceIid: number, kind: string, id: string, extra: string[] = []) {
   return {
@@ -78,10 +79,21 @@ function receiptNote(sourceIid: number, kind: string, id: string, extra: string[
     body: `<!-- glab-flow:artifact-receipt:v1
 kind: ${kind}
 source: .glab-flow/${sourceIid}/${kind}.md
-sha256: ${id}-sha
+sha256: ${SHA256}
 ${extra.join('\n')}
 -->`,
   };
+}
+
+function receiptContext(issueNotes: ReturnType<typeof receiptNote>[] = [], mergeRequests: Array<{ projectPath: string; iid: number; notes: ReturnType<typeof receiptNote>[] }> = [], dataEvidenceProfile?: 'standard' | 'data-backed') {
+  const allNotes = [...issueNotes, ...mergeRequests.flatMap((mr) => mr.notes)];
+  const artifactManifest = allNotes.reduce<Record<string, { source: string; sha256: string }>>((manifest, note) => {
+    const kind = note.body.match(/^kind: ([a-z-]+)$/m)?.[1];
+    const source = note.body.match(/^source: (.+)$/m)?.[1];
+    const sha256 = note.body.match(/^sha256: (.+)$/m)?.[1];
+    return kind && source && sha256 ? { ...manifest, [kind]: { source, sha256 } } : manifest;
+  }, {});
+  return { projectId: PROJECT_ID, issueNotes, mergeRequests, artifactManifest, ...(dataEvidenceProfile ? { dataEvidenceProfile } : {}) };
 }
 
 const DEVELOPMENT_START_FIELDS = {
@@ -124,10 +136,10 @@ describe('e2e: artifact receipt replay gates', () => {
       labels: ['type::story', 'story-status::已评审'],
       fields: DEVELOPMENT_START_FIELDS,
       datesConfirmed: true,
-      artifactContext: { projectId: PROJECT_ID, issueNotes: [] },
+      artifactContext: receiptContext([], [], 'standard'),
     });
     expect(blocked.validate.ok).toBe(false);
-    expect(blocked.validate.missing).toEqual(['design']);
+    expect(blocked.validate.missing).toContain('design');
     expect(blocked.missing.map((item) => item.field)).toContain('design');
     expect(blocked.plan).toBeUndefined();
 
@@ -137,7 +149,7 @@ describe('e2e: artifact receipt replay gates', () => {
       labels: ['type::story', 'story-status::已评审'],
       fields: DEVELOPMENT_START_FIELDS,
       datesConfirmed: true,
-      artifactContext: { projectId: PROJECT_ID, issueNotes: [receiptNote(880, 'design', '301')] },
+      artifactContext: receiptContext([receiptNote(880, 'design', '301')], [], 'standard'),
     });
     expect(ready.validate).toEqual({ ok: true, missing: [], reasons: [] });
     expect(ready.plan).toBeDefined();
@@ -145,10 +157,24 @@ describe('e2e: artifact receipt replay gates', () => {
       kind: 'design',
       target: { kind: 'issue', projectId: PROJECT_ID, iid: 880 },
       source: '.glab-flow/880/design.md',
-      sha256: '301-sha',
+      sha256: SHA256,
       noteId: '301',
       observedAt: OBSERVED_AT,
     }]);
+
+    const stale = runTransition(model, {
+      ...REPLAY_INPUT,
+      type: 'story', iid: 880,
+      labels: ['type::story', 'story-status::已评审'],
+      fields: DEVELOPMENT_START_FIELDS,
+      datesConfirmed: true,
+      artifactContext: {
+        ...receiptContext([receiptNote(880, 'design', '301')], [], 'standard'),
+        artifactManifest: { design: { source: '.glab-flow/880/spec/design.md', sha256: 'b'.repeat(64) } },
+      },
+    });
+    expect(stale.validate.ok).toBe(false);
+    expect(stale.missing).toContainEqual(expect.objectContaining({ field: 'artifactManifest.design' }));
   });
 
   it('accepts a fully read-back manual deployment receipt before development submits to testing', () => {
@@ -168,7 +194,7 @@ describe('e2e: artifact receipt replay gates', () => {
       fields: TEST_SUBMISSION_FIELDS,
       datesConfirmed: true,
       config: { jenkins: true },
-      artifactContext: { projectId: PROJECT_ID, issueNotes: [manualDeployment] },
+      artifactContext: receiptContext([manualDeployment]),
     });
     expect(ready.next).toBe('测试中');
     expect(ready.validate).toEqual({ ok: true, missing: [], reasons: [] });
@@ -177,7 +203,7 @@ describe('e2e: artifact receipt replay gates', () => {
       kind: 'deployment-evidence',
       target: { kind: 'issue', projectId: PROJECT_ID, iid: 880 },
       source: '.glab-flow/880/deployment-evidence.md',
-      sha256: '302-sha',
+      sha256: SHA256,
       noteId: '302',
       observedAt: OBSERVED_AT,
       metadata: {
@@ -208,7 +234,7 @@ describe('e2e: artifact receipt replay gates', () => {
       fields: TEST_SUBMISSION_FIELDS,
       datesConfirmed: true,
       config: { jenkins: true },
-      artifactContext: { projectId: PROJECT_ID, issueNotes: [malformedManualDeployment] },
+      artifactContext: receiptContext([malformedManualDeployment]),
     });
     expect(blocked.validate).toEqual({
       ok: false,
@@ -230,14 +256,13 @@ describe('e2e: artifact receipt replay gates', () => {
       labels: ['type::story', 'story-status::测试中'],
       fields: TEST_COMPLETE_FIELDS,
       datesConfirmed: true,
-      artifactContext: {
-        projectId: PROJECT_ID,
-        issueNotes: [receiptNote(880, 'test-plan', '303')],
-        mergeRequests: [
+      artifactContext: receiptContext(
+        [receiptNote(880, 'test-plan', '303')],
+        [
           { projectPath: 'group/api', iid: 11, notes: [receiptNote(880, 'mr-review', '304', ['outcome: passed', 'method: code-review', 'high-findings: none'])] },
           { projectPath: 'group/web', iid: 12, notes: [] },
         ],
-      },
+      ),
     });
     expect(oneMrMissing.validate).toEqual({
       ok: false,
@@ -251,11 +276,11 @@ describe('e2e: artifact receipt replay gates', () => {
     expect(oneMrMissing.verifiedReceipts).toEqual([
       {
         kind: 'test-plan', target: { kind: 'issue', projectId: PROJECT_ID, iid: 880 },
-        source: '.glab-flow/880/test-plan.md', sha256: '303-sha', noteId: '303', observedAt: OBSERVED_AT,
+        source: '.glab-flow/880/test-plan.md', sha256: SHA256, noteId: '303', observedAt: OBSERVED_AT,
       },
       {
         kind: 'mr-review', target: { kind: 'mr', projectPath: 'group/api', iid: 11 },
-        source: '.glab-flow/880/mr-review.md', sha256: '304-sha', noteId: '304', observedAt: OBSERVED_AT,
+        source: '.glab-flow/880/mr-review.md', sha256: SHA256, noteId: '304', observedAt: OBSERVED_AT,
         metadata: { outcome: 'passed', method: 'code-review', highFindings: 'none' },
       },
     ]);
@@ -267,14 +292,13 @@ describe('e2e: artifact receipt replay gates', () => {
       labels: ['type::story', 'story-status::测试中'],
       fields: TEST_COMPLETE_FIELDS,
       datesConfirmed: true,
-      artifactContext: {
-        projectId: PROJECT_ID,
-        issueNotes: [receiptNote(880, 'test-plan', '303')],
-        mergeRequests: [
+      artifactContext: receiptContext(
+        [receiptNote(880, 'test-plan', '303')],
+        [
           { projectPath: 'group/api', iid: 11, notes: [receiptNote(880, 'mr-review', '304', ['outcome: passed', 'method: code-review', 'high-findings: none'])] },
           { projectPath: 'group/web', iid: 12, notes: [receiptNote(880, 'mr-review', '305', ['outcome: passed', 'method: mr-review-lite', 'high-findings: none'])] },
         ],
-      },
+      ),
     });
     expect(ready.next).toBe('待发布');
     expect(ready.validate).toEqual({ ok: true, missing: [], reasons: [] });
@@ -282,16 +306,16 @@ describe('e2e: artifact receipt replay gates', () => {
     expect(ready.verifiedReceipts).toEqual([
       {
         kind: 'test-plan', target: { kind: 'issue', projectId: PROJECT_ID, iid: 880 },
-        source: '.glab-flow/880/test-plan.md', sha256: '303-sha', noteId: '303', observedAt: OBSERVED_AT,
+        source: '.glab-flow/880/test-plan.md', sha256: SHA256, noteId: '303', observedAt: OBSERVED_AT,
       },
       {
         kind: 'mr-review', target: { kind: 'mr', projectPath: 'group/api', iid: 11 },
-        source: '.glab-flow/880/mr-review.md', sha256: '304-sha', noteId: '304', observedAt: OBSERVED_AT,
+        source: '.glab-flow/880/mr-review.md', sha256: SHA256, noteId: '304', observedAt: OBSERVED_AT,
         metadata: { outcome: 'passed', method: 'code-review', highFindings: 'none' },
       },
       {
         kind: 'mr-review', target: { kind: 'mr', projectPath: 'group/web', iid: 12 },
-        source: '.glab-flow/880/mr-review.md', sha256: '305-sha', noteId: '305', observedAt: OBSERVED_AT,
+        source: '.glab-flow/880/mr-review.md', sha256: SHA256, noteId: '305', observedAt: OBSERVED_AT,
         metadata: { outcome: 'passed', method: 'mr-review-lite', highFindings: 'none' },
       },
     ]);
@@ -305,10 +329,10 @@ describe('e2e: artifact receipt replay gates', () => {
       fields: RELEASE_FIELDS,
       datesConfirmed: true,
       humanConfirmed: true,
-      artifactContext: { projectId: PROJECT_ID, issueNotes: [] },
+      artifactContext: receiptContext(),
     });
     expect(blocked.validate.ok).toBe(false);
-    expect(blocked.validate.missing).toEqual(['release-plan']);
+    expect(blocked.validate.missing).toContain('release-plan');
     expect(blocked.missing.map((item) => item.field)).toContain('release-plan');
     expect(blocked.plan).toBeUndefined();
 
@@ -319,7 +343,7 @@ describe('e2e: artifact receipt replay gates', () => {
       fields: RELEASE_FIELDS,
       datesConfirmed: true,
       humanConfirmed: true,
-      artifactContext: { projectId: PROJECT_ID, issueNotes: [receiptNote(881, 'release-plan', '306')] },
+      artifactContext: receiptContext([receiptNote(881, 'release-plan', '306')]),
     });
     expect(ready.next).toBe('生产验证中');
     expect(ready.validate).toEqual({ ok: true, missing: [], reasons: [] });
@@ -328,7 +352,7 @@ describe('e2e: artifact receipt replay gates', () => {
       kind: 'release-plan',
       target: { kind: 'issue', projectId: PROJECT_ID, iid: 881 },
       source: '.glab-flow/881/release-plan.md',
-      sha256: '306-sha',
+      sha256: SHA256,
       noteId: '306',
       observedAt: OBSERVED_AT,
     }]);

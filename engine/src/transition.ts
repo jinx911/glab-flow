@@ -227,12 +227,18 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     {
       dataEvidenceProfile: artifactContext?.dataEvidenceProfile ?? 'standard',
       jenkinsActive: playbook.some((step) => step.action === 'trigger_jenkins'),
+      artifactManifest: artifactContext?.artifactManifest,
     },
   );
+  const requiresDataEvidenceProfile = input.type === 'story'
+    && ((tr.from === '草稿中' && tr.to === '待评审') || (tr.from === '已评审' && tr.to === '开发中'));
+  const dataEvidenceProfileMissing: MissingItem[] = requiresDataEvidenceProfile && artifactContext?.dataEvidenceProfile === undefined
+    ? [{ field: 'dataEvidenceProfile', hint: '在草稿中→待评审前明确选择 standard 或 data-backed，并用 state-data-evidence-profile 持久化；已评审→开发中时将该选择传入 artifactContext' }]
+    : [];
   const validate = {
-    ok: baseValidate.ok && artifactValidation.missing.length === 0,
-    missing: [...baseValidate.missing, ...artifactValidation.missing.map((item) => item.field)],
-    reasons: [...baseValidate.reasons, ...artifactValidation.missing.map((item) => `缺少回执 ${item.field}：${item.hint}`)],
+    ok: baseValidate.ok && artifactValidation.missing.length === 0 && dataEvidenceProfileMissing.length === 0,
+    missing: [...baseValidate.missing, ...artifactValidation.missing.map((item) => item.field), ...dataEvidenceProfileMissing.map((item) => item.field)],
+    reasons: [...baseValidate.reasons, ...artifactValidation.missing.map((item) => `缺少回执 ${item.field}：${item.hint}`), ...dataEvidenceProfileMissing.map((item) => `缺少 ${item.field}：${item.hint}`)],
   };
 
   // 缺口（必填未填）带 hint
@@ -245,6 +251,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
   }
   missing.push(...artifactValidation.missing);
+  missing.push(...dataEvidenceProfileMissing);
 
   const runMode = input.runMode ?? 'semi-auto';
   const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;

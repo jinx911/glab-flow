@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseArtifactReceipts, validateArtifactRequirements } from './artifact.js';
 
+const SHA256 = 'a'.repeat(64);
+
 function evidenceLines(kind: string): string[] {
   if (kind === 'deployment-evidence') return ['mode: automation', 'capability: jenkins-deploy', 'job: oa-service', 'branch: feature/42', 'environment: test', 'build: 123', 'version: test-v1', 'verification: smoke-pass'];
   if (kind === 'mr-review') return ['outcome: passed', 'method: mr-review-lite', 'high-findings: none'];
@@ -11,18 +13,28 @@ const receipt = (kind = 'design', evidence = evidenceLines(kind)) => ({
   id: '99', observedAt: '2026-08-12T10:00:00Z',
   body: `<!-- glab-flow:artifact-receipt:v1
 kind: ${kind}
-source: .glab-flow/42/spec/design.md
-sha256: abc123
+source: .glab-flow/42/spec/${kind}.md
+sha256: ${SHA256}
 ${evidence.join('\n')}
 -->`,
 });
 
 const issueTarget = { kind: 'issue', projectId: '3915', iid: 42 } as const;
+const manifestFor = (...kinds: string[]) => Object.fromEntries(kinds.map((kind) => [kind, {
+  source: `.glab-flow/42/spec/${kind}.md`, sha256: SHA256,
+}]));
 
 describe('artifact receipts', () => {
+  it('rejects a receipt whose SHA-256 is not 64 lowercase hexadecimal characters', () => {
+    expect(parseArtifactReceipts([{
+      ...receipt(),
+      body: receipt().body.replace(SHA256, 'abc123'),
+    }], issueTarget)).toEqual([]);
+  });
+
   it('parses a complete versioned receipt marker', () => {
     expect(parseArtifactReceipts([receipt()], issueTarget)).toMatchObject([
-      { kind: 'design', target: issueTarget, noteId: '99', sha256: 'abc123' },
+      { kind: 'design', target: issueTarget, noteId: '99', sha256: SHA256 },
     ]);
   });
 
@@ -37,7 +49,7 @@ describe('artifact receipts', () => {
       ...receipt(), body: `<!-- glab-flow:artifact-receipt:v2
 kind: design
 source: .glab-flow/42/spec/design.md
-sha256: abc123
+sha256: ${SHA256}
 -->`,
     }], issueTarget)).toEqual([]);
   });
@@ -79,6 +91,7 @@ sha256: abc123
       [{ kind: 'mr-review', target: 'each-mr' }],
       [],
       [{ projectPath: 'group/a', iid: 1 }, { projectPath: 'group/b', iid: 2 }],
+      { artifactManifest: manifestFor('mr-review') },
     );
     expect(result.missing.map((x) => x.field)).toEqual(['mr-review:group/a!1', 'mr-review:group/b!2']);
   });
@@ -92,6 +105,7 @@ sha256: abc123
         ...parseArtifactReceipts([{ ...receipt(), id: '10', observedAt: '2026-08-12T11:00:00Z' }], target),
       ],
       [],
+      { artifactManifest: manifestFor('design') },
     );
     expect(result.receipts).toMatchObject([{ noteId: '10' }]);
   });
@@ -103,8 +117,8 @@ sha256: abc123
       { ...receipt(), id: '10', observedAt: '2026-08-12T10:00:00Z' },
     ], target);
     const requirements = [{ kind: 'design' as const, target: 'issue' as const }];
-    expect(validateArtifactRequirements(requirements, parsed, []).receipts[0]?.noteId).toBe('10');
-    expect(validateArtifactRequirements(requirements, [...parsed].reverse(), []).receipts[0]?.noteId).toBe('10');
+    expect(validateArtifactRequirements(requirements, parsed, [], { artifactManifest: manifestFor('design') }).receipts[0]?.noteId).toBe('10');
+    expect(validateArtifactRequirements(requirements, [...parsed].reverse(), [], { artifactManifest: manifestFor('design') }).receipts[0]?.noteId).toBe('10');
   });
 
   it('activates conditional requirements only for their matching profiles', () => {
@@ -117,6 +131,20 @@ sha256: abc123
     }).missing).toEqual([]);
     expect(validateArtifactRequirements(requirements, [], [], {
       dataEvidenceProfile: 'data-backed', jenkinsActive: true,
+      artifactManifest: manifestFor('data-evidence', 'deployment-evidence'),
     }).missing.map((item) => item.field)).toEqual(['data-evidence', 'deployment-evidence']);
+  });
+
+  it('requires a manifest entry and rejects a stale receipt source or hash', () => {
+    const requirements = [{ kind: 'design' as const, target: 'issue' as const }];
+    const parsed = parseArtifactReceipts([receipt()], issueTarget);
+    expect(validateArtifactRequirements(requirements, parsed, [], {
+      artifactManifest: { design: { source: '.glab-flow/42/spec/design.md', sha256: SHA256 } },
+    }).receipts).toHaveLength(1);
+    expect(validateArtifactRequirements(requirements, parsed, [], {
+      artifactManifest: { design: { source: '.glab-flow/42/spec/old-design.md', sha256: 'b'.repeat(64) } },
+    }).missing).toContainEqual(expect.objectContaining({ field: 'artifactManifest.design' }));
+    expect(validateArtifactRequirements(requirements, parsed, []).missing)
+      .toContainEqual(expect.objectContaining({ field: 'artifactManifest.design' }));
   });
 });

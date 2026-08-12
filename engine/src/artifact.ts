@@ -1,12 +1,13 @@
-import type { ArtifactKind, ArtifactReceipt, ArtifactReceiptMetadata, ArtifactRequirement, ArtifactTarget, MissingItem, ReceiptNote } from './types.js';
+import type { ArtifactKind, ArtifactManifest, ArtifactReceipt, ArtifactReceiptMetadata, ArtifactRequirement, ArtifactTarget, DataEvidenceProfile, MissingItem, ReceiptNote } from './types.js';
 
 const ARTIFACT_KINDS = new Set<ArtifactKind>([
   'proposal', 'design', 'data-evidence', 'deployment-evidence', 'test-plan', 'mr-review', 'release-plan',
 ]);
 
 export interface ArtifactValidationOptions {
-  dataEvidenceProfile?: 'standard' | 'data-backed';
+  dataEvidenceProfile?: DataEvidenceProfile;
   jenkinsActive?: boolean;
+  artifactManifest?: ArtifactManifest;
 }
 
 export interface ArtifactValidationResult {
@@ -18,6 +19,7 @@ export type MergeRequestTarget = { projectPath: string; iid: number };
 
 const ISO_UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
 const GITLAB_NOTE_ID = /^\d+$/;
+const SHA256 = /^[a-f0-9]{64}$/;
 
 function observedAtTimestamp(observedAt: string): number | undefined {
   if (!ISO_UTC_INSTANT.test(observedAt)) return undefined;
@@ -79,7 +81,7 @@ export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarg
       const kind = fields.get('kind');
       const source = fields.get('source')?.trim();
       const sha256 = fields.get('sha256')?.trim();
-      if (!kind || !ARTIFACT_KINDS.has(kind as ArtifactKind) || !source || !sha256) continue;
+      if (!kind || !ARTIFACT_KINDS.has(kind as ArtifactKind) || !source || !sha256 || !SHA256.test(sha256)) continue;
       const metadata = receiptMetadata(kind as ArtifactKind, fields);
       if (metadata === null) continue;
 
@@ -127,6 +129,21 @@ function missingMr(kind: ArtifactKind, target: MergeRequestTarget): MissingItem 
   return { field: `${kind}:${ref}`, hint: `在 MR ${ref} 评论追加 ${kind} 回执标记，并回读该 MR 确认回执` };
 }
 
+function missingManifest(kind: ArtifactKind, receipt?: ArtifactReceipt): MissingItem {
+  const mismatch = receipt
+    ? `当前回执 source=${receipt.source}、sha256=${receipt.sha256} 与本地产物不一致`
+    : '未提供可验证的回执';
+  return {
+    field: `artifactManifest.${kind}`,
+    hint: `Leader 计算当前 ${kind} 的 source 与 SHA-256 后写入 artifactContext.artifactManifest.${kind}；${mismatch}`,
+  };
+}
+
+function matchesManifest(receipt: ArtifactReceipt, manifest: ArtifactManifest, kind: ArtifactKind): boolean {
+  const expected = manifest[kind];
+  return expected !== undefined && receipt.source === expected.source && receipt.sha256 === expected.sha256;
+}
+
 /** Resolves active requirements against only caller-provided, already-read-back receipts. */
 export function validateArtifactRequirements(
   requirements: ArtifactRequirement[],
@@ -148,16 +165,22 @@ export function validateArtifactRequirements(
     if (requirement.target === 'issue') {
       const key = `${requirement.kind}:issue`;
       const receipt = latest.get(key);
-      if (receipt) verified.set(key, receipt);
-      else missing.push(missingIssue(requirement.kind));
+      if (!options.artifactManifest?.[requirement.kind] || (receipt && !matchesManifest(receipt, options.artifactManifest, requirement.kind))) {
+        missing.push(missingManifest(requirement.kind, receipt));
+      }
+      if (receipt && matchesManifest(receipt, options.artifactManifest ?? {}, requirement.kind)) verified.set(key, receipt);
+      else if (!receipt) missing.push(missingIssue(requirement.kind));
       continue;
     }
 
     for (const mergeRequest of mergeRequests) {
       const key = `${requirement.kind}:mr:${mergeRequest.projectPath}!${mergeRequest.iid}`;
       const receipt = latest.get(key);
-      if (receipt) verified.set(key, receipt);
-      else missing.push(missingMr(requirement.kind, mergeRequest));
+      if (!options.artifactManifest?.[requirement.kind] || (receipt && !matchesManifest(receipt, options.artifactManifest, requirement.kind))) {
+        missing.push(missingManifest(requirement.kind, receipt));
+      }
+      if (receipt && matchesManifest(receipt, options.artifactManifest ?? {}, requirement.kind)) verified.set(key, receipt);
+      else if (!receipt) missing.push(missingMr(requirement.kind, mergeRequest));
     }
     if (mergeRequests.length === 0) {
       missing.push({ field: requirement.kind, hint: `提供需评审的 MR 目标；在每个 MR 评论追加 ${requirement.kind} 回执标记并回读确认` });
