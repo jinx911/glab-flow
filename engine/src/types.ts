@@ -1,6 +1,27 @@
 export type IssueType = 'story' | 'bug';
 export type Role = '产品' | '研发' | '测试';
 
+export type ArtifactKind = 'proposal' | 'design' | 'data-evidence' | 'deployment-evidence' | 'test-plan' | 'mr-review' | 'release-plan';
+export type ArtifactTarget = { kind: 'issue' } | { kind: 'mr'; projectPath: string; iid: number };
+export type ArtifactRequirement = { kind: ArtifactKind; target: 'issue' | 'each-mr'; when?: 'data-backed' | 'jenkins' };
+
+export interface ReceiptNote {
+  id: string;
+  body: string;
+  observedAt: string;
+  url?: string;
+}
+
+export interface ArtifactReceipt {
+  kind: ArtifactKind;
+  target: ArtifactTarget;
+  source: string;
+  sha256: string;
+  noteId: string;
+  noteUrl?: string;
+  observedAt: string;
+}
+
 export interface Transition {
   from: string;
   to: string;
@@ -11,6 +32,7 @@ export interface Transition {
   hardGate?: boolean;
   terminal?: boolean;
   return?: { target: string; assigneeRole: Role; onlyWhen?: string; note?: string };
+  requiredArtifacts?: ArtifactRequirement[];
   /** 跨节点副作用步骤（仅声明，Leader 执行）：commit/merge/deploy 等；Issue 写回由引擎自动追加为末步。 */
   playbook?: { action: string; when?: string }[];
 }
