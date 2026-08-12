@@ -61,6 +61,8 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
+| `state-receipt` | 记录已经由 Leader 回读验证的产物回执；只更新本地派生缓存，不写 GitLab |
+| `state-writeback` | 追加串行写回阶段的成功/失败审计；用于恢复时定位首个未完成阶段 |
 | `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |
 
 ## GitLab 读写（Leader 直接 glab CLI）
@@ -105,10 +107,13 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist，进度可见）+ `preview`（散文 diff）+ `shouldConfirm`
 3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
-   - 末步 `issue_writeback`：把 `plan` 翻译成 glab 命令序列（标签 add/unlabel、`--assignee <@user>`、评论长则 `-F <file>`、终态 `close`，见 `gate.md`）。
+   - 正式产物不能只留在本地：每一个 `proposal`、`design`、`test-plan`、`release-plan` 都必须先追加到**父 Issue** 的产物回执；`mr-review` 必须追加到**每一个对应 feature→master MR**，父 Issue 的汇总不能替代 MR 回执。回执使用稳定标记 `<!-- glab-flow:artifact-receipt:v1 ... -->`，包含 `kind`、`source`、`sha256` 与可读摘要。完整目标映射、数据型与部署型附加证据见 `nodes.md`。
+   - **Agent 无关的固定回执序列**：先生成本地产物并计算 SHA-256 → 向声明的目标**新增**回执评论 → 回读同一 Issue/MR → 解析 marker、kind、source、SHA-256 → 用纯计算 `state-receipt` 写入已验证 state 缓存 → 才能用 `progress` 标记关联子步骤完成。任何 Agent（包括 Codex、Claude Code 或人工 Leader）都必须执行此序列；本地文件存在不等于完成。
+   - 所有代码侧动作和全部产物回执均已回读后，才执行末步 `issue_writeback`。状态写回严格串行：**标签 + Assignee → 状态变更评论 →（终态时 close）→ 最终 Issue 回读**。每一阶段都以 `state-writeback` 记录成功或失败，不能并发、不能跳过。
    - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
-   - Issue 写回成功后更新 state 缓存（见下文），循环到「已完成」或用户停。
-   - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
+   - 任何回执、标签/Assignee、状态评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
+   - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
+   - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, receipts?, now}`）标记 done、写回 state；受回执约束的步骤必须带对应已验证 receipt，节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
 
 `transition` = `node` + `evidence` + `validate` + `plan` + `render` 的确定性编排 + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。
 
@@ -125,7 +130,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 # → 写到 <workspace.root>/.glab-flow/<iid>-state.json
 ```
 
-之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`updatedAt` 写回该文件；门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签是唯一真理**，state 仅是派生缓存——两者不一致时以 GitLab 为准（对账逻辑见 `resume.md`）。
+之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`artifactReceipts`/`writebackAudit`/`updatedAt` 写回该文件；`artifactReceipts` 仅缓存已经回读验证的回执，`writebackAudit` 记录串行阶段。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签与评论是唯一真理**，state 仅是派生缓存——两者不一致时以 GitLab 回读为准（对账逻辑见 `resume.md`）。
 
 ### 学习闭环（learn）
 

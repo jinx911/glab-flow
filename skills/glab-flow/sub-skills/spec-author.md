@@ -30,6 +30,12 @@ description: glab-flow 草稿/已评审节点的需求与方案子 skill。把�
 - `<workspace.root>/.glab-flow/<iid>/spec/design.md`
 - 向 Leader 返回：`spec_name`、简短摘要、使用的触发集（产出目录以 `<iid>` 为准）
 
+## 产物回执与数据型取证
+
+产出不是完成：Leader 对 `proposal.md`、`design.md` 分别向**父 Issue**新增 `glab-flow:artifact-receipt:v1` 评论，回读并解析 `kind`、`source`、`sha256` 后才可标记相应 progress；本地文档与父 Issue 摘要都不能省略。此子 skill 只负责产物及摘要，GitLab 新增/回读仍由 Leader 执行。
+
+当 Leader 显式声明 profile 为 `data-backed`，architect 在技术方案前必须额外产出可回执的 `data-evidence`：写清**代码数据流**、数据源/真理源决策；如需求要求验证生产历史/现状，还要写入**只读生产取证**结果与使用的路由、权限或脱敏约束。证据不可得时报告缺口，不能擅自改成 `standard` 或以推测补足。
+
 ## 驱动的 agent
 
 编排器 spawn 本 skill 的 agent：requirements-analyst（核心章节 + 澄清）→ architect（工程章节 + 架构决策）。角色专长由本文件的 prompt 内容注入给被 spawn 的 agent，**不读** `~/.claude/agents/*.md`——即 glab-flow 自包含，不依赖全局 agent 定义。

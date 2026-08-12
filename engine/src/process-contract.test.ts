@@ -16,8 +16,13 @@ const REUSABLE_DOCS = [
   'docs/plans/2026-07-29-glab-flow-isolation-infra.md',
   'skills/glab-flow/SKILL.md',
   'skills/glab-flow/gate.md',
+  'skills/glab-flow/nodes.md',
+  'skills/glab-flow/resume.md',
   'skills/glab-flow/tools.md',
   'skills/glab-flow/learn.md',
+  'skills/glab-flow/sub-skills/spec-author.md',
+  'skills/glab-flow/sub-skills/test-design.md',
+  'skills/glab-flow/sub-skills/mr-review.md',
   'skills/glab-flow/sub-skills/jenkins-deploy.md',
   'agents/review-preview.md',
   'agents/release-check.md',
@@ -98,6 +103,52 @@ describe('glab-flow process contracts', () => {
     assertNoPattern(combinedDocs, STALE_WRITEBACK_PATTERNS);
   });
 
+  it('requires Agent-independent artifact receipt writeback, readback, and recovery', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const gate = readProjectFile('skills/glab-flow/gate.md');
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const resume = readProjectFile('skills/glab-flow/resume.md');
+    const specAuthor = readProjectFile('skills/glab-flow/sub-skills/spec-author.md');
+    const testDesign = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
+    const mrReview = readProjectFile('skills/glab-flow/sub-skills/mr-review.md');
+    const jenkinsDeploy = readProjectFile('skills/glab-flow/sub-skills/jenkins-deploy.md');
+    const tools = readProjectFile('skills/glab-flow/tools.md');
+
+    for (const doc of [skill, gate]) {
+      expect(doc).toMatch(/产物回执/);
+      expect(doc).toMatch(/append|新增/);
+      expect(doc).toMatch(/回读/);
+      expect(doc).toMatch(/解析/);
+      expect(doc).toMatch(/state|缓存/);
+      expect(doc).toMatch(/进度|progress/);
+      expect(doc).toMatch(/标签[\s\S]{0,120}Assignee[\s\S]{0,120}状态变更评论[\s\S]{0,120}最终.*回读/);
+      expect(doc).toMatch(/失败[\s\S]{0,100}停止|停止[\s\S]{0,100}失败/);
+      expect(doc).toMatch(/恢复[\s\S]{0,160}回读/);
+    }
+
+    expect(skill).toMatch(/glab-flow:artifact-receipt:v1/);
+    expect(nodes).toMatch(/proposal[\s\S]{0,80}父 Issue/);
+    expect(nodes).toMatch(/design[\s\S]{0,80}父 Issue/);
+    expect(nodes).toMatch(/test-plan[\s\S]{0,80}父 Issue/);
+    expect(nodes).toMatch(/release-plan[\s\S]{0,80}父 Issue/);
+    expect(nodes).toMatch(/mr-review[\s\S]{0,120}每个.*MR/);
+    expect(nodes).toMatch(/不能.*父 Issue|父 Issue.*不能.*替代/);
+    expect(resume).toMatch(/artifactReceipts/);
+    expect(resume).toMatch(/writebackAudit/);
+    expect(resume).toMatch(/第一个未完成阶段|首个未完成阶段/);
+    expect(specAuthor).toMatch(/data-backed|数据型/);
+    expect(specAuthor).toMatch(/代码数据流/);
+    expect(specAuthor).toMatch(/只读.*生产|生产.*只读/);
+    expect(testDesign).toMatch(/test-plan/);
+    expect(testDesign).toMatch(/产物回执/);
+    expect(mrReview).toMatch(/每个.*MR/);
+    expect(mrReview).toMatch(/MR.*回读|回读.*MR/);
+    expect(jenkinsDeploy).toMatch(/能力发现/);
+    expect(jenkinsDeploy).toMatch(/手工|manual/);
+    expect(jenkinsDeploy).toMatch(/产物回执/);
+    expect(tools).toMatch(/能力发现/);
+  });
+
   it('requires code evidence before review-preview blocks on existing system behavior', () => {
     const reviewPreview = readProjectFile('agents/review-preview.md');
     const tools = readProjectFile('skills/glab-flow/tools.md');
@@ -136,6 +187,18 @@ describe('glab-flow process contracts', () => {
     expect(skill).toMatch(/一次性/);
   });
 
+  it('keeps structured lesson fields optional and out of transition gates', () => {
+    const learn = readProjectFile('skills/glab-flow/learn.md');
+
+    expect(learn).toMatch(/trigger/);
+    expect(learn).toMatch(/impact/);
+    expect(learn).toMatch(/resolution/);
+    expect(learn).toMatch(/recurrence/);
+    expect(learn).toMatch(/可选/);
+    expect(learn).toMatch(/旧.*记录.*有效|已有.*记录.*有效/);
+    expect(learn).toMatch(/不.*门禁|不.*gate/);
+  });
+
   it('keeps reusable docs free of issue-specific identifiers', () => {
     const combinedDocs = REUSABLE_DOCS.map(readProjectFile).join('\n');
 
@@ -143,7 +206,7 @@ describe('glab-flow process contracts', () => {
       /issues\/\d+/,
       /merge_requests\/\d+/,
       /(^|[^A-Za-z0-9_])#\d+\b/,
-      /\b[A-Z][A-Z0-9]+-\d+\b/,
+      /\b(?!SHA-256\b)[A-Z][A-Z0-9]+-\d+\b/,
     ]);
   });
 });

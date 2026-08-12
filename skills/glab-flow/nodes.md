@@ -15,6 +15,30 @@
 
 Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要产品；详见 `engine/state-machine.yaml` 的 `bug.transitions`。
 
+## 正式产物回执（完成前必须回读）
+
+本地 `.glab-flow/<iid>/spec/` 只是工作副本；正式产物只有在 GitLab 目标上**新增回执、回读并解析成功**后才可标记完成。所有 Agent 使用同一 marker：`<!-- glab-flow:artifact-receipt:v1 ... -->`，其中至少含 `kind`、`source`、`sha256`，并在评论正文提供人工可读的摘要。Leader 将回读得到的 Note ID/时间写入派生 state 缓存后，才可用 `progress` 标记子步骤完成。
+
+| 产物 kind | 产生节点/转换 | 唯一回执目标 | 条件 |
+|---|---|---|---|
+| `proposal` | 草稿中 → 待评审 | **父 Issue** | 总是 |
+| `design` | 已评审 → 开发中 | **父 Issue** | 总是 |
+| `data-evidence` | 已评审 → 开发中 | **父 Issue** | `data-backed` profile |
+| `deployment-evidence` | 开发中 → 测试中 | **父 Issue** | playbook 启用 Jenkins |
+| `test-plan` | 测试中 → 待发布 | **父 Issue** | 总是 |
+| `mr-review` | 测试中 → 待发布 | **每个受影响 feature→master MR** | 总是；MR 清单为空或任一 MR 缺失即阻塞 |
+| `release-plan` | 待发布 → 生产验收中/生产验证中 | **父 Issue** | 总是 |
+
+`mr-review` 必须在每一个对应 MR 上新增并回读；父 Issue 的汇总仅供导航，**不能以父 Issue 评论替代 MR 回执**。其他种类不得写到 MR 来代替父 Issue。产物回执必须先于状态写回；状态写回之后才可变更标签。
+
+### 数据型需求 profile
+
+在草稿中 → 待评审时，Leader 显式选择并保存 `standard` 或 `data-backed`，绝不凭关键词自行猜测。`data-backed` 必须在技术方案前追加 `data-evidence` 回执，至少包括：**代码数据流**、数据源/真理源决策；如请求生产数据，还须有**只读生产取证**及所用路由/授权约束。`standard` 不需要这条附加回执。
+
+### 回执与状态写回固定顺序
+
+每个产物都严格走「生成文件并计算 SHA-256 → 新增对应目标的回执 → 回读目标 → 解析 marker → state 缓存 → progress 完成」。全部产物完成后才走「标签 + Assignee → 状态变更评论 → 最终 Issue 回读」。任一失败立即停止；恢复时先回读并对账，仅重试首个未完成阶段。
+
 ### 多仓库（OA 常态）
 
 一个 Issue 跨前端/PHP/Java 等多仓时，状态机仍单线推进（节点不按仓库分支），多仓维度在配置与产物层处理：
@@ -51,7 +75,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 ### 节点内部子步骤 checklist（层 2 进度可见）
 
-节点不是黑盒——`pnpm cli node` / `transition` 输出当前节点的子步骤（`progressSteps` / `nodeProgress`），Leader 据此展示「节点内做到哪了」，避免「推进到开发中后状态卡住、不知道进度」。引擎只声明 checklist（数据），子步骤执行仍由 Leader 调对应 sub-skill；done 步骤的记录留待 state 后续扩展。
+节点不是黑盒——`pnpm cli node` / `transition` 输出当前节点的子步骤（`progressSteps` / `nodeProgress`），Leader 据此展示「节点内做到哪了」，避免「推进到开发中后状态卡住、不知道进度」。引擎只声明 checklist（数据），子步骤执行仍由 Leader 调对应 sub-skill；done 步骤保存在 state 的 `progress` 中。带正式产物的步骤须先有已回读的对应 receipt，不能以本地文件替代。
 
 | 节点 | 子步骤 |
 |---|---|

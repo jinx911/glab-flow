@@ -28,12 +28,13 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
 2. **执行 playbook + 确认/应用**。`playbook` 是本转换的完整动作包，代码侧步骤在前、Issue 写回（`isWriteback:true`）恒为末步。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
    - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——与 run_mode 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认 ≠ 参数确认，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
-   - **末步 issue_writeback**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令：
+   - **产物回执先行（所有 Agent 相同）**：正式产物生成后必须依次执行「新增回执评论 → 回读其目标 → 解析 `glab-flow:artifact-receipt:v1` marker → 记录 state 缓存 → 标记 progress」。`proposal`、`design`、`test-plan`、`release-plan` 的目标为父 Issue；`mr-review` 的目标是每一个受影响 MR，父 Issue 汇总不能替代 MR-local 回执。完成所有要求的回执前，`transition.validate.ok=false`，不得完成受约束子步骤或推进节点。
+   - **末步 issue_writeback**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令。所有代码侧步骤和产物回执回读成功后，按严格串行顺序执行：**标签 + Assignee → 状态变更评论 →（终态时 close）→ 最终 Issue 回读**。每一阶段 append 一条 state 审计记录：
      - **标签 + Assignee**：`glab issue update <iid> [--label <add1,add2>] [--unlabel <rm1,rm2>] --assignee <@user>`；无 `harnessClone` 时加 `-R <host>/<group>/<project>` 限定项目（见 `SKILL.md`「GitLab 读写」，数字 project_id 不适用 `-R`、改用 `glab api`）。
      - **评论**：短正文 `glab issue note <iid> -m "<正文>"`；长正文（含 backtick/表格）写临时文件后 `glab issue note <iid> -F <file>`，避开 shell 转义。
-     - **终态（已完成）**：`glab issue close <iid>`。G12 终态原子——标签替换 + Assignee + 评论 + 关闭必须**同一次**完成（`closeIssue: true` 的 plan 一次跑完），不能先关 Issue 再补评论。
+     - **终态（已完成）**：`glab issue close <iid>` 只在状态变更评论成功后执行，并由最终回读确认；不能先关 Issue 再补评论。
 
-   Assignee 用 `prefilled.assigneeUser`（已解析+补@）；`missing` 非空（有缺口）不推进，按 hint 委派对应 sub-skill 补齐后回第 1 步重取。**顺序铁律：代码侧步骤全部成功后，才执行 issue_writeback**（代码到位 → 才标记节点）。
+   Assignee 用 `prefilled.assigneeUser`（已解析+补@）；`missing` 非空（有缺口）不推进，按 hint 委派对应 sub-skill 补齐后回第 1 步重取。**顺序铁律：代码侧步骤全部成功后，才执行 issue_writeback**（代码到位 → 才标记节点）。任何新增回执、标签/Assignee、状态变更评论或回读失败都必须**停止**，不执行后续阶段、不假设缓存成功；恢复时先回读 GitLab，再重试**首个未完成阶段**（见 `resume.md`）。
 
 3. **冻结**。两条不可逾越的冻结线（详见 `guards.md`）：
    - **G7 不改原文**：永不 `glab issue update <iid> --description ...`，Issue 正文一旦创建即冻结。
