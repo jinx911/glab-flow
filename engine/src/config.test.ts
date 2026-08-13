@@ -25,6 +25,11 @@ describe('parseConfig', () => {
     expect(c.branchNaming.typeMap).toEqual({ story: 'feat', bug: 'fix' });
   });
 
+  it('parses optional repos list', () => {
+    const md = ['# cfg', '', '```yaml', 'gitlab:', '  host: h', '  project_id: "1"', 'workspace:', '  root: /r', 'repos:', '  - oa/oa-service', '  - oa/oa-frontend', '```', ''].join('\n');
+    expect(parseConfig(md).repos).toEqual(['oa/oa-service', 'oa/oa-frontend']);
+  });
+
   it('throws when no yaml block present', () => {
     expect(() => parseConfig('# just markdown, no yaml')).toThrow(/yaml/);
   });

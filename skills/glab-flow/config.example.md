@@ -57,4 +57,8 @@ run_mode: "semi-auto"                     # semi-auto（默认）| full-auto
 #     account: ""
 #     password: ""
 #     desc: "预发环境"
+
+# repos:                                  # 多仓项目:列出全部可能涉及的仓库 path;启用 MR 覆盖性校验(防漏评一个仓的 MR)
+#   - "oa/oa-service"
+#   - "oa/oa-frontend"
 ```

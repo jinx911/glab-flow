@@ -181,3 +181,31 @@ sha256: ${SHA256}
       .toContainEqual(expect.objectContaining({ field: 'artifactManifest.design' }));
   });
 });
+
+describe('MR coverage guard (mrCoverage)', () => {
+  const mrReviewReq = [{ kind: 'mr-review' as const, target: 'each-mr' as const }];
+  it('flags a repo missing from both mergeRequests and reposWithoutMr', () => {
+    const result = validateArtifactRequirements(
+      mrReviewReq, [],
+      [{ projectPath: 'oa/oa-service', iid: 1 }],
+      { artifactManifest: manifestFor('mr-review'), repos: ['oa/oa-service', 'oa/oa-frontend'] },
+    );
+    expect(result.missing.map((m) => m.field)).toContain('mrCoverage:oa/oa-frontend');
+  });
+  it('passes coverage when every repo has Mr or is declared without Mr', () => {
+    const result = validateArtifactRequirements(
+      mrReviewReq, [],
+      [{ projectPath: 'oa/oa-service', iid: 1 }],
+      { artifactManifest: manifestFor('mr-review'), repos: ['oa/oa-service', 'oa/oa-frontend'], reposWithoutMr: ['oa/oa-frontend'] },
+    );
+    expect(result.missing.some((m) => m.field.startsWith('mrCoverage:'))).toBe(false);
+  });
+  it('skips coverage check when repos not declared (back-compat)', () => {
+    const result = validateArtifactRequirements(
+      mrReviewReq, [],
+      [{ projectPath: 'oa/oa-service', iid: 1 }],
+      { artifactManifest: manifestFor('mr-review') },
+    );
+    expect(result.missing.some((m) => m.field.startsWith('mrCoverage:'))).toBe(false);
+  });
+});
