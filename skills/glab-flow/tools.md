@@ -21,7 +21,7 @@ GitLab Issue 的全部读写（view / update label / note / close / `glab api`�
 - **沙箱**：`git push` / `git pull` / `git fetch` / `glab` 写操作在受限沙箱里会被拦（无网络或无 SSH key）。这类命令需 `dangerouslyDisableSandbox: true`，并确保 SSH/git 在完整 `PATH` 下运行；只读的 `glab issue view` / `glab api GET` 不必禁沙箱。
 - **长评论写文件**：评论正文含 backtick / 表格 / 多行时，避开 shell 转义——写临时文件后 `glab issue note <iid> -F <file>`（等价 body=@file），不要硬塞进 `-m "..."`。
 - **项目限定**：无 `harnessClone` 时给 `glab issue` 子命令带 `-R <host>/<group>/<project>`（见 `SKILL.md`「GitLab 读写」），避免默认 host 404。
-- **产物回执必须回读**：Leader 对每份正式产物只追加新评论，随后 GET 同一父 Issue 或对应 MR 的 notes，解析 `glab-flow:artifact-receipt:v1` marker 后才更新 state/progress；不以本地文件或命令返回成功替代回读。
+- **合并评论写回**：每个节点流转写一条合并评论（状态变更头 + 内容体，见 `nodes.md`「节点内容评论」），长正文用 `-F <file>` 避开转义；不以本地文件或命令返回成功替代实际写回。
 
 ### 2. `codegraph` MCP —— 符号导航 / 影响分析
 
@@ -59,7 +59,7 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 - 生产库：MCP **不直连生产**；需查生产时用 `kibana_generate_sql` 起草 SELECT → 人工执行后回贴结果（见 `SKILL.md` 配置的 `databases` 字段约定）。
 - 未配置 → 不阻塞 flow，跳过 DB 佐证步骤，记录在 lessons。
 
-数据型需求被 Leader 显式标为 `data-backed` 时，数据查验不再是可跳过的泛化建议：方案前的 `data-evidence` 回执必须说明代码数据流、数据源决策；如问题要求生产数据，必须附上只读生产取证与路由/授权限制。无法取得所需只读证据时，不得把 profile 降级为 `standard`，而应停止并请用户决定。
+数据型需求（涉及库存/金额/统计等数据流）：技术方案必须说明代码数据流、数据源决策；如问题要求生产数据，必须附上只读生产取证与路由/授权限制。无法取得所需只读证据时，停止并请用户决定。
 
 ### 6. `mr-review-lite` —— MR 评审（可选）
 
@@ -78,7 +78,7 @@ feature→master MR 的评审运行时 skill（推断需求目标 / 需求↔代
 
 ### 8. Jenkins 能力发现与手工降级
 
-Jenkins 配置存在、或 skill 显示已安装，均不等于当前运行时可调用。每次 Jenkins-backed 提测前，Leader 先做**能力发现**：确认可调用的 Jenkins 工具、可读取的 job，以及已选择的 job/分支/环境参数。发现成功后，`deployment-evidence` 产物回执记录 automation 模式、构建号/版本和验证结果。
+Jenkins 配置存在、或 skill 显示已安装，均不等于当前运行时可调用。每次 Jenkins-backed 提测前，Leader 先做**能力发现**：确认可调用的 Jenkins 工具、可读取的 job，以及已选择的 job/分支/环境参数。发现结果（automation 构建号/版本，或 manual 降级原因）写进「提测说明」合并评论。
 
 若能力不可调用、job 不可访问或构建自动化明确不可用，不能静默跳过：进入**手工（manual）降级**，在回执中记录不可用原因、人工操作者与时间、部署版本/环境、以及读回或测试环境验证结果。两种模式都要先新增父 Issue 回执再回读；仍需遵守 `jenkins-deploy.md` 的参数确认规则。
 

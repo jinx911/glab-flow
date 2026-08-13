@@ -64,7 +64,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」，但**测试中→待发布不要求 `release-plan` 的 GitLab 回执**，也不因它缺失阻塞这次转换。该文件和摘要可以在此时准备好。
 
-进入发布转换后，Leader 在**待发布→生产验收中/生产验证中**的最终状态写回前，向父 Issue 新增下方模板的 `release-plan` 回执，回读同一 Issue 并将结果传给 `transition.artifactContext`；这是首次强制门禁，也是恢复时必须重新核验的门禁。测试中阶段的本地文件或缓存均不能预先满足这次发布门禁。
+进入发布转换后，Leader 在**待发布→生产验收中/生产验证中**的合并评论里给出**上线操作手册**（部署顺序 / migration / 配置 / 验证 / 回滚）；这是首次要求上线步骤对团队可见的节点。
 
 ### 转换副作用 playbook（推进节点 = 完整动作包，不只是改 Issue）
 

@@ -64,7 +64,7 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
 
    **进度对账（层 2）**：若 `state.progress.node !== GitLab 当前节点`（节点在 flow 外被改过、或上次换节点时未重置），`progress.done` 已失效——用 `pnpm cli progress`（stdin `{state, resetToNode: <GitLab 节点>, now}`）重置后再展示「子步骤 ✓/☐」。一致则直接拿 `nodeProgress`（来自 `node`/`transition`）对照 `progress.done` 涂黑已完成项。
 
-4. **回读产物与串行写回阶段并对账**。先从父 Issue 重新拉取 notes；有 `mr-review` 要求时，逐个拉取 state/transition 提供的 affected MR notes。每条 GitLab `{id, body, created_at, web_url?}` 都必须映射为 `{id: String(id), body, observedAt: created_at, url: web_url?}`；同时重新计算本轮所有 active artifact 的本地 `source` 与完整 64 位小写十六进制 `sha256`，组成 `artifactManifest`。将它们与当前 config 的 `projectId`、`issueNotes`、`mergeRequests: [{projectPath, iid, notes}]`、`dataEvidenceProfile` 一起传入 `transition.artifactContext`。`created_at` 必须是 `artifact.ts` 接受的规范 UTC `Z` 时间；否则停止 receipt 校验、报告 `malformed readback` 并重新读取/修正输入，不得使用 state 缓存绕过。解析 `glab-flow:artifact-receipt:v1` 后，只有 source/hash 与 manifest 完全一致的 GitLab 实际回读结果才能重建 `artifactReceipts`；不得因本地文件、旧缓存或“已发送”推断回执存在。再检查 `writebackAudit`：产物评论、metadata（标签 + Assignee）、state-comment、readback 四个阶段中，哪个是**首个未完成阶段**。任一阶段曾失败或状态不明，先记录回读结果，只重试这个首个未完成阶段；已回读成功的评论不得重复发送。
+4. **对账串行写回阶段**。先从父 Issue 重新拉取 notes（有受影响 MR 时也逐个拉取 MR notes）。再检查 `writebackAudit`：metadata（标签 + Assignee）、state-comment（合并评论）、readback 三个阶段中，哪个是**首个未完成阶段**。任一阶段曾失败或状态不明，先记录回读结果，只重试这个首个未完成阶段；已回读成功的评论不得重复发送。
 
 5. **从当前节点继续 SKILL.md 编排循环**。节点定了之后，按 `SKILL.md` 的"Leader 每轮编排"走：查 `nodes.md` 契约 → 判断证据是否齐 → `validate` → `plan`/`plan-return` → 门禁预览确认（见 `gate.md`）→ glab 应用。恢复只是把 Leader 重新放到正确的节点上，后续动作与首次进入完全相同。
 
@@ -85,9 +85,7 @@ state 文件的 TypeScript 权威定义在 `engine/src/state.ts` 的 `RunState` 
 | `runMode` | `'semi-auto' \| 'full-auto'` | 门禁执行模式 |
 | `lastActions[]` | string[] | 最近动作审计尾迹（用于续接与回看） |
 | `spawnedAgents[]` | string[] | 本 flow 已委派过的 agent 名单（去重/记账） |
-| `artifactReceipts[]` | `ArtifactReceipt[]` | 已由 GitLab 回读验证的产物回执；派生缓存，绝不代替重新回读 |
-| `dataEvidenceProfile` | `'standard' \| 'data-backed'` | 显式的数据型需求判定，决定是否要求 `data-evidence` 回执 |
-| `writebackAudit[]` | 审计阶段数组 | `artifact-comment` / `metadata` / `state-comment` / `readback` 的串行成功/失败记录，用于恢复定位首个未完成阶段 |
+| `writebackAudit[]` | 审计阶段数组 | `metadata` / `state-comment` / `readback` 的串行成功/失败记录，用于恢复定位首个未完成阶段 |
 | `lessonsCaptured` | number | 已 capture 的 lesson 条数；只作经验统计，不驱动门禁 |
 | `progress` | `{ node, done[] }` | 节点内子步骤进度（层 2）：`node` = 这批 done 所属节点；换节点时重置 |
 | `updatedAt` | string (ISO) | state 最后写入时间 |
@@ -96,9 +94,7 @@ state 文件的 TypeScript 权威定义在 `engine/src/state.ts` 的 `RunState` 
 
 state 文件不是每条命令都写，只在以下时机落盘：
 
-- **每个已回读回执后**：用纯计算 state helper 追加/去重 `artifactReceipts`，再允许更新关联 `progress`；回读失败不写 receipt 缓存。
-- **草稿中 → 待评审前**：用 `state-data-evidence-profile` 保存 `standard` 或 `data-backed`；恢复时读取该缓存并仍将显式值传回 `transition.artifactContext`，不能缺省或重新猜测。
-- **每个串行写回阶段后**：追加 `writebackAudit`（成功或失败），并更新 `lastActions`/`updatedAt`。阶段顺序固定为：全部产物回执 → 标签 + Assignee → 状态变更评论 → 最终回读。失败立即停止，后续阶段不写入；恢复先回读，再从首个未完成阶段续跑。
+- **每个串行写回阶段后**：追加 `writebackAudit`（成功或失败），并更新 `lastActions`/`updatedAt`。阶段顺序固定为：metadata（标签 + Assignee）→ state-comment（合并评论）→ readback（最终回读）。失败立即停止，后续阶段不写入；恢复先回读，再从首个未完成阶段续跑。
 - **capture lesson 后**：每捕获一条 lesson，`lessonsCaptured++` 并 `updatedAt` 刷新；这些记录不影响任何状态门禁。
 - **终态（已完成）**：Issue 进入已完成并关闭后，state 使命完成——**删除** `<iid>-state.json`（保留 `<iid>/spec/` 下的文档）。这样它就不会出现在 `/glab-flow` 的未完成列表里。删之前可把最终摘要作为最后一条评论留在 Issue 上。
 
