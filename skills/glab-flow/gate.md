@@ -112,6 +112,6 @@ agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 �
 
 ## 引用
 
-- 护栏 G1–G13 的完整判定与触发条件见 `guards.md`。
+- 护栏 G1–G14 的完整判定与触发条件见 `guards.md`。
 - 各节点的下一节点、必填项、门禁类型、Assignee 角色见 `nodes.md`。
 - run 模式在恢复场景下的取值（state vs config）见 `resume.md`。

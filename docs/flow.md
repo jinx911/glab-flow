@@ -76,13 +76,13 @@ flowchart TD
     L1["① 触发入口<br/>GitLab Issue URL / free-flow"] --> L2
     L2["② 规则权威<br/>harness: issue-state-machine.md + AGENTS.md<br/>派生 state-machine.yaml + 一致性校验"] --> L3
     L3["③ 状态机驱动<br/>读 labels → 查模型 → 节点/必填/门禁/Assignee角色"] --> L4
-    L4["④ 护栏 / 前置校验<br/>确定性纯函数  G1–G13 + G6b（关键路径不放 LLM）"] --> L5
+    L4["④ 护栏 / 前置校验<br/>确定性纯函数  G1–G14 + G6b（关键路径不放 LLM）"] --> L5
     L5["⑤ 内容生成<br/>专家 agent（复用 spec-author / git-ops / code-review / tdd-guide ...）"] --> L6
     L6["⑥ GitLab 写回层<br/>Leader 直接 glab CLI · preview-confirm · 引擎零 I/O"] --> L7
     L7["⑦ 持久化<br/>GitLab Issue = 唯一真相 · .glab-flow/&lt;issue&gt;/ = 工作产物"]
 ```
 
-## 4. 护栏速查（G1–G13 + G6b）
+## 4. 护栏速查（G1–G14 + G6b）
 
 | 门禁类 | 规则 |
 |---|---|
@@ -90,6 +90,6 @@ flowchart TD
 | **事实/标签** | G5 标签唯一(脏状态拒绝) · G6 Assignee 是具体 @用户 · **G6b 有交付协同表时校验角色匹配** |
 | **不臆造** | G9 禁「待确认」占位 · G10 日期需 datesConfirmed |
 | **写计划** | G7 不改原文 · G8 不编评论 · G12 终态原子(标签+Assignee+评论+关闭同次) · G13 不建 Jira |
-| **发布门** | G11 阻塞发布问题全验证才放行(需求+Bug) |
+| **发布门** | G11 阻塞发布问题全验证才放行(需求+Bug) · G14 feature→master MR 评审前置(无 CRITICAL/HIGH 残留才放行) |
 
 > 引擎权威来源：`engine/state-machine.yaml`（模型）+ `engine/src/guard.ts`（护栏）。规则与 harness 文档漂移由 `engine/src/contract.ts` 检测。

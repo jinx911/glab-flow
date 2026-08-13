@@ -41,7 +41,7 @@ Leader 在每轮编排中识别并记录以下信号，写入本 run 专属的 l
 **采集的信号清单**（不在捕获时分析，只记录原始事实）：
 
 - **节点卡顿**（`signal: "node_stuck"`）——某节点连续多轮证据不齐、护栏 ok:false、或用户反复修正；记录卡在哪个节点、卡多久、缺什么证据。
-- **护栏触发**（`signal: "guard_triggered"`）——哪个 G1–G13 触发、触发条件、用户如何回应（补证据 / 退回 / 改输入）。
+- **护栏触发**（`signal: "guard_triggered"`）——哪个 G1–G14 触发、触发条件、用户如何回应（补证据 / 退回 / 改输入）。
 - **证据缺失模式**（`signal: "evidence_gap"`）——反复在同一节点缺同一种证据（如"待发布总是缺 release-check 结论"），提示 sub-skill 或节点契约有结构性遗漏。
 - **sub-skill 表现**（`signal: "subskill_perf"`）——某个子 skill 产出反复被改、被否、或产出质量明显高于均值；记录哪个子 skill、哪类 Issue。
 - **用户修正**（`signal: "user_correction"`）——用户直接改了 Leader 起草的内容（评论 / 计划 / spec），记录改了什么、为什么（用户解释了的话）。
