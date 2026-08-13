@@ -109,7 +109,7 @@ export function recordVerifiedReceipt(state: RunState, receipt: ArtifactReceipt,
   return {
     ...normalized,
     artifactReceipts: [...normalized.artifactReceipts, receipt],
-    lastActions: [...normalized.lastActions, `verified receipt ${receipt.kind} on ${targetKey(receipt)} note ${receipt.noteId}`],
+    lastActions: clampLastActions(normalized.lastActions, `verified receipt ${receipt.kind} on ${targetKey(receipt)} note ${receipt.noteId}`),
     updatedAt: now,
   };
 }
@@ -121,7 +121,7 @@ export function setDataEvidenceProfile(state: RunState, profile: DataEvidencePro
   return {
     ...normalized,
     dataEvidenceProfile: profile,
-    lastActions: [...normalized.lastActions, `data evidence profile ${profile}`],
+    lastActions: clampLastActions(normalized.lastActions, `data evidence profile ${profile}`),
     updatedAt: now,
   };
 }
@@ -139,18 +139,10 @@ export function recordWritebackAudit(state: RunState, audit: WritebackAuditInput
   return {
     ...normalized,
     writebackAudit: [...normalized.writebackAudit, entry],
-    lastActions: [...normalized.lastActions, `writeback ${entry.status} ${entry.target} ${entry.stage}: ${entry.detail}`],
+    lastActions: clampLastActions(normalized.lastActions, `writeback ${entry.status} ${entry.target} ${entry.stage}: ${entry.detail}`),
     updatedAt: now,
   };
 }
-
-const PROGRESS_RECEIPTS: Readonly<Record<string, ArtifactKind>> = {
-  六清楚草稿: 'proposal',
-  '技术方案 design.md': 'design',
-  测试计划: 'test-plan',
-  发布计划就绪: 'release-plan',
-  上线前确认: 'release-plan',
-};
 
 function isReceiptForState(state: RunState, receipt: ArtifactReceipt): boolean {
   return receipt.target.kind !== 'issue'
@@ -172,10 +164,17 @@ export function markProgressDone(state: RunState, step: string, now: string): Ru
   };
 }
 
-/** Receipt-aware progress API used by the CLI before a governed step is marked complete. */
-export function tryMarkProgressDone(state: RunState, step: string, now: string, verifiedReceipts: ArtifactReceipt[] = []): ProgressResult {
+/** Receipt-aware progress API used by the CLI before a governed step is marked complete.
+ *  progressReceipts 来自 state-machine.yaml(经 cli-commands 传入),不再硬编码子步骤名。 */
+export function tryMarkProgressDone(
+  state: RunState,
+  step: string,
+  now: string,
+  verifiedReceipts: ArtifactReceipt[] = [],
+  progressReceipts: Record<string, ArtifactKind> = {},
+): ProgressResult {
   const normalized = normalizeRunState(state);
-  const requiredReceipt = PROGRESS_RECEIPTS[step];
+  const requiredReceipt = progressReceipts[step];
   const receipts = [...normalized.artifactReceipts, ...verifiedReceipts];
   if (requiredReceipt && !hasIssueReceipt(normalized, receipts, requiredReceipt)) {
     return { ok: false, state: normalized, error: { code: 'missing_artifact_receipt', required: requiredReceipt, step } };
@@ -193,15 +192,21 @@ export function resetProgress(state: RunState, node: string, now: string): RunSt
 /** 动作审计尾迹上限——长 flow 下避免 lastActions 无限膨胀。 */
 export const MAX_LAST_ACTIONS = 20;
 
-/** 追加一条动作审计（FIFO 尾迹，限长 MAX_LAST_ACTIONS，近邻去重）。不可变。 */
-export function addLastAction(state: RunState, action: string, now: string): RunState {
+/** FIFO 尾迹限长(MAX_LAST_ACTIONS)+ 近邻去重;纯函数,无追加时返回原数组引用。
+ *  addLastAction 与 record* 写入路径共用,保证 lastActions 限长贯穿(不再有不限长的 append)。 */
+export function clampLastActions(prev: string[], action: string): string[] {
   const trimmed = action.trim();
-  if (!trimmed) return state;
-  const prev = state.lastActions;
+  if (!trimmed) return prev;
   const last = prev[prev.length - 1];
-  // 近邻去重：与上一条相同则先去掉再追加，保持「最新一次」语义
+  // 近邻去重:与上一条相同则先去掉再追加,保持「最新一次」语义
   const base = last === trimmed ? prev.slice(0, -1) : prev;
   const next = [...base, trimmed];
-  if (next.length > MAX_LAST_ACTIONS) next.splice(0, next.length - MAX_LAST_ACTIONS);
+  return next.length > MAX_LAST_ACTIONS ? next.slice(next.length - MAX_LAST_ACTIONS) : next;
+}
+
+/** 追加一条动作审计(经 clampLastActions 限长)。不可变。 */
+export function addLastAction(state: RunState, action: string, now: string): RunState {
+  const next = clampLastActions(state.lastActions, action);
+  if (next === state.lastActions) return state;
   return { ...state, lastActions: next, updatedAt: now };
 }

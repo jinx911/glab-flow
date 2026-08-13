@@ -99,7 +99,7 @@ verification: production-smoke-pass
 已由发布负责人完成生产部署并验证。
 ```
 
-`performed-at` 必须是 UTC 的 `Z` 结尾时间，例如上例；它不是 Issue 评论创建时间的替代品。
+`performed-at` 必须是有效 UTC 时间(`Z` 结尾,或等价的 `+00:00` 偏移),例如上例;它不是 Issue 评论创建时间的替代品。`unavailable-reason` 是「自动化部署能力不可用、故手动兜底」的原因(如 Jenkins job 不可达 / 无权限),不是部署失败的借口——manual 模式因自动化不可用才走手工,故此字段必填。
 
 | 产物 kind | 产生节点/转换 | 唯一回执目标 | 条件 |
 |---|---|---|---|

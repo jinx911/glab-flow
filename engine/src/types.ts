@@ -76,6 +76,8 @@ export interface StateMachine {
   reviews: Record<string, string>;
   roleFields: Record<Role, string[]>;
   progressSteps?: Record<string, string[]>;
+  /** 节点子步骤 → 要求的产物 receipt kind(进度受回执约束);单一来源=state-machine.yaml。 */
+  progressReceipts?: Record<string, ArtifactKind>;
 }
 
 export interface Payload {

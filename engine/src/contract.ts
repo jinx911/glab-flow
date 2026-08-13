@@ -57,5 +57,13 @@ export function assertModelContract(model: StateMachine, inv: Invariants): { ok:
     const want = inv.roleFields[role];
     if (!got || !want || got.length !== want.length || !got.every((v, i) => v === want[i])) reasons.push(`roleFields drift: ${role}`);
   }
+  // progressReceipts 的 key 必须是某节点的 progressSteps 子步骤(防子步骤改名后 receipt 校验静默失效)
+  if (model.progressReceipts) {
+    const allSteps = new Set<string>();
+    for (const steps of Object.values(model.progressSteps ?? {})) for (const s of steps) allSteps.add(s);
+    for (const step of Object.keys(model.progressReceipts)) {
+      if (!allSteps.has(step)) reasons.push(`progressReceipts 引用了未声明的子步骤: ${step}`);
+    }
+  }
   return { ok: reasons.length === 0, reasons };
 }

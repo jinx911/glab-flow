@@ -236,15 +236,11 @@ describe('e2e: artifact receipt replay gates', () => {
       config: { jenkins: true },
       artifactContext: receiptContext([malformedManualDeployment]),
     });
-    expect(blocked.validate).toEqual({
-      ok: false,
-      missing: ['deployment-evidence'],
-      reasons: ['缺少回执 deployment-evidence：在 Issue 评论追加 deployment-evidence 回执标记，并回读 Issue 确认回执'],
-    });
-    expect(blocked.missing).toEqual([{
-      field: 'deployment-evidence',
-      hint: '在 Issue 评论追加 deployment-evidence 回执标记，并回读 Issue 确认回执',
-    }]);
+    expect(blocked.validate.ok).toBe(false);
+    expect(blocked.validate.missing).toContain('deployment-evidence');
+    // ③: 无效回执(manual 缺 performed-at)原因融入 hint——reasons 含「已发回执但无效」
+    expect(blocked.validate.reasons.some((r) => r.includes('缺少回执 deployment-evidence') && r.includes('已发回执但无效'))).toBe(true);
+    expect(blocked.missing.some((m) => m.field === 'deployment-evidence' && m.hint.includes('已发回执但无效'))).toBe(true);
     expect(blocked.verifiedReceipts).toEqual([]);
     expect(blocked.plan).toBeUndefined();
   });

@@ -75,3 +75,10 @@ progressSteps:
   生产验证中: [生产验证]
   已确认缺陷: [复现确认, 根因定位]
   已完成: []
+# 节点子步骤 → 要求的产物 receipt kind(层 2 进度受回执约束);key 必须是 progressSteps 里出现过的子步骤名(contract.ts 校验)。
+progressReceipts:
+  六清楚草稿: proposal
+  技术方案 design.md: design
+  测试计划: test-plan
+  发布计划就绪: release-plan
+  上线前确认: release-plan

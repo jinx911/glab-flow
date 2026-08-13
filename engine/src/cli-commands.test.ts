@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { progressCommand, stateDataEvidenceProfileCommand, stateReceiptCommand, stateWritebackCommand } from './cli-commands.js';
 import { initState } from './state.js';
 import type { ArtifactReceipt } from './types.js';
+import { loadModel } from './model.js';
+
+const progressReceipts = loadModel().progressReceipts ?? {};
 
 const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
 const designReceipt: ArtifactReceipt = {
@@ -18,7 +21,7 @@ describe('CLI state command handlers', () => {
 
   it('uses state-receipt output as progress input and returns bare state on success', () => {
     const withReceipt = stateReceiptCommand({ state: base, receipt: designReceipt, now: 't1' });
-    const output = progressCommand({ state: { ...withReceipt, progress: { node: '已评审', done: [] } }, step: '技术方案 design.md', now: 't2' });
+    const output = progressCommand({ state: { ...withReceipt, progress: { node: '已评审', done: [] } }, step: '技术方案 design.md', now: 't2', progressReceipts });
     expect(output).toMatchObject({ progress: { node: '已评审', done: ['技术方案 design.md'] }, artifactReceipts: [designReceipt] });
     expect(output).not.toHaveProperty('ok');
   });
@@ -33,7 +36,7 @@ describe('CLI state command handlers', () => {
   });
 
   it('returns a structured receipt failure from progress', () => {
-    const output = progressCommand({ state: base, step: '测试计划', now: 't1' });
+    const output = progressCommand({ state: base, step: '测试计划', now: 't1', progressReceipts });
     expect(output).toEqual({
       ok: false,
       error: { code: 'missing_artifact_receipt', required: 'test-plan', step: '测试计划' },
