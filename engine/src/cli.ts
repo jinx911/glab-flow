@@ -28,8 +28,8 @@ async function main() {
       break;
     }
     case 'validate': {
-      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload };
-      const result = validateTransition(model, toFacts({ iid: 0, state: 'opened', labels: input.labels, description: '' }), input.payload);
+      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload; body?: string };
+      const result = validateTransition(model, toFacts({ iid: 0, state: 'opened', labels: input.labels, description: input.body ?? '' }), input.payload);
       console.log(JSON.stringify(result));
       break;
     }

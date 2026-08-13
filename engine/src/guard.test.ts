@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
-import { validateTransition, validateWritePlan } from './guard.js';
+import { validateTransition, validateWritePlan, isAffirmative } from './guard.js';
 import type { IssueFacts, Payload, WritePlan } from './types.js';
+
+describe('isAffirmative — tight prefix (excludes 是否/是吗)', () => {
+  it.each(['是', '是(无阻塞)', '是。详细说明…', '是，无问题', '已验证', 'true', ' 是 '])('accepts %s', (v) => {
+    expect(isAffirmative(v)).toBe(true);
+  });
+  it.each(['是否', '是吗', '否', '', '待确认', undefined])('rejects %s', (v) => {
+    expect(isAffirmative(v as string | undefined)).toBe(false);
+  });
+});
 
 const model = loadModel();
 const facts = (labels: string[]): IssueFacts => ({ labels, body: '', state: 'opened', hasJiraSourceLabel: false });
@@ -185,7 +194,7 @@ describe('G11 normalization — accepts affirmative synonyms, rejects the rest',
   it.each(['是', '已验证', '已通过', '无阻塞', '通过', 'true', 'yes', ' 是 ', '是(无阻塞)', '是。详细说明…'])('accepts %s', (val) => {
     expect(run(val).ok).toBe(true);
   });
-  it.each(['否', '未', 'false', 'no', '待确认', ''])('rejects %s', (val) => {
+  it.each(['否', '未', 'false', 'no', '待确认', '', '是否', '是吗'])('rejects %s', (val) => {
     expect(run(val).ok).toBe(false);
   });
 });

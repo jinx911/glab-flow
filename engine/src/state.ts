@@ -189,3 +189,19 @@ export function resetProgress(state: RunState, node: string, now: string): RunSt
   if (normalized.progress.node === node) return normalized;
   return { ...normalized, progress: { node, done: [] }, updatedAt: now };
 }
+
+/** 动作审计尾迹上限——长 flow 下避免 lastActions 无限膨胀。 */
+export const MAX_LAST_ACTIONS = 20;
+
+/** 追加一条动作审计（FIFO 尾迹，限长 MAX_LAST_ACTIONS，近邻去重）。不可变。 */
+export function addLastAction(state: RunState, action: string, now: string): RunState {
+  const trimmed = action.trim();
+  if (!trimmed) return state;
+  const prev = state.lastActions;
+  const last = prev[prev.length - 1];
+  // 近邻去重：与上一条相同则先去掉再追加，保持「最新一次」语义
+  const base = last === trimmed ? prev.slice(0, -1) : prev;
+  const next = [...base, trimmed];
+  if (next.length > MAX_LAST_ACTIONS) next.splice(0, next.length - MAX_LAST_ACTIONS);
+  return { ...state, lastActions: next, updatedAt: now };
+}
