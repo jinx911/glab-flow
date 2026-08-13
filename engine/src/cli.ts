@@ -8,9 +8,9 @@ import { runTransition } from './transition.js';
 import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
-import type { DataEvidenceProfile, InitStateInput, RunState, WritebackAuditInput } from './state.js';
-import type { ArtifactReceipt, Payload, TransitionInput } from './types.js';
-import { progressCommand, stateDataEvidenceProfileCommand, stateReceiptCommand, stateWritebackCommand } from './cli-commands.js';
+import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
+import type { Payload, TransitionInput } from './types.js';
+import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 
 const model = loadModel();
 
@@ -81,21 +81,8 @@ async function main() {
       break;
     }
     case 'progress': {
-      const input = JSON.parse(readStdin()) as { state: RunState; step?: string; resetToNode?: string; verifiedReceipts?: ArtifactReceipt[]; now: string };
-      console.log(JSON.stringify(progressCommand({ ...input, progressReceipts: model.progressReceipts })));
-      break;
-    }
-    case 'state-receipt': {
-      const input = JSON.parse(readStdin()) as { state: RunState; receipt: ArtifactReceipt; now: string };
-      console.log(JSON.stringify(stateReceiptCommand(input)));
-      break;
-    }
-    case 'state-data-evidence-profile': {
-      const input = JSON.parse(readStdin()) as { state: RunState; profile: DataEvidenceProfile; now: string };
-      if (input.profile !== 'standard' && input.profile !== 'data-backed') {
-        throw new Error('state-data-evidence-profile: profile must be standard or data-backed');
-      }
-      console.log(JSON.stringify(stateDataEvidenceProfileCommand(input)));
+      const input = JSON.parse(readStdin()) as { state: RunState; step?: string; resetToNode?: string; now: string };
+      console.log(JSON.stringify(progressCommand(input)));
       break;
     }
     case 'state-writeback': {
@@ -104,7 +91,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | plan-return | evidence | config | state-init | state-receipt | state-data-evidence-profile | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | plan-return | evidence | config | state-init | state-writeback | progress');
       process.exit(1);
   }
 }

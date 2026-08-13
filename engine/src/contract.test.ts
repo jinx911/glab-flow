@@ -25,15 +25,5 @@ describe('contract drift detection', () => {
     expect(r.ok).toBe(false);
     expect(r.reasons.some((x) => x.includes('roleFields drift'))).toBe(true);
   });
-  it('flags progressReceipts referencing an undeclared sub-step (②)', () => {
-    const m = loadModel();
-    const bad: StateMachine = { ...m, progressReceipts: { ...(m.progressReceipts ?? {}), '不存在的子步骤': 'proposal' } };
-    const r = assertModelContract(bad, INVARIANTS);
-    expect(r.ok).toBe(false);
-    expect(r.reasons.some((x) => x.includes('progressReceipts 引用了未声明的子步骤'))).toBe(true);
-  });
-  it('accepts the checked-in progressReceipts as a subset of progressSteps', () => {
-    const r = assertModelContract(loadModel(), INVARIANTS);
-    expect(r.reasons.some((x) => x.includes('progressReceipts'))).toBe(false);
-  });
 });
+

@@ -15,111 +15,33 @@
 
 Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要产品；详见 `engine/state-machine.yaml` 的 `bug.transitions`。
 
-## 正式产物回执（完成前必须回读）
+## 节点内容评论（合并评论 = 状态变更头 + 内容体）
 
-本地 `.glab-flow/<iid>/spec/` 只是工作副本；正式产物只有在 GitLab 目标上**新增回执、回读并解析成功**后才可标记完成。所有 Agent 必须使用下方「唯一可执行的回执模板」：marker 内的基础字段始终是 `kind`、`source`、`sha256`，并在评论正文提供人工可读的摘要。Leader 将回读得到的 Note ID/时间写入派生 state 缓存后，才可用 `progress` 标记子步骤完成。
+每个节点流转写回 Issue 的**一条合并评论** = 状态变更头（变更/实际日期/确认人/结论/依据/目标节点 Assignee，由 `renderNodeComment` 渲染）+ 内容体（按节点类型，见下表）。内容体字段只渲染结构、Leader 填、**不卡流转**——门禁只卡确定事实（日期/确认人/结论/依据/Assignee，由 `requiredFields` 在校验层保证）。本地 `.glab-flow/<iid>/spec/` 仅作 AI 工作副本，不入 GitLab；团队在 Issue 评论上看到的就是正式内容。退回（G2 二值）走 `plan-return`（`renderReturn`，带问题清单），不走合并评论。
 
-### 唯一可执行的回执模板
+| 节点流转 | 内容体标题 |
+|---|---|
+| 草稿中→待评审 | 需求提案要点 |
+| 待评审→已评审 | 评审意见（通过）/ 退回带问题清单 |
+| 已评审→开发中 | 技术方案 |
+| 开发中→测试中 | 提测说明 |
+| 测试中→待发布 | 测试报告 |
+| 待发布→生产验收中/验证中 | 上线操作手册 |
+| 生产验收中→已完成 | 验收报告 |
+| 生产验证中→已完成（bug） | 验证报告 |
+| 已确认缺陷→开发中（bug） | 缺陷复现与根因 |
 
-以下是 `artifact.ts` 能解析的规范评论。复制相应的完整结构并替换示例值；不得省略字段、改名字段或用省略号代替字段。`source` 是本次产物相对 `<workspace.root>` 的路径，`sha256` 是该文件的完整 SHA-256（**恰好 64 位小写十六进制**）；在 marker 后追加面向人的摘要即可。每次 `transition` 还必须携带 Leader 从当前本地文件计算的 `artifactManifest`，引擎只接受 `source` 与 `sha256` 同 manifest 完全一致的最新回读回执；旧文件、旧 hash 或仅有 state 缓存都不能放行。
+每类内容体的字段槽位见 `engine/src/render.ts` 的 `NODE_CONTENT`。`mr-review` 仍在每个受影响 MR 上以独立评论给出评审结论（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
 
-**普通父 Issue 产物**（`proposal`、`design`、`data-evidence`、`test-plan` 或 `release-plan` 只替换 `kind` 与实际文件路径）：
+### 写回顺序（三阶段串行）
 
-```markdown
-<!-- glab-flow:artifact-receipt:v1
-kind: design
-source: .glab-flow/42/spec/design.md
-sha256: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
--->
+合并评论与标签/Assignee 按严格串行写回，每阶段记 `writebackAudit`（resume 定位首个未完成）：
 
-## 产物回执：技术方案
+1. **metadata**：标签 add/unlabel + Assignee（`glab issue update`）
+2. **state-comment**：合并评论（`glab issue note`，长正文 `-F <file>`）
+3. **readback**：最终回读 Issue 确认
 
-已生成并供本 Issue 评审。
-```
-
-**MR 评审**（必须写在该 MR，不是父 Issue）：
-
-```markdown
-<!-- glab-flow:artifact-receipt:v1
-kind: mr-review
-source: .glab-flow/42/reviews/group-api!17.md
-sha256: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-outcome: passed
-method: mr-review-lite
-high-findings: none
--->
-
-## 产物回执：MR 评审
-
-group/api!17 已通过评审，无 CRITICAL/HIGH 残留。
-```
-
-`method` 只允许 `mr-review-lite` 或 `code-review`；`outcome` 必须为 `passed`，`high-findings` 必须为 `none`。
-
-**自动化部署证据**：
-
-```markdown
-<!-- glab-flow:artifact-receipt:v1
-kind: deployment-evidence
-source: .glab-flow/42/deployment/test-oa-service.md
-sha256: cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-mode: automation
-capability: jenkins-deploy
-job: oa-service
-branch: feature/42
-environment: test
-build: 123
-version: test-v1
-verification: smoke-pass
--->
-
-## 产物回执：自动化部署
-
-测试环境构建已验证。
-```
-
-**手工部署降级证据**：
-
-```markdown
-<!-- glab-flow:artifact-receipt:v1
-kind: deployment-evidence
-source: .glab-flow/42/deployment/production-manual.md
-sha256: dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-mode: manual
-unavailable-reason: Jenkins job access unavailable
-operator: @release-operator
-performed-at: 2026-08-12T09:30:00Z
-deployed-version: v1.4.0
-environment: production
-verification: production-smoke-pass
--->
-
-## 产物回执：手工部署
-
-已由发布负责人完成生产部署并验证。
-```
-
-`performed-at` 必须是有效 UTC 时间(`Z` 结尾,或等价的 `+00:00` 偏移),例如上例;它不是 Issue 评论创建时间的替代品。`unavailable-reason` 是「自动化部署能力不可用、故手动兜底」的原因(如 Jenkins job 不可达 / 无权限),不是部署失败的借口——manual 模式因自动化不可用才走手工,故此字段必填。
-
-| 产物 kind | 产生节点/转换 | 唯一回执目标 | 条件 |
-|---|---|---|---|
-| `proposal` | 草稿中 → 待评审 | **父 Issue** | 总是 |
-| `design` | 已评审 → 开发中 | **父 Issue** | 总是 |
-| `data-evidence` | 已评审 → 开发中 | **父 Issue** | `data-backed` profile |
-| `deployment-evidence` | 开发中 → 测试中 | **父 Issue** | playbook 启用 Jenkins |
-| `test-plan` | 测试中 → 待发布 | **父 Issue** | 总是 |
-| `mr-review` | 测试中 → 待发布 | **每个受影响 feature→master MR** | 总是；MR 清单为空或任一 MR 缺失即阻塞 |
-| `release-plan` | 测试中 → 待发布时产生；待发布 → 生产验收中/生产验证中时校验 | **父 Issue** | 只在发布转换前要求并重新回读；不得阻塞测试中 → 待发布 |
-
-`mr-review` 必须在每一个对应 MR 上新增并回读；父 Issue 的汇总仅供导航，**不能以父 Issue 评论替代 MR 回执**。其他种类不得写到 MR 来代替父 Issue。产物回执必须先于状态写回；全部回执完成后，状态写回从**标签 + Assignee**开始，随后新增状态变更评论，最后回读 Issue。
-
-### 数据型需求 profile
-
-在草稿中 → 待评审前，Leader 显式选择并保存 `standard` 或 `data-backed`，绝不凭关键词自行猜测：`echo '{"state":...,"profile":"data-backed","now":"..."}' | pnpm cli state-data-evidence-profile`。该选择必须在已评审 → 开发中时作为 `artifactContext.dataEvidenceProfile` 再次提供；缺失即阻塞。`data-backed` 必须在技术方案前追加 `data-evidence` 回执，至少包括：**代码数据流**、数据源/真理源决策；如请求生产数据，还须有**只读生产取证**及所用路由/授权约束。`standard` 不需要这条附加回执。
-
-### 回执与状态写回固定顺序
-
-每个产物都严格走「生成文件并计算 SHA-256 → 新增对应目标的回执 → 回读目标 → 解析 marker → state 缓存 → progress 完成」。全部产物完成后才走「标签 + Assignee → 状态变更评论 → 最终 Issue 回读」。任一失败立即停止；恢复时先回读并对账，仅重试首个未完成阶段。
+任一阶段失败立即停止；恢复时先回读对账，仅重试首个未完成阶段。
 
 ### 多仓库（OA 常态）
 

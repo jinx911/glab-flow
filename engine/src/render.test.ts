@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderStatusChange, renderReturn, renderChangeRequest, renderTestIssue, renderCorrection } from './render.js';
+import { renderStatusChange, renderReturn, renderChangeRequest, renderTestIssue, renderCorrection, renderNodeComment } from './render.js';
 import type { Payload } from './types.js';
 
 describe('render', () => {
@@ -47,5 +47,45 @@ describe('extra templates', () => {
     expect(md).toContain('## 补充/更正');
     expect(md).toContain('- 对应节点：已评审');
     expect(md).not.toContain('原记录链接');
+  });
+});
+
+describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
+  it('已评审→开发中:状态头 + 技术方案内容体 + 兜底', () => {
+    const md = renderNodeComment({
+      type: 'story', from: '已评审', to: '开发中',
+      fields: {
+        技术方案评审通过记录或免评审结论: '技评通过', 实际开始日期: '2026-08-13', 研发Assignee: '@dev',
+        计划提测时间: '2026-08-20', 计划上线时间: '2026-09-01',
+        方案概述: '部分扣减', 回滚方案: 'down()',
+      },
+      assigneeUser: '@dev',
+    });
+    expect(md).toContain('## 状态变更');
+    expect(md).toContain('`已评审` → `开发中`');
+    expect(md).toContain('- 实际日期：2026-08-13');
+    expect(md).toContain('- 依据：技评通过');
+    expect(md).toContain('## 技术方案');
+    expect(md).toContain('- 方案概述：部分扣减');
+    expect(md).toContain('- 回滚方案：down()');
+    expect(md).toContain('- 计划提测时间：2026-08-20');
+  });
+
+  it('内容字段缺失则跳过内容体(不卡流转)', () => {
+    const md = renderNodeComment({ type: 'story', from: '已评审', to: '开发中', fields: { 实际开始日期: '2026-08-13' }, assigneeUser: '@dev' });
+    expect(md).not.toContain('## 技术方案');
+    expect(md).toContain('## 状态变更');
+  });
+
+  it('草稿中→待评审:需求提案要点', () => {
+    const md = renderNodeComment({ type: 'story', from: '草稿中', to: '待评审', fields: { 背景: 'b', 目标: 'g' }, assigneeUser: '@pm' });
+    expect(md).toContain('## 需求提案要点');
+    expect(md).toContain('- 背景：b');
+  });
+
+  it('bug 已确认缺陷→开发中:缺陷复现与根因', () => {
+    const md = renderNodeComment({ type: 'bug', from: '已确认缺陷', to: '开发中', fields: { 复现步骤: 's', 根因: 'r' }, assigneeUser: '@dev' });
+    expect(md).toContain('## 缺陷复现与根因');
+    expect(md).toContain('- 根因：r');
   });
 });
