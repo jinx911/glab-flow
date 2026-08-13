@@ -26,6 +26,8 @@ export interface GlabConfig {
   };
   databases?: Record<string, { mcp: string; desc?: string }>;
   testEnvironments?: Record<string, { url: string; account?: string; password?: string; desc?: string }>;
+  /** 项目可能涉及的全部仓库 path;声明后 transition 启用 MR 覆盖性校验(防漏发现一个仓的 MR)。 */
+  repos?: string[];
 }
 
 interface RawJenkinsJob {
@@ -45,6 +47,7 @@ interface RawConfig {
   jenkins?: { job_name?: string; branch_param?: string; default_params?: Record<string, string>; jobs?: Record<string, RawJenkinsJob> };
   databases?: Record<string, { mcp?: string; desc?: string }>;
   test_environments?: Record<string, { url?: string; account?: string; password?: string; desc?: string }>;
+  repos?: string[];
 }
 
 // Matches a ```yaml\n...\n``` fenced block exactly (no CRLF / trailing-space / uppercase support).
@@ -125,5 +128,6 @@ export function parseConfig(markdown: string): GlabConfig {
     ...(raw.test_environments
       ? { testEnvironments: Object.fromEntries(Object.entries(raw.test_environments).map(([k, v]) => [k, { url: v.url ?? '', ...(v.account ? { account: v.account } : {}), ...(v.password ? { password: v.password } : {}), ...(v.desc ? { desc: v.desc } : {}) }])) }
       : {}),
+    ...(raw.repos ? { repos: raw.repos } : {}),
   };
 }

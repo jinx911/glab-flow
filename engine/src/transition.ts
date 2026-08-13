@@ -253,6 +253,8 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
         : undefined,
       jenkinsActive: playbook.some((step) => step.action === 'trigger_jenkins'),
       artifactManifest: artifactContext?.artifactManifest,
+      repos: artifactContext?.repos,
+      reposWithoutMr: artifactContext?.reposWithoutMr,
     },
     allRejections,
   );

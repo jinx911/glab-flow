@@ -8,6 +8,10 @@ export interface ArtifactValidationOptions {
   dataEvidenceProfile?: DataEvidenceProfile;
   jenkinsActive?: boolean;
   artifactManifest?: ArtifactManifest;
+  /** 配置仓库全集(来自 config.repos);声明后启用 MR 覆盖性校验。 */
+  repos?: string[];
+  /** 明确无 MR 的仓库;与 mergeRequests 一起须覆盖 repos 全集。 */
+  reposWithoutMr?: string[];
 }
 
 export interface ArtifactValidationResult {
@@ -222,6 +226,19 @@ export function validateArtifactRequirements(
     }
     if (mergeRequests.length === 0) {
       missing.push(withRejection({ field: requirement.kind, hint: `提供需评审的 MR 目标；在每个 MR 评论追加 ${requirement.kind} 回执标记并回读确认` }));
+    }
+  }
+
+  // MR 覆盖性:声明了配置仓库全集(options.repos)时,每个 repo 须显式表态(在 mergeRequests 或 reposWithoutMr),
+  // 防 Leader 漏发现一个仓的 MR 导致 G14 漏评(未评审代码进 master)。
+  const needsMrCoverage = requirements.some((r) => r.kind === 'mr-review' && r.target === 'each-mr' && isActive(r, options));
+  if (needsMrCoverage && options.repos && options.repos.length > 0) {
+    const withMr = new Set(mergeRequests.map((m) => m.projectPath));
+    const withoutMr = new Set(options.reposWithoutMr ?? []);
+    for (const repo of options.repos) {
+      if (!withMr.has(repo) && !withoutMr.has(repo)) {
+        missing.push({ field: `mrCoverage:${repo}`, hint: `仓库 ${repo} 的 MR 处置未声明:查 GitLab 后,若本需求改了它则放入 mergeRequests(附 mr-review 回执),若没改则放入 reposWithoutMr 显式声明` });
+      }
     }
   }
 

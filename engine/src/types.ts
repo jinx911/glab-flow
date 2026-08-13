@@ -161,6 +161,10 @@ export interface TransitionInput {
     artifactManifest?: ArtifactManifest;
     issueNotes?: ReceiptNote[];
     mergeRequests?: Array<{ projectPath: string; iid: number; notes: ReceiptNote[] }>;
+    /** 配置的全部可能仓库 path(来自 config.repos);声明后启用 MR 覆盖性校验,防 Leader 漏发现一个仓的 MR。 */
+    repos?: string[];
+    /** 本需求明确无 MR 的仓库 path;与 mergeRequests 一起须覆盖 repos 全集。 */
+    reposWithoutMr?: string[];
   };
 }
 
