@@ -173,3 +173,28 @@ verification: production-smoke-pass
 | 生产验证中（Bug） | 生产验证 |
 | 已确认缺陷（Bug） | 复现确认 / 根因定位 |
 | 已完成 | — |
+
+#### 子步骤 ↔ sub-skill 映射（Leader 标 done 的依据）
+
+nodeProgress 子步骤与转换 playbook 是两个维度（前者 = 节点内做到哪、后者 = 这次转换做什么），并不一一对应。Leader 委派对应 sub-skill 产出后，按此映射调 `pnpm cli progress`（stdin `{state, step, now}`）标 done；换节点时用 `progress`（stdin `{state, resetToNode, now}`）重置：
+
+| 节点.子步骤 | 执行 sub-skill / agent |
+|---|---|
+| 草稿中.需求澄清 | intake / spec-author |
+| 草稿中.六清楚草稿 | spec-author |
+| 待评审.评审预审 / 问题清单 | review-preview |
+| 已评审.技术方案 design.md | spec-author（+ architect） |
+| 已评审.技术方案评审 | review-preview（技术方案评审口径） |
+| 开发中.技术方案 | spec-author / architect |
+| 开发中.编码实现 | git-ops + tdd-guide |
+| 开发中.自测 | tdd-guide |
+| 开发中.代码评审 | code-review |
+| 测试中.测试计划 | test-design |
+| 测试中.用例执行 | test-flow-apifox / test-flow-e2e |
+| 测试中.阻塞修复 | git-ops + tdd-guide |
+| 测试中.复测 | test-flow-apifox / test-flow-e2e |
+| 待发布.发布计划就绪 | release-check |
+| 待发布.上线前确认 | Leader（核对 release-check 清单） |
+| 生产验收中.生产验证 / 验收确认 | Leader（按 release-check 验证） |
+| 已确认缺陷.复现确认 / 根因定位 | intake / git-ops |
+| 生产验证中.生产验证 | Leader（按 release-check 验证） |

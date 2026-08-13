@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
 import { runTransition } from './transition.js';
+import { renderStatusChange } from './render.js';
 import type { TransitionInput } from './types.js';
 
 const model = loadModel();
@@ -519,5 +520,41 @@ describe('transition — evidence smart prefill', () => {
     }));
     expect(r.payload?.fields.测试完成日期).toBeUndefined();
     expect(r.missing.map((m) => m.field)).toContain('测试完成日期');
+  });
+});
+
+describe('transition — prefill from render-normalized comments (semantic slot fallback, ⑨)', () => {
+  // renderStatusChange 把字段归一化成「实际日期/确认人/结论/依据」槽位写入评论（evidence 契约）。
+  // 下次 transition 若只按精确 key 匹配会漏（评论里是槽位名）。用「待评审→已评审」验证回填闭环
+  // （该转换无 requiredArtifacts，可专注预填逻辑；测试中→待发布 因要求 test-plan/mr-review 回执不适用）。
+  it('prefills 评审日期/产品确认人/评审结论/需求文档或评审记录 from a normalized comment', () => {
+    const rendered = renderStatusChange({
+      type: 'story', from: '待评审', to: '已评审',
+      fields: { 评审日期: '2026-08-01', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc-link' },
+      assigneeUser: '@dev',
+    });
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
+      notes: [{ body: rendered }],
+      gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
+    }));
+    expect(r.payload?.fields.评审日期).toBe('2026-08-01');
+    expect(r.payload?.fields.产品确认人).toBe('@pm');
+    expect(r.payload?.fields.评审结论).toBe('通过');
+    expect(r.payload?.fields.需求文档或评审记录).toBe('doc-link');
+    expect(r.missing.map((m) => m.field)).not.toContain('评审日期');
+    expect(r.validate.ok).toBe(true);
+  });
+  it('user-provided value still wins over semantic-slot fallback', () => {
+    const rendered = renderStatusChange({
+      type: 'story', from: '待评审', to: '已评审', fields: { 评审日期: '2026-08-01' }, assigneeUser: '@dev',
+    });
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
+      notes: [{ body: rendered }],
+      fields: { 评审日期: '2026-08-09', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc' },
+      gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
+    }));
+    expect(r.payload?.fields.评审日期).toBe('2026-08-09');
   });
 });

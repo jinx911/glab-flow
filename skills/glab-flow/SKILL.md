@@ -17,6 +17,8 @@ glab-flow 是 GitLab-native、自包含的流程引擎：引擎只做确定性�
 
 为空（`/glab-flow` 无参）→ 按 `resume.md` 列出未完成 flow：扫描 `<workspace.root>/.glab-flow/*-state.json`，让用户选一个恢复，或开新 flow。
 
+**子命令路由**：首参为 `learn` → 走 `learn.md` 手动命令分支（`/glab-flow learn <note>` 记一条 `manual_note` lesson；`/glab-flow learn --upgrade` 在非终态触发 upgrade ritual），**不进入状态机驱动**。
+
 ## 配置（启动第一件事）
 
 glab-flow 是配置驱动的——`host`/`project_id`/`workspace.root` 等参数因项目而异，绝不写死。每次启动 flow，**先读 config**（`$ENGINE_ROOT` 见下文「引擎与命令」节，启动时先解析一次、全局复用）：
@@ -41,19 +43,22 @@ glab-flow 引擎仓库就是本 skill 所属的仓库（不依赖任何外部 sk
 **引擎根解析（每次启动 flow 先做一次，后续复用）**：`install.sh` 把 `skills/glab-flow` 符号链接到 `~/.claude/skills/glab-flow`，故引擎仓库根 = 该符号链接实际目标的"上两级"。启动时解析一次 `$ENGINE_ROOT`，此后所有 `pnpm cli …` 都在它下面跑（形如 `cd "$ENGINE_ROOT" && pnpm cli …`，下文「配置」「Leader 编排」「证据抽取」等各处出现的 `pnpm cli …` 均在此前缀下执行）：
 
 ```bash
-# 引擎仓库根 = glab-flow skill 的实际仓库根（install.sh 符号链接 ~/.claude/skills/glab-flow → <repo>/skills/glab-flow）
-ENGINE_ROOT="$(dirname "$(dirname "$(readlink -f "$HOME/.claude/skills/glab-flow")")")"
+# 引擎仓库根 = glab-flow skill 符号链接实际目标的「上两级」。
+# 注意：macOS 原生 readlink 不支持 -f（BSD），用 python3 realpath 跨平台解析符号链接。
+LINK="$HOME/.claude/skills/glab-flow"
+ENGINE_ROOT="$(dirname "$(dirname "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$LINK")")")"
+if [ ! -d "$ENGINE_ROOT/engine" ]; then ENGINE_ROOT="$(pwd)"; fi  # 开发态兜底（未安装、直接在仓库内跑）
 cd "$ENGINE_ROOT" && pnpm cli <cmd>
 ```
 
-若 `readlink -f` 不可用或开发态直接在仓库内运行，`ENGINE_ROOT` 即当前 glab-flow 仓库根（开发者自行 `cd` 到仓库根即可）。
+> 也可先 `pnpm build` 预编译到 `engine/dist`，再用 `node engine/dist/cli.js <cmd>` 跑（省去 tsx 即时编译的冷启动开销，full-auto 批量推进时更快）；默认 `pnpm cli`（tsx）即可。
 
 命令列表：
 
 | 命令 | 作用 |
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
-| `transition` | **一键流转（首选）**：stdin 必须包含普通 Issue 字段和 `artifactContext`（`projectId`、回读的 `issueNotes`、受影响 MR 的 `mergeRequests`、`dataEvidenceProfile`）；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,preview,shouldConfirm}`。把下面 8 步里的 6 步确定性计算（推导/抽证据/查契约/预填/校验/建计划/预览）全收拢 |
+| `transition` | **一键流转（首选）**：stdin 必须包含普通 Issue 字段和 `artifactContext`（`projectId`、回读的 `issueNotes`、受影响 MR 的 `mergeRequests`、`dataEvidenceProfile`）；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,preview,shouldConfirm}`。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/预览）全收拢 |
 | `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload}` → `{ok,missing,reasons}` |
 | `render` | 渲染评论正文 |
 | `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload}` |
@@ -150,7 +155,7 @@ const artifactContext = {
    - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
    - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, receipts?, now}`）标记 done、写回 state；受回执约束的步骤必须带对应已验证 receipt，节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
 
-`transition` = `node` + `evidence` + `validate` + `plan` + `render` 的确定性编排 + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。
+`transition` 内部确定性编排 = 推导节点 + 评论字段扫描预填（`scanFieldsFromNotes`：精确 key 优先，缺失则按「实际日期 / 确认人 / 结论 / 依据」语义槽位回填，兼容 `render` 归一化评论）+ `validate` + `plan` + `render` + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。`evidence` 命令是独立的结构化取证工具（从 `## 状态变更` 块抽固定语义槽位，供 G1/G3/G11 人工排障），不参与 transition 内部预填。
 
 ### 批量推进（可选）
 
@@ -192,7 +197,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 ## 硬规则
 
-要点（完整判定见 `guards.md` G1–G13）：
+要点（完整判定见 `guards.md` G1–G14）：
 
 - 三类评审分离（G4）：reviewType 必须等于门禁要求，防技评/代码评审替代需求评审。
 - 门禁二值（G2）：通过走 `plan`，退回走 `plan-return`，没有"附带条件通过"。
@@ -243,7 +248,7 @@ glab-flow 的同伴文件（与 SKILL.md 同目录 `skills/glab-flow/`，自包�
 
 - `config.md` —— 配置格式、字段语义、查找链。
 - `nodes.md` —— 节点契约（下一节点 / 必填项 / 门禁 / Assignee 角色 / 文档存储树）。
-- `guards.md` —— 护栏 G1–G13 完整判定。
+- `guards.md` —— 护栏 G1–G14 完整判定。
 - `gate.md` —— 门禁仪式（6 步）+ run 模式 + hard_gate 红线。
 - `resume.md` —— 恢复 / 脏状态处理 / GitLab 对账。
 - `learn.md` —— 自我迭代闭环（capture / apply / upgrade ritual）。

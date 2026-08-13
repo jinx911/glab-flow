@@ -8,6 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
+    "build": "tsc",
     "cli": "tsx engine/src/cli.ts"
   },
   "dependencies": {

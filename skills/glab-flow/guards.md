@@ -1,4 +1,4 @@
-# 护栏 G1–G13（确定性，由 engine/src/guard.ts 强制；本表给 Leader 参考）
+# 护栏 G1–G14（确定性，由 engine/src/guard.ts 强制；本表给 Leader 参考）
 
 护栏触发时，`reasons` 文本本身即携带**补救动作**（期望值 / 怎么补 / 去哪取）；优先用 `transition` 命令一次性拿到 `missing`（带 hint）+ `reasons`，而非手工拼 payload 试错。
 

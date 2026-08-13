@@ -27,7 +27,7 @@ GitLab Issue URL → Leader → 读 labels → 状态机模型 → 当前节点+
   → Leader 直接跑 glab CLI 写回 → 更新本地快照 → 下一节点
 ```
 
-## Guard layer G1–G13 (deterministic, pure function — no LLM in critical path)
+## Guard layer G1–G14 (deterministic, pure function — no LLM in critical path)
 
 The status-change comment is rendered from **structured fields** into the harness template; the guard validates fields, not natural language. LLM only proposes field values; confirmation + validation are deterministic.
 
@@ -46,5 +46,6 @@ The status-change comment is rendered from **structured fields** into the harnes
 | G11 | 阻塞问题全验证 | 测试中→待发布 requires 阻塞发布问题均已验证通过 === 是 (story + bug) |
 | G12 | 终态原子 | terminal transition requires closeIssue (label+assignee+comment+close in one op) |
 | G13 | 不建 Jira (write-plan) | never create Jira |
+| G14 | feature MR 评审前置 | 测试中→待发布 requires feature分支MR评审结论 (no CRITICAL/HIGH 残留) |
 
 Per-rule source: each maps to a clause in `AGENTS.md` / `docs/issue-state-machine.md`; each has a unit test. The rule set is covered by the model↔invariants contract check (`engine/src/contract.ts`) so harness rule changes that aren't reflected in the model fail CI.

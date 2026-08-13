@@ -1,4 +1,5 @@
 import type { WritePlan, IssueType, Payload } from './types.js';
+import { STATUS_NAMESPACE } from './constants.js';
 import { renderReturn, renderStatusChange } from './render.js';
 
 export interface ReturnInput {
@@ -14,7 +15,7 @@ export interface ReturnInput {
 
 /** 正向流转建写回计划：标签替换 + Assignee + 状态变更评论 +（终态）关闭。 */
 export function buildForwardPlan(payload: Payload, issueIid: number): WritePlan {
-  const prefix = payload.type === 'story' ? 'story-status' : 'status';
+  const prefix = STATUS_NAMESPACE[payload.type];
   return {
     issueIid,
     ops: [
@@ -28,7 +29,7 @@ export function buildForwardPlan(payload: Payload, issueIid: number): WritePlan 
 }
 
 export function buildReturnPlan(input: ReturnInput): WritePlan {
-  const prefix = input.type === 'story' ? 'story-status' : 'status';
+  const prefix = STATUS_NAMESPACE[input.type];
   return {
     issueIid: input.issueIid,
     ops: [

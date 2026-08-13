@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { initState, markProgressDone, normalizeRunState, recordVerifiedReceipt, recordWritebackAudit, resetProgress, setDataEvidenceProfile, tryMarkProgressDone } from './state.js';
+import { initState, markProgressDone, normalizeRunState, recordVerifiedReceipt, recordWritebackAudit, resetProgress, setDataEvidenceProfile, tryMarkProgressDone, addLastAction, MAX_LAST_ACTIONS } from './state.js';
 import type { ArtifactReceipt } from './types.js';
 
 describe('initState', () => {
@@ -174,5 +174,33 @@ describe('artifact receipt and writeback recovery state', () => {
     expect(recordVerifiedReceipt(legacy as typeof base, designReceipt, 't1').artifactReceipts).toEqual([designReceipt]);
     expect(recordWritebackAudit(legacy as typeof base, { target: 'issue', stage: 'metadata', status: 'succeeded', detail: 'read back' }, 't1').writebackAudit).toHaveLength(1);
     expect(tryMarkProgressDone(legacy as typeof base, '编码实现', 't1')).toMatchObject({ ok: true, state: { artifactReceipts: [], writebackAudit: [] } });
+  });
+});
+
+describe('addLastAction', () => {
+  const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
+
+  it('appends an action (immutable, updates timestamp)', () => {
+    const s = addLastAction(base, '推进 待评审→已评审', 't1');
+    expect(s.lastActions).toEqual(['推进 待评审→已评审']);
+    expect(s.updatedAt).toBe('t1');
+    expect(base.lastActions).toEqual([]); // immutable — original untouched
+  });
+  it('skips blank action (no-op, same ref)', () => {
+    const s = addLastAction(base, '   ', 't1');
+    expect(s.lastActions).toEqual([]);
+    expect(s).toBe(base);
+  });
+  it('dedupes adjacent identical actions', () => {
+    const s1 = addLastAction(base, '推进', 't1');
+    const s2 = addLastAction(s1, '推进', 't2');
+    expect(s2.lastActions).toEqual(['推进']);
+  });
+  it('trims to MAX_LAST_ACTIONS (FIFO)', () => {
+    let s = base;
+    for (let i = 0; i < MAX_LAST_ACTIONS + 5; i++) s = addLastAction(s, `action-${i}`, `t${i}`);
+    expect(s.lastActions).toHaveLength(MAX_LAST_ACTIONS);
+    expect(s.lastActions[0]).toBe('action-5'); // first 5 dropped
+    expect(s.lastActions[MAX_LAST_ACTIONS - 1]).toBe(`action-${MAX_LAST_ACTIONS + 4}`);
   });
 });

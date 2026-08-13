@@ -1,13 +1,10 @@
-import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, IssueType, Transition, PlaybookStep, ArtifactReceipt, DataEvidenceProfile } from './types.js';
+import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep, ArtifactReceipt, DataEvidenceProfile } from './types.js';
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
 import { buildForwardPlan } from './plan.js';
 import { parseArtifactReceipts, validateArtifactRequirements } from './artifact.js';
-
-const ROLES: ReadonlySet<string> = new Set(['产品', '研发', '测试']);
-const TERMINAL = new Set(['已完成']);
-const STATUS_PREFIX: Record<IssueType, string> = { story: 'story-status::', bug: 'status::' };
+import { STATUS_PREFIX, TERMINAL, ROLES } from './constants.js';
 
 /** 角色名不是用户；其余自动补 @ 前缀。 */
 function ensureAt(user: string | undefined): string | undefined {
@@ -113,6 +110,25 @@ function receiptLabel(receipt: ArtifactReceipt): string {
   return `${receipt.kind}（${target}，source=${receipt.source}，sha256=${receipt.sha256}，observedAt=${receipt.observedAt}，note=${receipt.noteId}）`;
 }
 
+/**
+ * renderStatusChange 把字段归一化为「实际日期 / 确认人 / 结论 / 依据」语义槽位写入评论
+ * （evidence 抽取契约，见 render.ts / evidence.ts）。下次预填若只按精确 key 匹配会漏掉
+ * （评论里是槽位名，不是原字段名）。FIELD_TO_SLOT 把 requiredField 反查到它的语义槽位名，
+ * 让预填也能从归一化评论回填。每类语义字段在每个转换的 requiredFields 中恰好唯一
+ * （已对照 state-machine.yaml 核对），故无歧义。
+ */
+const SEMANTIC_SLOTS: Record<string, string[]> = {
+  实际日期: ['评审日期', '实际开始日期', '提测日期', '测试完成日期', '发布日期', '验收完成日期', '验证完成日期'],
+  确认人: ['产品确认人', '测试Assignee', '研发Assignee', '具体产品验收人', '具体测试验证人', '测试验证人Assignee'],
+  结论: ['评审结论', '测试结论', '验收结论', '验证结论'],
+  依据: ['需求文档或评审记录', '回归范围或证据', '验收依据', '验证依据', '发布记录或回滚信息', '技术方案评审通过记录或免评审结论'],
+};
+const FIELD_TO_SLOT: ReadonlyMap<string, string> = (() => {
+  const m = new Map<string, string>();
+  for (const [slot, fields] of Object.entries(SEMANTIC_SLOTS)) for (const f of fields) m.set(f, slot);
+  return m;
+})();
+
 function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], verifiedReceipts: ArtifactReceipt[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
@@ -187,7 +203,9 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   for (const f of tr.requiredFields) {
     const userVal = input.fields?.[f];
     if (userVal && userVal !== '待确认') continue; // 用户已给，不覆盖
-    const evVal = evidenceFields.get(f);
+    // 精确 key 优先；失败则按语义槽位（实际日期/确认人/结论/依据）回填——render 归一化评论的兼容
+    const slot = FIELD_TO_SLOT.get(f);
+    const evVal = evidenceFields.get(f) ?? (slot ? evidenceFields.get(slot) : undefined);
     if (evVal && evVal !== '待确认') {
       prefillFields[f] = evVal;
       prefilled[f] = `${evVal}（来自评论，请核实）`;

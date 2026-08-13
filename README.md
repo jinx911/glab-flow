@@ -6,7 +6,7 @@ glab-flow is a self-contained, GitLab-native skill with its own config, state ca
 
 ## Architecture (pure engine + Leader-driven I/O)
 
-- **Engine** (`engine/`, tested TypeScript): the deterministic **pure-computation** core — state-machine model, guard validator (G1–G13), comment renderer, write-plan builder. **No subprocess, no network, no GitLab client.** stdin → stdout only.
+- **Engine** (`engine/`, tested TypeScript): the deterministic **pure-computation** core — state-machine model, guard validator (G1–G14), comment renderer, write-plan builder. **No subprocess, no network, no GitLab client.** stdin → stdout only.
 - **Skill pack** (`skills/glab-flow/SKILL.md` + `agents/*.md`): the Leader orchestration that reads/writes GitLab **directly via `glab` CLI**, calls the engine CLI for deterministic decisions, delegates expert agents, previews write plans, confirms, applies.
 
 Seven layers: trigger → rule authority (harness) → state-machine driver → guard/pre-flight (deterministic) → content generation (expert agents) → GitLab integration (Leader via glab, preview-confirm) → persistence (GitLab Issue is truth).
@@ -39,11 +39,12 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
 
 All GitLab reads/writes are done by the Leader via `glab` CLI (no token needed).
 
-## Test / typecheck
+## Test / typecheck / build
 
 ```bash
 pnpm install
 pnpm typecheck && pnpm test   # vitest
+pnpm build                    # tsc → engine/dist（可选；用 node engine/dist/cli.js 省去 tsx 冷启动）
 ```
 
 ## Project structure

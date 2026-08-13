@@ -1,19 +1,27 @@
 import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
+import { STATUS_PREFIX, ROLES } from './constants.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
 
-/** 阻塞发布问题「均已验证通过」的肯定同义集合；G11 归一化用（替代精确匹配 '是'）。 */
+/**
+ * 阻塞发布问题「均已验证通过」的肯定判定（G11）。
+ * 接受：精确同义集合，或「是 + 附注分隔」（如「是(无阻塞)」「是。详细说明…」）。
+ * 拒绝：否定词 / 空 / 占位，以及「是否」「是吗」这类以「是」开头但表疑问的串
+ *       （旧版 startsWith('是') 会把它们误放行）。
+ */
 const AFFIRMATIVE = new Set(['是', 'true', 'yes', '已验证', '已通过', '无阻塞', '通过', '同意', '确认']);
+// 「是」后紧跟附注分隔符才算肯定续写；不含「是否」「是吗」。
+const AFFIRMATIVE_NOTE_PREFIX = ['是(', '是（', '是。', '是,', '是，', '是/', '是、', '是 '];
 
 export function isAffirmative(v: string | undefined): boolean {
   if (!v) return false;
-  const norm = v.trim().toLowerCase();
-  if (!norm) return false;
-  // 精确同义集合，或以「是」开头（容忍「是(无阻塞)」「是。详细说明…」这类附注）
-  return AFFIRMATIVE.has(norm) || norm.startsWith('是');
+  const raw = v.trim();
+  if (!raw) return false;
+  if (AFFIRMATIVE.has(raw.toLowerCase())) return true;
+  return AFFIRMATIVE_NOTE_PREFIX.some((p) => raw.startsWith(p));
 }
 
 export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload): GuardResult {
@@ -24,7 +32,7 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   const reasons: string[] = [];
 
   // G5 label uniqueness + clean state
-  const prefix = payload.type === 'story' ? 'story-status::' : 'status::';
+  const prefix = STATUS_PREFIX[payload.type];
   const statusLabels = facts.labels.filter((l) => l.startsWith(prefix));
   if (statusLabels.length !== 1) return fail([`脏状态：期望 1 个 ${prefix}* 标签，实际 ${statusLabels.length} 个（人工修复后继续）`]);
   if (facts.labels.filter((l) => l.startsWith('type::')).length !== 1) return fail(['脏状态：期望 1 个 type::* 标签']);
@@ -47,8 +55,7 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (t.gate && payload.reviewType && t.gate !== payload.reviewType) reasons.push(`reviewType ${payload.reviewType} 与门禁 ${t.gate} 不符`);
 
   // G6 assignee concrete user (must start with @, not a bare role)
-  const ROLES = ['产品', '研发', '测试'];
-  if (!payload.assigneeUser || !/^@.+$/.test(payload.assigneeUser) || ROLES.includes(payload.assigneeUser)) {
+  if (!payload.assigneeUser || !/^@.+$/.test(payload.assigneeUser) || ROLES.has(payload.assigneeUser)) {
     reasons.push('Assignee 必须是具体 GitLab 用户（@前缀；角色名不行——请填 @用户，或在 config 配 roles 默认由引擎兜底）');
   }
 
