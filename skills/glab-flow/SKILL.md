@@ -141,10 +141,13 @@ const artifactContext = {
   })),
   dataEvidenceProfile,
   artifactManifest,
+  // 多仓:从 config.repos 传入全集;每个 repo 要么在 mergeRequests(有 MR),要么在 reposWithoutMr(明确无 MR),
+  // 否则测试中→待发布 会因「mrCoverage:<repo> 未声明」卡住(防漏评一个仓的 MR)。
+  ...(config.repos ? { repos: config.repos, reposWithoutMr } : {}),
 };
 ```
 
-即使没有受影响 MR，也传 `mergeRequests: []`；但 `projectId`、`issueNotes`、`mergeRequests`、`dataEvidenceProfile`、`artifactManifest` 始终存在。每个本轮 active required artifact 都必须有 manifest 项，且回读回执的 source/hash 必须逐字匹配；多个 MR 若共用同一 review 文件，可共用 `mr-review` 的 manifest 项。Leader 回读后先构造此输入、再调用 `transition`；`artifactReceipts`/state 仅用于审计展示，不能替代这个读取映射。
+即使没有受影响 MR，也传 `mergeRequests: []`；但 `projectId`、`issueNotes`、`mergeRequests`、`dataEvidenceProfile`、`artifactManifest` 始终存在。每个本轮 active required artifact 都必须有 manifest 项，且回读回执的 source/hash 必须逐字匹配；多个 MR 若共用同一 review 文件，可共用 `mr-review` 的 manifest 项。Leader 回读后先构造此输入、再调用 `transition`；`artifactReceipts`/state 仅用于审计展示，不能替代这个读取映射。声明了 `config.repos` 时,Leader 必须对每个仓库查 GitLab 后表态——改了的进 `mergeRequests`(附 mr-review 回执),没改的进 `reposWithoutMr`;沉默漏掉一个仓会被引擎以 `mrCoverage:<repo>` 卡住。
 3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
    - 正式产物不能只留在本地：在其声明的**门禁转换**前，每一个 `proposal`、`design`、`test-plan`、`release-plan` 都必须追加到**父 Issue**的回执；`mr-review` 必须追加到**每一个对应 feature→master MR**，父 Issue 的汇总不能替代 MR 回执。回执必须逐字采用 `nodes.md`「唯一可执行的回执模板」的 `<!-- glab-flow:artifact-receipt:v1` marker，其中列出基础的 `kind`、`source`、`sha256` 以及 MR/部署的全部严格字段。`release-plan` 在测试中→待发布提前产生，但只在待发布→生产验收中/生产验证中的最终状态写回前首次要求并回读回执，不得倒逼前一转换。
