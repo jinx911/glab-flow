@@ -3,7 +3,7 @@ import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from
 import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
 import { buildForwardPlan } from './plan.js';
-import { parseArtifactReceipts, validateArtifactRequirements } from './artifact.js';
+import { parseArtifactReceipts, validateArtifactRequirements, type ArtifactRejection } from './artifact.js';
 import { STATUS_PREFIX, TERMINAL, ROLES } from './constants.js';
 
 /** 角色名不是用户；其余自动补 @ 前缀。 */
@@ -234,17 +234,18 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   const baseValidate = validateTransition(model, facts, payload);
   const playbook = buildPlaybook(tr, input.config);
   const artifactContext = input.artifactContext;
-  const issueReceipts = artifactContext?.projectId
+  const issueParse = artifactContext?.projectId
     ? parseArtifactReceipts(artifactContext.issueNotes ?? [], { kind: 'issue', projectId: artifactContext.projectId, iid: input.iid })
-    : [];
+    : { receipts: [] as ArtifactReceipt[], rejections: [] as ArtifactRejection[] };
   const mergeRequests = artifactContext?.mergeRequests ?? [];
-  const mrReceipts = mergeRequests.flatMap((mergeRequest) => parseArtifactReceipts(
+  const mrParses = mergeRequests.map((mergeRequest) => parseArtifactReceipts(
     mergeRequest.notes,
     { kind: 'mr', projectPath: mergeRequest.projectPath, iid: mergeRequest.iid },
   ));
+  const allRejections = [...issueParse.rejections, ...mrParses.flatMap((p) => p.rejections)];
   const artifactValidation = validateArtifactRequirements(
     tr.requiredArtifacts ?? [],
-    [...issueReceipts, ...mrReceipts],
+    [...issueParse.receipts, ...mrParses.flatMap((p) => p.receipts)],
     mergeRequests.map(({ projectPath, iid }) => ({ projectPath, iid })),
     {
       dataEvidenceProfile: isDataEvidenceProfile(artifactContext?.dataEvidenceProfile)
@@ -253,6 +254,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
       jenkinsActive: playbook.some((step) => step.action === 'trigger_jenkins'),
       artifactManifest: artifactContext?.artifactManifest,
     },
+    allRejections,
   );
   const requiresDataEvidenceProfile = input.type === 'story'
     && ((tr.from === '草稿中' && tr.to === '待评审') || (tr.from === '已评审' && tr.to === '开发中'));

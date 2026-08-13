@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { initState, markProgressDone, normalizeRunState, recordVerifiedReceipt, recordWritebackAudit, resetProgress, setDataEvidenceProfile, tryMarkProgressDone, addLastAction, MAX_LAST_ACTIONS } from './state.js';
 import type { ArtifactReceipt } from './types.js';
+import { loadModel } from './model.js';
+
+/** 来自 state-machine.yaml 的子步骤→receipt 映射(② 去硬编码后,测试须显式传入)。 */
+const progressReceipts = loadModel().progressReceipts ?? {};
 
 describe('initState', () => {
   it('builds initial state with defaults', () => {
@@ -59,7 +63,7 @@ describe('progress tracking', () => {
 
   it('uses state receipts by default to complete the matching governed progress step', () => {
     const withReceipt = recordVerifiedReceipt(base, designReceipt, 't1');
-    const r = tryMarkProgressDone(resetProgress(withReceipt, '已评审', 't2'), '技术方案 design.md', 't3');
+    const r = tryMarkProgressDone(resetProgress(withReceipt, '已评审', 't2'), '技术方案 design.md', 't3', [], progressReceipts);
     expect(r.ok).toBe(true);
     if (!r.ok) throw new Error('expected stored receipt to satisfy the progress gate');
     expect(r.state.progress.done).toEqual(['技术方案 design.md']);
@@ -71,7 +75,7 @@ describe('progress tracking', () => {
       kind: 'test-plan',
       noteId: '10',
       source: '.glab-flow/1/spec/test-plan.md',
-    }]);
+    }], progressReceipts);
     expect(r.ok).toBe(true);
   });
 
@@ -103,7 +107,7 @@ describe('progress tracking', () => {
 
   it('rejects marking a governed progress step done without its verified receipt', () => {
     const atDev = resetProgress(base, '已评审', 't1');
-    const r = tryMarkProgressDone(atDev, '技术方案 design.md', 't2');
+    const r = tryMarkProgressDone(atDev, '技术方案 design.md', 't2', [], progressReceipts);
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error('expected receipt gate to block progress');
     expect(r.error).toEqual({ code: 'missing_artifact_receipt', required: 'design', step: '技术方案 design.md' });
@@ -116,7 +120,7 @@ describe('progress tracking', () => {
     ['发布计划就绪', 'release-plan'],
     ['上线前确认', 'release-plan'],
   ] as const)('requires %s receipt before marking %s complete', (step, kind) => {
-    const r = tryMarkProgressDone(base, step, 't1');
+    const r = tryMarkProgressDone(base, step, 't1', [], progressReceipts);
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error('expected receipt gate to block progress');
     expect(r.error.required).toBe(kind);
@@ -160,7 +164,7 @@ describe('artifact receipt and writeback recovery state', () => {
   it('rejects an Issue receipt from a different project or Issue', () => {
     const foreign: ArtifactReceipt = { ...designReceipt, target: { kind: 'issue', projectId: 'other', iid: 1 } };
     expect(recordVerifiedReceipt(base, foreign, 't1')).toBe(base);
-    const r = tryMarkProgressDone(resetProgress(base, '已评审', 't1'), '技术方案 design.md', 't2', [foreign]);
+    const r = tryMarkProgressDone(resetProgress(base, '已评审', 't1'), '技术方案 design.md', 't2', [foreign], progressReceipts);
     expect(r.ok).toBe(false);
   });
 
@@ -173,7 +177,7 @@ describe('artifact receipt and writeback recovery state', () => {
     expect(normalized).toMatchObject({ artifactReceipts: [], writebackAudit: [] });
     expect(recordVerifiedReceipt(legacy as typeof base, designReceipt, 't1').artifactReceipts).toEqual([designReceipt]);
     expect(recordWritebackAudit(legacy as typeof base, { target: 'issue', stage: 'metadata', status: 'succeeded', detail: 'read back' }, 't1').writebackAudit).toHaveLength(1);
-    expect(tryMarkProgressDone(legacy as typeof base, '编码实现', 't1')).toMatchObject({ ok: true, state: { artifactReceipts: [], writebackAudit: [] } });
+    expect(tryMarkProgressDone(legacy as typeof base, '编码实现', 't1', [], progressReceipts)).toMatchObject({ ok: true, state: { artifactReceipts: [], writebackAudit: [] } });
   });
 });
 
@@ -202,5 +206,17 @@ describe('addLastAction', () => {
     expect(s.lastActions).toHaveLength(MAX_LAST_ACTIONS);
     expect(s.lastActions[0]).toBe('action-5'); // first 5 dropped
     expect(s.lastActions[MAX_LAST_ACTIONS - 1]).toBe(`action-${MAX_LAST_ACTIONS + 4}`);
+  });
+
+  it('recordVerifiedReceipt also clamps lastActions via clampLastActions (① 贯穿)', () => {
+    let s = base;
+    for (let i = 0; i < MAX_LAST_ACTIONS + 5; i++) {
+      s = recordVerifiedReceipt(s, {
+        kind: 'design', target: { kind: 'issue', projectId: '1', iid: 1 },
+        source: `.glab-flow/1/spec/design-${i}.md`, sha256: 'a'.repeat(64),
+        noteId: String(100 + i), observedAt: `2026-08-12T10:00:0${i % 10}Z`,
+      }, `t${i}`);
+    }
+    expect(s.lastActions.length).toBeLessThanOrEqual(MAX_LAST_ACTIONS);
   });
 });

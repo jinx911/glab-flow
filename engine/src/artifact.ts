@@ -15,9 +15,21 @@ export interface ArtifactValidationResult {
   missing: MissingItem[];
 }
 
+/** 回执解析失败记录:kind 合法但 metadata 不达标,或基础字段缺失。供 transition 融入 missing hint,避免静默丢弃(③)。 */
+export interface ArtifactRejection {
+  kind: ArtifactKind | 'unknown';
+  noteId: string;
+  reason: string;
+}
+
+export interface ArtifactParseResult {
+  receipts: ArtifactReceipt[];
+  rejections: ArtifactRejection[];
+}
+
 export type MergeRequestTarget = { projectPath: string; iid: number };
 
-const ISO_UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/;
+const ISO_UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:\d{2})$/;
 const GITLAB_NOTE_ID = /^\d+$/;
 const SHA256 = /^[a-f0-9]{64}$/;
 
@@ -61,9 +73,17 @@ function receiptMetadata(kind: ArtifactKind, fields: Map<string, string>): Artif
   return undefined;
 }
 
-/** Parses exact v1 receipt comment markers from Leader-provided readback notes. */
-export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarget): ArtifactReceipt[] {
+function metadataRejectionReason(kind: ArtifactKind): string {
+  if (kind === 'mr-review') return 'mr-review 回执未达标(outcome 须 passed、method 须 mr-review-lite|code-review、high-findings 须 none)';
+  if (kind === 'deployment-evidence') return 'deployment-evidence 回执缺字段或 performed-at 非 UTC Z(automation 需 capability/job/branch/environment/build/version/verification;manual 需 unavailable-reason/operator/deployed-version/environment/verification/performed-at)';
+  return 'metadata 无效';
+}
+
+/** Parses exact v1 receipt comment markers from Leader-provided readback notes.
+ *  metadata 不达标的回执(kind 合法但 outcome/high-findings/字段不全)进 rejections 而非被静默丢弃(③)。 */
+export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarget): ArtifactParseResult {
   const receipts: ArtifactReceipt[] = [];
+  const rejections: ArtifactRejection[] = [];
   const marker = /<!-- glab-flow:artifact-receipt:v1\r?\n([\s\S]*?)-->/g;
 
   for (const note of notes) {
@@ -81,9 +101,16 @@ export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarg
       const kind = fields.get('kind');
       const source = fields.get('source')?.trim();
       const sha256 = fields.get('sha256')?.trim();
-      if (!kind || !ARTIFACT_KINDS.has(kind as ArtifactKind) || !source || !sha256 || !SHA256.test(sha256)) continue;
+      const knownKind = kind && ARTIFACT_KINDS.has(kind as ArtifactKind);
+      if (!kind || !knownKind || !source || !sha256 || !SHA256.test(sha256)) {
+        rejections.push({ kind: (knownKind ? kind : 'unknown') as ArtifactKind | 'unknown', noteId: note.id, reason: '回执缺基础字段或 kind/sha256 非法(kind/source/sha256 必填,sha256 须 64 位小写 hex)' });
+        continue;
+      }
       const metadata = receiptMetadata(kind as ArtifactKind, fields);
-      if (metadata === null) continue;
+      if (metadata === null) {
+        rejections.push({ kind: kind as ArtifactKind, noteId: note.id, reason: metadataRejectionReason(kind as ArtifactKind) });
+        continue;
+      }
 
       receipts.push({
         kind: kind as ArtifactKind,
@@ -97,7 +124,7 @@ export function parseArtifactReceipts(notes: ReceiptNote[], target: ArtifactTarg
       });
     }
   }
-  return receipts;
+  return { receipts, rejections };
 }
 
 function targetKey(target: ArtifactTarget): string {
@@ -144,12 +171,14 @@ function matchesManifest(receipt: ArtifactReceipt, manifest: ArtifactManifest, k
   return expected !== undefined && receipt.source === expected.source && receipt.sha256 === expected.sha256;
 }
 
-/** Resolves active requirements against only caller-provided, already-read-back receipts. */
+/** Resolves active requirements against only caller-provided, already-read-back receipts.
+ *  rejections(来自 parseArtifactReceipts)用于在 missing hint 里点明「已发回执但无效」,避免静默丢弃(③)。 */
 export function validateArtifactRequirements(
   requirements: ArtifactRequirement[],
   receipts: ArtifactReceipt[],
   mergeRequests: MergeRequestTarget[],
   options: ArtifactValidationOptions = {},
+  rejections: ArtifactRejection[] = [],
 ): ArtifactValidationResult {
   const latest = new Map<string, ArtifactReceipt>();
   for (const receipt of receipts) {
@@ -158,6 +187,15 @@ export function validateArtifactRequirements(
     const previous = latest.get(key);
     if (!previous || isLater(receipt, previous)) latest.set(key, receipt);
   }
+
+  // kind → 无效回执原因(已发但 metadata 不达标),用于增强 missing hint
+  const rejectionByKind = new Map<ArtifactKind, string>();
+  for (const rejection of rejections) if (rejection.kind !== 'unknown') rejectionByKind.set(rejection.kind, rejection.reason);
+  const withRejection = (item: MissingItem): MissingItem => {
+    const kind = item.field.split(':')[0] as ArtifactKind;
+    const reason = rejectionByKind.get(kind);
+    return reason ? { ...item, hint: `${item.hint}(已发回执但无效:${reason})` } : item;
+  };
 
   const verified = new Map<string, ArtifactReceipt>();
   const missing: MissingItem[] = [];
@@ -169,7 +207,7 @@ export function validateArtifactRequirements(
         missing.push(missingManifest(requirement.kind, receipt));
       }
       if (receipt && matchesManifest(receipt, options.artifactManifest ?? {}, requirement.kind)) verified.set(key, receipt);
-      else if (!receipt) missing.push(missingIssue(requirement.kind));
+      else if (!receipt) missing.push(withRejection(missingIssue(requirement.kind)));
       continue;
     }
 
@@ -180,10 +218,10 @@ export function validateArtifactRequirements(
         missing.push(missingManifest(requirement.kind, receipt));
       }
       if (receipt && matchesManifest(receipt, options.artifactManifest ?? {}, requirement.kind)) verified.set(key, receipt);
-      else if (!receipt) missing.push(missingMr(requirement.kind, mergeRequest));
+      else if (!receipt) missing.push(withRejection(missingMr(requirement.kind, mergeRequest)));
     }
     if (mergeRequests.length === 0) {
-      missing.push({ field: requirement.kind, hint: `提供需评审的 MR 目标；在每个 MR 评论追加 ${requirement.kind} 回执标记并回读确认` });
+      missing.push(withRejection({ field: requirement.kind, hint: `提供需评审的 MR 目标；在每个 MR 评论追加 ${requirement.kind} 回执标记并回读确认` }));
     }
   }
 

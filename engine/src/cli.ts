@@ -82,7 +82,7 @@ async function main() {
     }
     case 'progress': {
       const input = JSON.parse(readStdin()) as { state: RunState; step?: string; resetToNode?: string; verifiedReceipts?: ArtifactReceipt[]; now: string };
-      console.log(JSON.stringify(progressCommand(input)));
+      console.log(JSON.stringify(progressCommand({ ...input, progressReceipts: model.progressReceipts })));
       break;
     }
     case 'state-receipt': {

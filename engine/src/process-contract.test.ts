@@ -213,7 +213,7 @@ describe('glab-flow process contracts', () => {
       id: String(index + 1),
       observedAt: '2026-08-12T10:00:00Z',
       body,
-    }], target));
+    }], target).receipts);
 
     expect(receipts.map((receipt) => receipt.kind)).toEqual([
       'design', 'mr-review', 'deployment-evidence', 'deployment-evidence',
