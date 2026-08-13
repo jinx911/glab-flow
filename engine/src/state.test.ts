@@ -1,21 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { initState, markProgressDone, normalizeRunState, recordVerifiedReceipt, recordWritebackAudit, resetProgress, setDataEvidenceProfile, tryMarkProgressDone, addLastAction, MAX_LAST_ACTIONS } from './state.js';
-import type { ArtifactReceipt } from './types.js';
-import { loadModel } from './model.js';
-
-/** 来自 state-machine.yaml 的子步骤→receipt 映射(② 去硬编码后,测试须显式传入)。 */
-const progressReceipts = loadModel().progressReceipts ?? {};
+import { initState, markProgressDone, normalizeRunState, recordWritebackAudit, resetProgress, addLastAction, MAX_LAST_ACTIONS } from './state.js';
 
 describe('initState', () => {
   it('builds initial state with defaults', () => {
-    const s = initState({
-      iid: '123',
-      type: 'story',
-      host: 'git.kuainiujinke.com',
-      projectId: '3915',
-      workspaceRoot: '/tmp/oa',
-      now: '2026-07-29T00:00:00Z',
-    });
+    const s = initState({ iid: '123', type: 'story', host: 'git.kuainiujinke.com', projectId: '3915', workspaceRoot: '/tmp/oa', now: '2026-07-29T00:00:00Z' });
     expect(s.iid).toBe('123');
     expect(s.type).toBe('story');
     expect(s.project).toEqual({ host: 'git.kuainiujinke.com', id: '3915' });
@@ -25,9 +13,7 @@ describe('initState', () => {
     expect(s.lastActions).toEqual([]);
     expect(s.spawnedAgents).toEqual([]);
     expect(s.progress).toEqual({ node: '', done: [] });
-    expect(s.artifactReceipts).toEqual([]);
     expect(s.writebackAudit).toEqual([]);
-    expect(s.dataEvidenceProfile).toBeUndefined();
     expect(s.specDir).toBe('/tmp/oa/.glab-flow/123/spec');
     expect(s.runMode).toBe('semi-auto');
     expect(s.cachedNodeAt).toBe('2026-07-29T00:00:00Z');
@@ -35,15 +21,7 @@ describe('initState', () => {
   });
 
   it('honors runMode override', () => {
-    const s = initState({
-      iid: '1',
-      type: 'bug',
-      host: 'h',
-      projectId: '9',
-      workspaceRoot: '/r',
-      runMode: 'full-auto',
-      now: 'x',
-    });
+    const s = initState({ iid: '1', type: 'bug', host: 'h', projectId: '9', workspaceRoot: '/r', runMode: 'full-auto', now: 'x' });
     expect(s.runMode).toBe('full-auto');
     expect(s.type).toBe('bug');
   });
@@ -57,36 +35,14 @@ describe('initState', () => {
 describe('progress tracking', () => {
   const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
 
-  const designReceipt: ArtifactReceipt = {
-    kind: 'design', target: { kind: 'issue', projectId: '1', iid: 1 }, source: '.glab-flow/1/spec/design.md', sha256: 'design-sha', noteId: '9', observedAt: '2026-08-12T10:00:00Z',
-  };
-
-  it('uses state receipts by default to complete the matching governed progress step', () => {
-    const withReceipt = recordVerifiedReceipt(base, designReceipt, 't1');
-    const r = tryMarkProgressDone(resetProgress(withReceipt, '已评审', 't2'), '技术方案 design.md', 't3', [], progressReceipts);
-    expect(r.ok).toBe(true);
-    if (!r.ok) throw new Error('expected stored receipt to satisfy the progress gate');
-    expect(r.state.progress.done).toEqual(['技术方案 design.md']);
-  });
-
-  it('supplements stored receipts with supplied receipts', () => {
-    const r = tryMarkProgressDone(resetProgress(base, '测试中', 't1'), '测试计划', 't2', [{
-      ...designReceipt,
-      kind: 'test-plan',
-      noteId: '10',
-      source: '.glab-flow/1/spec/test-plan.md',
-    }], progressReceipts);
-    expect(r.ok).toBe(true);
-  });
-
-  it('marks ungated development steps done (idempotent, immutable)', () => {
+  it('marks a step done (idempotent, immutable)', () => {
     const atDev = resetProgress(base, '开发中', 't1');
     const s1 = markProgressDone(atDev, '技术方案', 't2');
     expect(s1.progress.done).toEqual(['技术方案']);
     expect(s1.updatedAt).toBe('t2');
     const s2 = markProgressDone(s1, '技术方案', 't3');
-    expect(s2.progress.done).toEqual(['技术方案']); // idempotent
-    expect(s2).toBe(s1); // same ref, no new object
+    expect(s2.progress.done).toEqual(['技术方案']);
+    expect(s2).toBe(s1);
     const s3 = markProgressDone(s1, '编码实现', 't4');
     expect(s3.progress.done).toEqual(['技术方案', '编码实现']);
   });
@@ -99,52 +55,15 @@ describe('progress tracking', () => {
     expect(atTest.progress).toEqual({ node: '测试中', done: [] });
   });
 
-  it('resetProgress is a no-op when same node and already empty', () => {
+  it('resetProgress is a no-op when same node', () => {
     const atDev = resetProgress(base, '开发中', 't1');
     const again = resetProgress(atDev, '开发中', 't2');
-    expect(again).toBe(atDev); // same ref
-  });
-
-  it('rejects marking a governed progress step done without its verified receipt', () => {
-    const atDev = resetProgress(base, '已评审', 't1');
-    const r = tryMarkProgressDone(atDev, '技术方案 design.md', 't2', [], progressReceipts);
-    expect(r.ok).toBe(false);
-    if (r.ok) throw new Error('expected receipt gate to block progress');
-    expect(r.error).toEqual({ code: 'missing_artifact_receipt', required: 'design', step: '技术方案 design.md' });
-    expect(r.state).toBe(atDev);
-  });
-
-  it.each([
-    ['六清楚草稿', 'proposal'],
-    ['测试计划', 'test-plan'],
-    ['发布计划就绪', 'release-plan'],
-    ['上线前确认', 'release-plan'],
-  ] as const)('requires %s receipt before marking %s complete', (step, kind) => {
-    const r = tryMarkProgressDone(base, step, 't1', [], progressReceipts);
-    expect(r.ok).toBe(false);
-    if (r.ok) throw new Error('expected receipt gate to block progress');
-    expect(r.error.required).toBe(kind);
+    expect(again).toBe(atDev);
   });
 });
 
-describe('artifact receipt and writeback recovery state', () => {
+describe('writeback audit recovery state', () => {
   const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
-  const designReceipt: ArtifactReceipt = {
-    kind: 'design', target: { kind: 'issue', projectId: '1', iid: 1 }, source: '.glab-flow/1/spec/design.md', sha256: 'design-sha', noteId: '9', observedAt: '2026-08-12T10:00:00Z',
-  };
-
-  it('records a verified receipt idempotently after GitLab readback', () => {
-    const once = recordVerifiedReceipt(base, designReceipt, 't1');
-    expect(once.artifactReceipts).toEqual([designReceipt]);
-    expect(recordVerifiedReceipt(once, once.artifactReceipts[0]!, 't2')).toBe(once);
-  });
-
-  it('records the declared data-evidence profile immutably and idempotently', () => {
-    const profiled = setDataEvidenceProfile(base, 'data-backed', 't1');
-    expect(profiled.dataEvidenceProfile).toBe('data-backed');
-    expect(profiled.updatedAt).toBe('t1');
-    expect(setDataEvidenceProfile(profiled, 'data-backed', 't2')).toBe(profiled);
-  });
 
   it('retains successful writeback stages before a later failure for recovery', () => {
     const metadataSuccess = { target: 'issue' as const, stage: 'metadata' as const, status: 'succeeded' as const, detail: 'labels and assignee read back' };
@@ -155,40 +74,25 @@ describe('artifact receipt and writeback recovery state', () => {
       { ...commentFailure, at: 't2' },
     ]);
     expect(recordWritebackAudit(s, commentFailure, 't3')).toBe(s);
-    expect(s.writebackAudit).toEqual([
-      { ...metadataSuccess, at: 't1' },
-      { ...commentFailure, at: 't2' },
-    ]);
   });
 
-  it('rejects an Issue receipt from a different project or Issue', () => {
-    const foreign: ArtifactReceipt = { ...designReceipt, target: { kind: 'issue', projectId: 'other', iid: 1 } };
-    expect(recordVerifiedReceipt(base, foreign, 't1')).toBe(base);
-    const r = tryMarkProgressDone(resetProgress(base, '已评审', 't1'), '技术方案 design.md', 't2', [foreign], progressReceipts);
-    expect(r.ok).toBe(false);
-  });
-
-  it('normalizes legacy persisted state before receipt, audit, and progress operations', () => {
+  it('normalizes legacy persisted state (writebackAudit defaulted)', () => {
     const legacy = { ...base } as Partial<typeof base>;
-    delete legacy.artifactReceipts;
     delete legacy.writebackAudit;
-    delete legacy.dataEvidenceProfile;
     const normalized = normalizeRunState(legacy as typeof base);
-    expect(normalized).toMatchObject({ artifactReceipts: [], writebackAudit: [] });
-    expect(recordVerifiedReceipt(legacy as typeof base, designReceipt, 't1').artifactReceipts).toEqual([designReceipt]);
+    expect(normalized).toMatchObject({ writebackAudit: [] });
     expect(recordWritebackAudit(legacy as typeof base, { target: 'issue', stage: 'metadata', status: 'succeeded', detail: 'read back' }, 't1').writebackAudit).toHaveLength(1);
-    expect(tryMarkProgressDone(legacy as typeof base, '编码实现', 't1', [], progressReceipts)).toMatchObject({ ok: true, state: { artifactReceipts: [], writebackAudit: [] } });
   });
 });
 
-describe('addLastAction', () => {
+describe('addLastAction / clampLastActions', () => {
   const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
 
   it('appends an action (immutable, updates timestamp)', () => {
     const s = addLastAction(base, '推进 待评审→已评审', 't1');
     expect(s.lastActions).toEqual(['推进 待评审→已评审']);
     expect(s.updatedAt).toBe('t1');
-    expect(base.lastActions).toEqual([]); // immutable — original untouched
+    expect(base.lastActions).toEqual([]);
   });
   it('skips blank action (no-op, same ref)', () => {
     const s = addLastAction(base, '   ', 't1');
@@ -204,18 +108,14 @@ describe('addLastAction', () => {
     let s = base;
     for (let i = 0; i < MAX_LAST_ACTIONS + 5; i++) s = addLastAction(s, `action-${i}`, `t${i}`);
     expect(s.lastActions).toHaveLength(MAX_LAST_ACTIONS);
-    expect(s.lastActions[0]).toBe('action-5'); // first 5 dropped
+    expect(s.lastActions[0]).toBe('action-5');
     expect(s.lastActions[MAX_LAST_ACTIONS - 1]).toBe(`action-${MAX_LAST_ACTIONS + 4}`);
   });
 
-  it('recordVerifiedReceipt also clamps lastActions via clampLastActions (① 贯穿)', () => {
+  it('recordWritebackAudit also clamps lastActions (限长贯穿)', () => {
     let s = base;
     for (let i = 0; i < MAX_LAST_ACTIONS + 5; i++) {
-      s = recordVerifiedReceipt(s, {
-        kind: 'design', target: { kind: 'issue', projectId: '1', iid: 1 },
-        source: `.glab-flow/1/spec/design-${i}.md`, sha256: 'a'.repeat(64),
-        noteId: String(100 + i), observedAt: `2026-08-12T10:00:0${i % 10}Z`,
-      }, `t${i}`);
+      s = recordWritebackAudit(s, { target: 'issue', stage: 'metadata', status: 'succeeded', detail: `d${i}` }, `t${i}`);
     }
     expect(s.lastActions.length).toBeLessThanOrEqual(MAX_LAST_ACTIONS);
   });

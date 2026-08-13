@@ -1,29 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { progressCommand, stateDataEvidenceProfileCommand, stateReceiptCommand, stateWritebackCommand } from './cli-commands.js';
+import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 import { initState } from './state.js';
-import type { ArtifactReceipt } from './types.js';
-import { loadModel } from './model.js';
-
-const progressReceipts = loadModel().progressReceipts ?? {};
 
 const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
-const designReceipt: ArtifactReceipt = {
-  kind: 'design', target: { kind: 'issue', projectId: '1', iid: 1 }, source: '.glab-flow/1/spec/design.md', sha256: 'design-sha', noteId: '9', observedAt: 't1',
-};
 
 describe('CLI state command handlers', () => {
-  it('persists an explicit data evidence profile through the pure CLI handler', () => {
-    expect(stateDataEvidenceProfileCommand({ state: base, profile: 'data-backed', now: 't1' })).toMatchObject({
-      dataEvidenceProfile: 'data-backed',
-      updatedAt: 't1',
-    });
+  it('progress 标记子步骤 done(幂等,返回 RunState)', () => {
+    const output = progressCommand({ state: { ...base, progress: { node: '已评审', done: [] } }, step: '技术方案 design.md', now: 't2' });
+    expect(output).toMatchObject({ progress: { node: '已评审', done: ['技术方案 design.md'] } });
   });
 
-  it('uses state-receipt output as progress input and returns bare state on success', () => {
-    const withReceipt = stateReceiptCommand({ state: base, receipt: designReceipt, now: 't1' });
-    const output = progressCommand({ state: { ...withReceipt, progress: { node: '已评审', done: [] } }, step: '技术方案 design.md', now: 't2', progressReceipts });
-    expect(output).toMatchObject({ progress: { node: '已评审', done: ['技术方案 design.md'] }, artifactReceipts: [designReceipt] });
-    expect(output).not.toHaveProperty('ok');
+  it('progress resetToNode 重置进度', () => {
+    const output = progressCommand({ state: base, resetToNode: '开发中', now: 't1' });
+    expect(output).toMatchObject({ progress: { node: '开发中', done: [] } });
   });
 
   it('returns the state-writeback state directly', () => {
@@ -35,24 +24,12 @@ describe('CLI state command handlers', () => {
     expect(output.writebackAudit).toEqual([{ target: 'issue', stage: 'metadata', status: 'succeeded', detail: 'labels read back', at: 't1' }]);
   });
 
-  it('returns a structured receipt failure from progress', () => {
-    const output = progressCommand({ state: base, step: '测试计划', now: 't1', progressReceipts });
-    expect(output).toEqual({
-      ok: false,
-      error: { code: 'missing_artifact_receipt', required: 'test-plan', step: '测试计划' },
-      state: base,
-    });
-  });
-
-  it('resumes legacy persisted state through CLI commands with new fields defaulted', () => {
+  it('resumes legacy persisted state through CLI commands with writebackAudit defaulted', () => {
     const legacy = { ...base } as Partial<typeof base>;
-    delete legacy.artifactReceipts;
     delete legacy.writebackAudit;
-    delete legacy.dataEvidenceProfile;
     const resumed = progressCommand({ state: legacy as typeof base, resetToNode: '开发中', now: 't1' });
-    expect(resumed).toMatchObject({ progress: { node: '开发中', done: [] }, artifactReceipts: [], writebackAudit: [] });
-    expect(progressCommand({ state: legacy as typeof base, now: 't1' })).toMatchObject({ artifactReceipts: [], writebackAudit: [] });
-    expect(stateReceiptCommand({ state: legacy as typeof base, receipt: designReceipt, now: 't1' }).artifactReceipts).toEqual([designReceipt]);
+    expect(resumed).toMatchObject({ progress: { node: '开发中', done: [] }, writebackAudit: [] });
+    expect(progressCommand({ state: legacy as typeof base, now: 't1' })).toMatchObject({ writebackAudit: [] });
     expect(stateWritebackCommand({ state: legacy as typeof base, audit: { target: 'issue', stage: 'metadata', status: 'succeeded', detail: 'read back' }, now: 't1' }).writebackAudit).toHaveLength(1);
   });
 });

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { parse } from 'yaml';
-import type { IssueType, StateMachine, Transition, ArtifactKind } from './types.js';
+import type { IssueType, StateMachine, Transition } from './types.js';
 import { STATUS_PREFIX } from './constants.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -47,9 +47,4 @@ export function allowedTransitions(model: StateMachine, type: IssueType, from: s
 export function progressStepsFor(model: StateMachine, node: string | null): string[] {
   if (!node) return [];
   return model.progressSteps?.[node] ?? [];
-}
-
-/** 节点子步骤 → 要求的产物 receipt kind（来自 state-machine.yaml progressReceipts）。 */
-export function progressReceiptMap(model: StateMachine): Record<string, ArtifactKind> {
-  return model.progressReceipts ?? {};
 }

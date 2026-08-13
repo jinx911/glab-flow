@@ -1,9 +1,9 @@
-import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep, ArtifactReceipt, DataEvidenceProfile } from './types.js';
+import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep } from './types.js';
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
 import { buildForwardPlan } from './plan.js';
-import { parseArtifactReceipts, validateArtifactRequirements, type ArtifactRejection } from './artifact.js';
+import { renderNodeComment } from './render.js';
 import { STATUS_PREFIX, TERMINAL, ROLES } from './constants.js';
 
 /** 角色名不是用户；其余自动补 @ 前缀。 */
@@ -54,10 +54,6 @@ function hintFor(field: string): string {
   return FIELD_HINTS[field] ?? '来自对应节点评论 / spec 文档';
 }
 
-function isDataEvidenceProfile(value: unknown): value is DataEvidenceProfile {
-  return value === 'standard' || value === 'data-backed';
-}
-
 /** 副作用动作 → 执行它的 sub-skill + 人类可读说明（Issue 写回由 buildPlaybook 末步追加）。 */
 const PLAYBOOK_ACTIONS: Record<string, { subskill?: string; desc: string }> = {
   commit_push_feature: { subskill: 'git-ops', desc: '提交并推送 feature 分支剩余改动' },
@@ -105,11 +101,6 @@ function scanFieldsFromNotes(notes: { body: string }[]): Map<string, string> {
   return map;
 }
 
-function receiptLabel(receipt: ArtifactReceipt): string {
-  const target = receipt.target.kind === 'issue' ? 'Issue' : `MR ${receipt.target.projectPath}!${receipt.target.iid}`;
-  return `${receipt.kind}（${target}，source=${receipt.source}，sha256=${receipt.sha256}，observedAt=${receipt.observedAt}，note=${receipt.noteId}）`;
-}
-
 /**
  * renderStatusChange 把字段归一化为「实际日期 / 确认人 / 结论 / 依据」语义槽位写入评论
  * （evidence 抽取契约，见 render.ts / evidence.ts）。下次预填若只按精确 key 匹配会漏掉
@@ -129,7 +120,7 @@ const FIELD_TO_SLOT: ReadonlyMap<string, string> = (() => {
   return m;
 })();
 
-function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], verifiedReceipts: ArtifactReceipt[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
   const code = playbook.filter((s) => !s.isWriteback);
@@ -138,10 +129,9 @@ function previewText(from: string, to: string, payload: Payload, validateOk: boo
   }
   lines.push(`标签：移除 ${STATUS_PREFIX[payload.type]}${from}，新增 ${STATUS_PREFIX[payload.type]}${to}`);
   lines.push(`Assignee：${payload.assigneeUser ?? '（未解析）'}`);
-  lines.push(`评论：将发表「## 状态变更」结构化评论（由 render 生成）`);
+  lines.push(`评论：将发表合并评论（状态变更头 + 内容体，由 renderNodeComment 生成）`);
   lines.push(`关闭 Issue：${payload.closeIssue ? '是（终态原子）' : '否'}`);
   lines.push(`校验：${validateOk ? '✓ 通过' : '✗ 未通过（见 reasons）'}`);
-  if (verifiedReceipts.length) lines.push(`已验证回执：${verifiedReceipts.map(receiptLabel).join('；')}`);
   if (missing.length) lines.push(`缺口：\n${missing.map((m) => `  - ${m.field} — ${m.hint}`).join('\n')}`);
   if (hardGate) lines.push('hard_gate：必须人工确认（humanConfirmed），无论 run 模式');
   lines.push(`run 模式：${runMode} → ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
@@ -165,8 +155,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (dirtyReason) {
     return {
       node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
-      validate: { ok: false, missing: [], reasons: [dirtyReason] }, verifiedReceipts: [],
-      preview: dirtyReason, shouldConfirm: true, applied: false,
+      validate: { ok: false, missing: [], reasons: [dirtyReason] },      preview: dirtyReason, shouldConfirm: true, applied: false,
     };
   }
 
@@ -178,8 +167,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     const msg = `无可用转换：from=${current} to=${target ?? '(未指定且无默认下一节点)'}——检查 to 节点名或当前标签`;
     return {
       node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
-      validate: { ok: false, missing: [], reasons: [msg] }, verifiedReceipts: [],
-      preview: msg, shouldConfirm: true, applied: false,
+      validate: { ok: false, missing: [], reasons: [msg] },      preview: msg, shouldConfirm: true, applied: false,
     };
   }
 
@@ -233,47 +221,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   };
   const baseValidate = validateTransition(model, facts, payload);
   const playbook = buildPlaybook(tr, input.config);
-  const artifactContext = input.artifactContext;
-  const issueParse = artifactContext?.projectId
-    ? parseArtifactReceipts(artifactContext.issueNotes ?? [], { kind: 'issue', projectId: artifactContext.projectId, iid: input.iid })
-    : { receipts: [] as ArtifactReceipt[], rejections: [] as ArtifactRejection[] };
-  const mergeRequests = artifactContext?.mergeRequests ?? [];
-  const mrParses = mergeRequests.map((mergeRequest) => parseArtifactReceipts(
-    mergeRequest.notes,
-    { kind: 'mr', projectPath: mergeRequest.projectPath, iid: mergeRequest.iid },
-  ));
-  const allRejections = [...issueParse.rejections, ...mrParses.flatMap((p) => p.rejections)];
-  const artifactValidation = validateArtifactRequirements(
-    tr.requiredArtifacts ?? [],
-    [...issueParse.receipts, ...mrParses.flatMap((p) => p.receipts)],
-    mergeRequests.map(({ projectPath, iid }) => ({ projectPath, iid })),
-    {
-      dataEvidenceProfile: isDataEvidenceProfile(artifactContext?.dataEvidenceProfile)
-        ? artifactContext?.dataEvidenceProfile
-        : undefined,
-      jenkinsActive: playbook.some((step) => step.action === 'trigger_jenkins'),
-      artifactManifest: artifactContext?.artifactManifest,
-      repos: artifactContext?.repos,
-      reposWithoutMr: artifactContext?.reposWithoutMr,
-    },
-    allRejections,
-  );
-  const requiresDataEvidenceProfile = input.type === 'story'
-    && ((tr.from === '草稿中' && tr.to === '待评审') || (tr.from === '已评审' && tr.to === '开发中'));
-  const rawDataEvidenceProfile = artifactContext?.dataEvidenceProfile;
-  const dataEvidenceProfileMissing: MissingItem[] = requiresDataEvidenceProfile && !isDataEvidenceProfile(rawDataEvidenceProfile)
-    ? [{
-      field: 'dataEvidenceProfile',
-      hint: rawDataEvidenceProfile === undefined
-        ? '在草稿中→待评审前明确选择 standard 或 data-backed，并用 state-data-evidence-profile 持久化；已评审→开发中时将该选择传入 artifactContext'
-        : `dataEvidenceProfile 无效（收到 ${String(rawDataEvidenceProfile)}）：仅可选择 standard 或 data-backed；修正后重新传入 artifactContext`,
-    }]
-    : [];
-  const validate = {
-    ok: baseValidate.ok && artifactValidation.missing.length === 0 && dataEvidenceProfileMissing.length === 0,
-    missing: [...baseValidate.missing, ...artifactValidation.missing.map((item) => item.field), ...dataEvidenceProfileMissing.map((item) => item.field)],
-    reasons: [...baseValidate.reasons, ...artifactValidation.missing.map((item) => `缺少回执 ${item.field}：${item.hint}`), ...dataEvidenceProfileMissing.map((item) => `缺少 ${item.field}：${item.hint}`)],
-  };
+  const validate = baseValidate;
 
   // 缺口（必填未填）带 hint
   const missing: MissingItem[] = [];
@@ -284,14 +232,11 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
   }
-  missing.push(...artifactValidation.missing);
-  missing.push(...dataEvidenceProfileMissing);
-
   const runMode = input.runMode ?? 'semi-auto';
   const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;
   const nodeProgress = progressStepsFor(model, current);
   const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, artifactValidation.receipts, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);
+  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);
 
   return {
     node: current,
@@ -302,7 +247,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     missing,
     payload,
     validate,
-    verifiedReceipts: artifactValidation.receipts,
+    comment: renderNodeComment(payload),
     plan,
     playbook,
     nodeProgress,
