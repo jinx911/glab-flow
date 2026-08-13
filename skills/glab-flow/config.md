@@ -95,8 +95,7 @@ Leader 启动 glab-flow 时按下面的顺序找第一份存在的配置文件�
 | `test_environments.<name>.account` | 可选 | `testEnvironments.<name>.account` | 测试环境账号 |
 | `test_environments.<name>.password` | 可选 | `testEnvironments.<name>.password` | 测试环境密码 |
 | `test_environments.<name>.desc` | 可选 | `testEnvironments.<name>.desc` | 测试环境说明 |
-| `repos` | 可选 | `repos` | 多仓项目全部可能涉及的仓库 path 清单;声明后 transition 启用 MR 覆盖性校验(测试中→待发布 时每个 repo 须在 `mergeRequests` 或 `artifactContext.reposWithoutMr` 显式表态,防漏评一个仓的 MR) |
 
 \* `project_id` 与 `project_path` 至少给一个；都给以 `project_id` 为准；都不给 → 解析器抛 `missing required fields`。
 
-`jenkins.*` 启用条件：`job_name` 或 `jobs` 任一存在即启用 Jenkins 能力（`default_params` 缺省为空表，`branch_param` 缺省 `"oa_branch"`）；两者皆空则不启用。`roles` / `databases` / `test_environments` 都是命名映射，按需列出每项；整个键缺省则该能力不可用。`repos` 是字符串数组(仓库 path 清单),缺省则 MR 覆盖性校验跳过(向后兼容);多仓项目建议声明,以在测试中→待发布 强制每个仓的 MR 处置显式表态。
+`jenkins.*` 启用条件：`job_name` 或 `jobs` 任一存在即启用 Jenkins 能力（`default_params` 缺省为空表，`branch_param` 缺省 `"oa_branch"`）；两者皆空则不启用。`roles` / `databases` / `test_environments` 都是命名映射，按需列出每项；整个键缺省则该能力不可用。

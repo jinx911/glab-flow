@@ -30,11 +30,11 @@ description: glab-flow 草稿/已评审节点的需求与方案子 skill。把�
 - `<workspace.root>/.glab-flow/<iid>/spec/design.md`
 - 向 Leader 返回：`spec_name`、简短摘要、使用的触发集（产出目录以 `<iid>` 为准）
 
-## 产物回执与数据型取证
+## 产出落点与数据型需求
 
-产出不是完成：Leader 对 `proposal.md`、`design.md` 分别向**父 Issue**新增 `nodes.md`「唯一可执行的回执模板」的 `glab-flow:artifact-receipt:v1` 评论，回读并解析 `kind`、`source`、`sha256` 后才可标记相应 progress；本地文档与父 Issue 摘要都不能省略。此子 skill 只负责产物及摘要，GitLab 新增/回读仍由 Leader 执行；Leader 必须把回读的父 Issue notes 和 `projectId` 放进下一次 `transition.artifactContext`，state 缓存不替代回读。
+产出落 `.glab-flow/<iid>/spec/`（本地工作副本）；**需求提案要点 / 技术方案**的内容写进节点合并评论（见 `../nodes.md`「节点内容评论」），团队在 Issue 上看得到。此子 skill 只负责产物及评论摘要，GitLab 写回由 Leader 执行。
 
-当 Leader 显式声明 profile 为 `data-backed`，architect 在技术方案前必须额外产出可回执的 `data-evidence`：写清**代码数据流**、数据源/真理源决策；如需求要求验证生产历史/现状，还要写入**只读生产取证**结果与使用的路由、权限或脱敏约束。证据不可得时报告缺口，不能擅自改成 `standard` 或以推测补足。
+数据型需求（涉及库存/金额/统计等数据流）：architect 在技术方案里写清**代码数据流**、数据源/真理源决策；如需求要求验证生产历史/现状，还要写入**只读生产取证**结果与使用的路由、权限或脱敏约束。证据不可得时报告缺口，不能以推测补足。
 
 ## 驱动的 agent
 

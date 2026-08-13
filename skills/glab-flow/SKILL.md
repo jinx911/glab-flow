@@ -58,7 +58,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | 命令 | 作用 |
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
-| `transition` | **一键流转（首选）**：stdin 必须包含普通 Issue 字段和 `artifactContext`（`projectId`、回读的 `issueNotes`、受影响 MR 的 `mergeRequests`、`dataEvidenceProfile`）；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,preview,shouldConfirm}`。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/预览）全收拢 |
+| `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 已知 `fields`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm}`。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
 | `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload}` → `{ok,missing,reasons}` |
 | `render` | 渲染评论正文 |
 | `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload}` |
@@ -66,8 +66,6 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
-| `state-receipt` | 记录已经由 Leader 回读验证的产物回执；只更新本地派生缓存，不写 GitLab |
-| `state-data-evidence-profile` | 保存草稿中→待评审时明确选定的 `standard` / `data-backed` 数据取证档案 |
 | `state-writeback` | 追加串行写回阶段的成功/失败审计；用于恢复时定位首个未完成阶段 |
 | `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |
 
@@ -104,59 +102,20 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 每个节点用 `transition` 一次算完确定性部分，Leader 只做「读 → 确认 → 写」三件事（门禁细节见 `gate.md`）：
 
-1. **读状态与回执目标（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论；有受影响 MR 时，逐个读取该 MR 的 notes。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读这些目标，不能以 state 缓存替代。
-2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields 和完整 `artifactContext` 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。`artifactContext` **必须**含 config 的 `projectId`、刚回读的 `issueNotes`、每个受影响 MR 的 `{projectPath, iid, notes}` 以及显式的 `dataEvidenceProfile`。MR 不适用时 `mergeRequests` 传空数组，绝不省略其它字段。引擎一次产出：
+1. **读状态（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论；有受影响 MR 时，逐个读取该 MR 的 notes。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读，不能以 state 缓存替代。
+2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
    - `node` / `next` / `dirty`（脏：0/≥2 状态标签，或已 closed 但非终态 → 停，见 `resume.md`）
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
    - `validate`（G1–G14，`reasons` 自带补救动作）
-   - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist，进度可见）+ `preview`（散文 diff）+ `shouldConfirm`
-
-#### `artifactContext` 的 GitLab 回读映射（每次 transition 必做）
-
-不要把 `glab api` 原始 note 直接放进 stdin。将每条 GitLab note 的 `{id, body, created_at, web_url?}` 精确映射为引擎的 `ReceiptNote`：`{id: String(id), body, observedAt: created_at, url: web_url?}`。`created_at` 必须是 `artifact.ts` 接受的规范 UTC `Z` 时间（秒级或毫秒级）；缺失、非 UTC `Z` 格式或无效时间即为**格式错误的回读**：停止本次 receipt 校验，报告 `malformed readback`，重新读取/修正输入，绝不能继续使用 state 缓存。
-
-将下列对象 JSON 序列化后作为 `transition` stdin 的 `artifactContext`。`projectId` 取当前 `GlabConfig.gitlab.projectId`；`issueNotes` 与每个 MR 的 `notes` 都是刚回读后按 `toReceiptNote` 映射的完整数组：
-
-```ts
-const toReceiptNote = ({ id, body, created_at, web_url }: GitLabNote) => ({
-  id: String(id),
-  body,
-  observedAt: created_at,
-  ...(web_url ? { url: web_url } : {}),
-});
-
-// 对每个本轮 active artifact 计算其当前本地文件的 source 与完整 SHA-256。
-const artifactManifest = {
-  design: { source: `.glab-flow/${iid}/spec/design.md`, sha256: designSha256 },
-};
-
-const artifactContext = {
-  projectId: config.gitlab.projectId,
-  issueNotes: issueReadback.notes.map(toReceiptNote),
-  mergeRequests: mergeRequestReadbacks.map(({ projectPath, iid, notes }) => ({
-    projectPath,
-    iid,
-    notes: notes.map(toReceiptNote),
-  })),
-  dataEvidenceProfile,
-  artifactManifest,
-  // 多仓:从 config.repos 传入全集;每个 repo 要么在 mergeRequests(有 MR),要么在 reposWithoutMr(明确无 MR),
-  // 否则测试中→待发布 会因「mrCoverage:<repo> 未声明」卡住(防漏评一个仓的 MR)。
-  ...(config.repos ? { repos: config.repos, reposWithoutMr } : {}),
-};
-```
-
-即使没有受影响 MR，也传 `mergeRequests: []`；但 `projectId`、`issueNotes`、`mergeRequests`、`dataEvidenceProfile`、`artifactManifest` 始终存在。每个本轮 active required artifact 都必须有 manifest 项，且回读回执的 source/hash 必须逐字匹配；多个 MR 若共用同一 review 文件，可共用 `mr-review` 的 manifest 项。Leader 回读后先构造此输入、再调用 `transition`；`artifactReceipts`/state 仅用于审计展示，不能替代这个读取映射。声明了 `config.repos` 时,Leader 必须对每个仓库查 GitLab 后表态——改了的进 `mergeRequests`(附 mr-review 回执),没改的进 `reposWithoutMr`;沉默漏掉一个仓会被引擎以 `mrCoverage:<repo>` 卡住。
+   - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm`
 3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
-   - 正式产物不能只留在本地：在其声明的**门禁转换**前，每一个 `proposal`、`design`、`test-plan`、`release-plan` 都必须追加到**父 Issue**的回执；`mr-review` 必须追加到**每一个对应 feature→master MR**，父 Issue 的汇总不能替代 MR 回执。回执必须逐字采用 `nodes.md`「唯一可执行的回执模板」的 `<!-- glab-flow:artifact-receipt:v1` marker，其中列出基础的 `kind`、`source`、`sha256` 以及 MR/部署的全部严格字段。`release-plan` 在测试中→待发布提前产生，但只在待发布→生产验收中/生产验证中的最终状态写回前首次要求并回读回执，不得倒逼前一转换。
-   - **Agent 无关的固定回执序列**：先生成本地产物并计算 SHA-256 → 向声明的目标**新增**回执评论 → 回读同一 Issue/MR → 解析 `nodes.md`「唯一可执行的回执模板」的 marker/字段 → 将**这些刚回读的 notes**放入下一次 `transition.artifactContext` → 用纯计算 `state-receipt` 写入已验证 state 缓存 → 才能用 `progress` 标记关联子步骤完成。任何 Agent（包括 Codex、Claude Code 或人工 Leader）都必须执行此序列；本地文件或 state 缓存存在不等于完成。
-   - 代码侧动作完成后执行末步 `issue_writeback`（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成，取代产物回执评论）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。
+   - **末步 issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
    - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
-   - 任何回执、标签/Assignee、状态评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
+   - 任何标签/Assignee、合并评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
    - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
-   - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, receipts?, now}`）标记 done、写回 state；受回执约束的步骤必须带对应已验证 receipt，节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
+   - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
 
 `transition` 内部确定性编排 = 推导节点 + 评论字段扫描预填（`scanFieldsFromNotes`：精确 key 优先，缺失则按「实际日期 / 确认人 / 结论 / 依据」语义槽位回填，兼容 `render` 归一化评论）+ `validate` + `plan` + `render` + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。`evidence` 命令是独立的结构化取证工具（从 `## 状态变更` 块抽固定语义槽位，供 G1/G3/G11 人工排障），不参与 transition 内部预填。
 
@@ -173,7 +132,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 # → 写到 <workspace.root>/.glab-flow/<iid>-state.json
 ```
 
-之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`artifactReceipts`/`writebackAudit`/`updatedAt` 写回该文件；`artifactReceipts` 仅缓存已经回读验证的回执，`writebackAudit` 记录串行阶段。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签与评论是唯一真理**，state 仅是派生缓存——两者不一致时以 GitLab 回读为准（对账逻辑见 `resume.md`）。
+之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`writebackAudit`/`updatedAt` 写回该文件；`writebackAudit` 记录串行写回阶段。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签与评论是唯一真理**，state 仅是派生缓存——两者不一致时以 GitLab 回读为准（对账逻辑见 `resume.md`）。
 
 ### 学习闭环（learn）
 
