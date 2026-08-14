@@ -51,6 +51,17 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 - **待发布「生产版本」**：多仓时填**各仓部署版本**（分号分隔，如 `oa-service:v1.2; oa-frontend:v3.4`），不再是单一版本号。
 - **MR**：每仓一条 feature 分支 + 一条 MR；`git-ops` 按仓操作。
 
+### 开发中→测试中：自测（门禁强制，层次化）
+
+提测前必须自测——门禁强制 `代码评审结论` + `自测计划` + `接口自测结论` 三个字段非空，不能只填一个"结论"跳过。自测有层次（缩小版 test-flow）：
+
+1. **自测计划**：本次改动的测试范围——接口测试（后端 API）/ E2E（前端）/ 数据断言（数据·逻辑）/ 手工验证（配置·部署）。按需求选，用例可 Apifox 新建或复用。
+2. **接口测试**（`sub-skills/test-flow-apifox.md`，Apifox CLI）：按 config 的 `testEnvironments.<env>.url` + `databases.<env>.mcp` 配环境，创建/复用接口用例并执行，确认 API 通 + 数据对。**接口没问题才进 E2E**。
+3. **E2E**（前端需求，`sub-skills/test-flow-e2e.md`，Playwright）：接口通过后验证 UI/交互。纯后端需求跳过。
+4. **填结果**：`接口自测结论` = 通过/退回 + 证据（Apifox 执行结果 / E2E 截图）。
+
+自测前**核实环境可用**（URL 可达 / 数据库 MCP 可连 / 账号有效），不可用则停下来报告缺口，不臆造环境。
+
 ### 开发中→测试中：上线步骤与配置清单（必带）
 
 提测评论的「测试说明」必须包含**上线步骤与配置清单**，区分：
@@ -62,7 +73,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 ### 测试中→待发布：MR 评审前置（G14）+ 提前产出发布计划
 
-进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」，但**测试中→待发布不要求 `release-plan` 的 GitLab 回执**，也不因它缺失阻塞这次转换。该文件和摘要可以在此时准备好。
+进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」。
 
 进入发布转换后，Leader 在**待发布→生产验收中/生产验证中**的合并评论里给出**上线操作手册**（部署顺序 / migration / 配置 / 验证 / 回滚）；这是首次要求上线步骤对团队可见的节点。
 
@@ -73,15 +84,15 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|
 | 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → **触发 Jenkins 构建（交互问 job/分支/test_version/DEPLOY_ENV/force_package 等参数 → 清单确认）** → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins`；**参数确认独立于 run_mode** |
-| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check 产生 release-plan**（写上线步骤/配置/注意事项/回滚；此转换不校验其回执）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
+| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check 产生 release-plan**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
 | 待发布→生产验收中/生产验证中（发布） | **执行生产部署**（当前手动点击；按 release-check 上线步骤）→ 确认部署版本 → 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 生产部署恒存在（手动优先，无 Jenkins 条件） |
 | 其它转换 | 仅写 Issue | — |
 
-⚠️ release-check 是**发布计划**，在「测试中→待发布」产生；「发布」只**执行**该计划，并在最终状态写回前按本页模板新增、回读 `release-plan` 回执。**生产部署当前手动触发**（你在平台点击，完成后把生产版本号告诉 Leader）；`config.jenkins` 只管**测试环境**（提测的 `trigger_jenkins`），**生产 `deploy` 不挂 Jenkins 条件**——部署确认后必定推进 Issue。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
+⚠️ release-check 是**发布计划**，在「测试中→待发布」产生；「发布」只**执行**该计划。**生产部署当前手动触发**（你在平台点击，完成后把生产版本号告诉 Leader）；`config.jenkins` 只管**测试环境**（提测的 `trigger_jenkins`），**生产 `deploy` 不挂 Jenkins 条件**——部署确认后必定推进 Issue。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
 
 ### 节点内部子步骤 checklist（层 2 进度可见）
 
-节点不是黑盒——`pnpm cli node` / `transition` 输出当前节点的子步骤（`progressSteps` / `nodeProgress`），Leader 据此展示「节点内做到哪了」，避免「推进到开发中后状态卡住、不知道进度」。引擎只声明 checklist（数据），子步骤执行仍由 Leader 调对应 sub-skill；done 步骤保存在 state 的 `progress` 中。带正式产物的步骤须先有已回读的对应 receipt，不能以本地文件替代。
+节点不是黑盒——`pnpm cli node` / `transition` 输出当前节点的子步骤（`progressSteps` / `nodeProgress`），Leader 据此展示「节点内做到哪了」，避免「推进到开发中后状态卡住、不知道进度」。引擎只声明 checklist（数据），子步骤执行仍由 Leader 调对应 sub-skill；done 步骤保存在 state 的 `progress` 中（引擎不驱动子步骤执行）。
 
 | 节点 | 子步骤 |
 |---|---|

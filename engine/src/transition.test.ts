@@ -31,7 +31,9 @@ const DEVELOPMENT_START_FIELDS = {
 };
 
 const TEST_SUBMISSION_FIELDS = {
-  代码评审与自测结论: '通过',
+  代码评审结论: '通过',
+  自测计划: '接口测试(Apifox) + 数据断言',
+  接口自测结论: '通过',
   提测日期: '2026-08-07',
   研发Assignee: '@dev',
   可测试版本或环境: 'test-v1',
