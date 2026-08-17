@@ -28,8 +28,8 @@ export interface Payload {
   from: string;
   to: string;
   fields: Record<string, string>;
-  /** Only set after input validation; renderers never accept a partial plan. */
-  weekPlan?: WeekPlan;
+  /** Structured schedule input; rendering derives coverage only after validation. */
+  weekPlan?: WeekPlanInput;
   gateOutcome?: '通过' | '退回';
   reviewType?: string;
   assigneeUser?: string;

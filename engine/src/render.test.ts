@@ -92,7 +92,7 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
   it('appends the exact valid Week Plan only to Story review approval comments', () => {
     const md = renderNodeComment({
       type: 'story', from: '待评审', to: '已评审', fields: { 评审结论: '通过' },
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', coverage: 'W34 ～ W36', autoRollover: true },
+      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
       assigneeUser: '@dev',
     });
     expect(md).toContain(`## 周排期
@@ -103,7 +103,7 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
 - 自动 rollover：启用`);
     const nonReview = renderNodeComment({
       type: 'story', from: '已评审', to: '开发中', fields: {}, assigneeUser: '@dev',
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', coverage: 'W34 ～ W36', autoRollover: true },
+      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
     });
     expect(nonReview).not.toContain('## 周排期');
   });
