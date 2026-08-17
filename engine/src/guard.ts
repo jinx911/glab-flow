@@ -1,4 +1,4 @@
-import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp } from './types.js';
+import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
@@ -14,6 +14,33 @@ function isWeekPlanInput(value: unknown): value is NonNullable<Payload['weekPlan
   if (!value || typeof value !== 'object') return false;
   const plan = value as Record<string, unknown>;
   return typeof plan.startDate === 'string' && typeof plan.endDate === 'string' && typeof plan.autoRollover === 'boolean';
+}
+
+const CHANGE_FACTS = ['changeDate', 'originalPlan', 'reason', 'impact', 'nextStep', 'owner'] as const;
+
+/** Validates the complete, comment-only schedule-change command payload. */
+export function validateWeekPlanChange(input: unknown): GuardResult {
+  if (!input || typeof input !== 'object') {
+    return fail(['排期变更输入必须是对象'], ['iid', 'weekPlan', ...CHANGE_FACTS]);
+  }
+
+  const value = input as Partial<WeekPlanChangeInput>;
+  const missing: string[] = [];
+  const reasons: string[] = [];
+  if (!Number.isInteger(value.iid) || value.iid! <= 0) missing.push('iid');
+
+  for (const field of CHANGE_FACTS) {
+    if (typeof value[field] !== 'string' || !value[field]!.trim()) missing.push(field);
+  }
+
+  if (!isWeekPlanInput(value.weekPlan)) {
+    missing.push('weekPlan');
+  } else {
+    const validation = validateWeekPlan(value.weekPlan);
+    if (!validation.ok) reasons.push(`周排期无效：${validation.errors.join('；')}`);
+  }
+
+  return missing.length || reasons.length ? fail(reasons, missing) : ok();
 }
 
 /** Applies the schedule contract to any forward entry point, including legacy CLI commands. */

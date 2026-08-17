@@ -70,6 +70,18 @@ export interface WeekPlanInput {
   autoRollover: boolean;
 }
 
+/** Facts required when appending a replacement Week Plan after a schedule change. */
+export interface WeekPlanChangeInput {
+  iid: number;
+  weekPlan: WeekPlanInput;
+  changeDate: string;
+  originalPlan: string;
+  reason: string;
+  impact: string;
+  nextStep: string;
+  owner: string;
+}
+
 /** A validated plan, including engine-derived ISO-week coverage. */
 export interface WeekPlan extends WeekPlanInput {
   coverage: string;

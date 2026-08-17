@@ -1,6 +1,7 @@
-import type { WritePlan, IssueType, Payload } from './types.js';
+import type { WritePlan, IssueType, Payload, WeekPlanChangeInput } from './types.js';
 import { STATUS_NAMESPACE } from './constants.js';
 import { renderNodeComment, renderReturn } from './render.js';
+import { renderWeekPlan, validateWeekPlan } from './week-plan.js';
 
 export interface ReturnInput {
   type: IssueType;
@@ -39,4 +40,27 @@ export function buildReturnPlan(input: ReturnInput): WritePlan {
       { kind: 'add_comment' as const, body: renderReturn(input.target, input.issues, input.confirmer, input.date) },
     ],
   };
+}
+
+/** Builds the single immutable comment used to record a Week Plan replacement. */
+export function buildWeekPlanChangePlan(input: WeekPlanChangeInput): WritePlan {
+  const validation = validateWeekPlan(input.weekPlan);
+  if (!validation.ok) throw new Error(`week-plan-change: invalid weekPlan: ${validation.errors.join('；')}`);
+  const weekPlan = renderWeekPlan(validation.plan);
+  if (!weekPlan) throw new Error('week-plan-change: could not render validated weekPlan');
+
+  const comment = [
+    '## 排期变更',
+    '',
+    `- 变更日期：${input.changeDate}`,
+    `- 原排期：${input.originalPlan}`,
+    `- 变更原因：${input.reason}`,
+    `- 影响：${input.impact}`,
+    `- 后续动作：${input.nextStep}`,
+    `- 负责人：${input.owner}`,
+    '',
+    weekPlan,
+  ].join('\n');
+
+  return { issueIid: input.iid, ops: [{ kind: 'add_comment', body: comment }] };
 }

@@ -1,15 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { loadModel, currentNode, progressStepsFor } from './model.js';
-import { validateTransition } from './guard.js';
+import { validateTransition, validateWeekPlanChange } from './guard.js';
 import { toFacts } from './gitlab.js';
 import { renderStatusChange } from './render.js';
-import { buildReturnPlan, buildForwardPlan } from './plan.js';
+import { buildReturnPlan, buildForwardPlan, buildWeekPlanChangePlan } from './plan.js';
 import { runTransition } from './transition.js';
 import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
 import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
-import type { Payload, TransitionInput } from './types.js';
+import type { Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 
 const model = loadModel();
@@ -71,6 +71,17 @@ async function main() {
       console.log(JSON.stringify(buildReturnPlan({ ...input, issueIid: Number(args[0] ?? 0) })));
       break;
     }
+    case 'week-plan-change': {
+      const input = JSON.parse(readStdin()) as unknown;
+      const validation = validateWeekPlanChange(input);
+      if (!validation.ok) {
+        console.log(JSON.stringify(validation));
+        process.exitCode = 1;
+        break;
+      }
+      console.log(JSON.stringify(buildWeekPlanChangePlan(input as WeekPlanChangeInput)));
+      break;
+    }
     case 'config': {
       console.log(JSON.stringify(parseConfig(readStdin())));
       break;
@@ -104,7 +115,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | plan-return | evidence | config | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | plan-return | week-plan-change | evidence | config | state-init | state-writeback | progress');
       process.exit(1);
   }
 }
