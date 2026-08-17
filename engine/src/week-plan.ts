@@ -1,57 +1,66 @@
 import type { LatestWeekPlan, WeekPlan, WeekPlanInput, WeekPlanValidation } from './types.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const WEEK_PLAN_HEADER = /^##\s+周排期\s*$/m;
-const HEADING_RE = /^#{1,6}\s+/m;
+const WEEK_PLAN_CANDIDATE_RE = /^#{1,6}[^\r\n]*周排期[^\r\n]*\r?$/gm;
+const WEEK_PLAN_HEADER_RE = /^##[ \t]+周排期[ \t]*\r?$/;
+const HEADING_RE = /^#{1,6}(?:[ \t]+|$)/m;
 
-/** Validates a calendar date without relying on JavaScript's lenient Date parser. */
+type ParsedWeekPlan = Partial<WeekPlanInput> & {
+  coverage?: string;
+  errors: string[];
+};
+
+interface WeekPlanBlock {
+  body: string;
+  malformedHeading: boolean;
+}
+
+/** Validates 0001–9999 calendar dates without JavaScript's 0–99 year mapping. */
 function isCalendarDate(value: string): boolean {
   if (!DATE_RE.test(value)) return false;
   const [yearText, monthText, dayText] = value.split('-');
   const year = Number(yearText);
   const month = Number(monthText);
   const day = Number(dayText);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.getUTCFullYear() === year
-    && date.getUTCMonth() === month - 1
-    && date.getUTCDate() === day;
+  if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1) return false;
+  const monthLengths = [31, year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return day <= monthLengths[month - 1]!;
+}
+
+function utcDate(year: number, month: number, day: number): Date {
+  const date = new Date(0);
+  date.setUTCFullYear(year, month - 1, day);
+  date.setUTCHours(0, 0, 0, 0);
+  return date;
 }
 
 function isoWeek(value: string): { year: number; week: number } {
   const [yearText, monthText, dayText] = value.split('-');
-  const date = new Date(Date.UTC(Number(yearText), Number(monthText) - 1, Number(dayText)));
+  const date = utcDate(Number(yearText), Number(monthText), Number(dayText));
   const day = date.getUTCDay() || 7;
   date.setUTCDate(date.getUTCDate() + 4 - day);
   const isoYear = date.getUTCFullYear();
-  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+  const yearStart = utcDate(isoYear, 1, 1);
   const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
   return { year: isoYear, week };
 }
 
 /** Returns the inclusive ISO-week endpoints, including ISO years only when needed. */
-export function isoWeekCoverage(start: string, end: string): string {
-  const first = isoWeek(start);
-  const last = isoWeek(end);
+export function isoWeekCoverage(startDate: string, endDate: string): string {
+  const first = isoWeek(startDate);
+  const last = isoWeek(endDate);
   const firstWeek = `W${String(first.week).padStart(2, '0')}`;
   const lastWeek = `W${String(last.week).padStart(2, '0')}`;
   return first.year === last.year
     ? `${firstWeek} ～ ${lastWeek}`
-    : `${first.year}-${firstWeek} ～ ${last.year}-${lastWeek}`;
+    : `${String(first.year).padStart(4, '0')}-${firstWeek} ～ ${String(last.year).padStart(4, '0')}-${lastWeek}`;
 }
 
 export function validateWeekPlan(input: WeekPlanInput): WeekPlanValidation {
   const errors: string[] = [];
-  const start = input.start;
-  const end = input.end;
-
-  if (!start) errors.push('计划开始缺失');
-  else if (!isCalendarDate(start)) errors.push('计划开始必须是有效的 YYYY-MM-DD 日期');
-
-  if (!end) errors.push('计划完成缺失');
-  else if (!isCalendarDate(end)) errors.push('计划完成必须是有效的 YYYY-MM-DD 日期');
-
-  if (typeof input.autoRollover !== 'boolean') errors.push('自动 rollover 必须为启用或暂停');
-  if (start && end && isCalendarDate(start) && isCalendarDate(end) && end < start) {
+  if (!isCalendarDate(input.startDate)) errors.push('计划开始必须是有效的 YYYY-MM-DD 日期');
+  if (!isCalendarDate(input.endDate)) errors.push('计划完成必须是有效的 YYYY-MM-DD 日期');
+  if (isCalendarDate(input.startDate) && isCalendarDate(input.endDate) && input.endDate < input.startDate) {
     errors.push('计划完成不能早于计划开始');
   }
 
@@ -60,49 +69,76 @@ export function validateWeekPlan(input: WeekPlanInput): WeekPlanValidation {
     ok: true,
     errors: [],
     plan: {
-      start: start!,
-      end: end!,
-      coverage: isoWeekCoverage(start!, end!),
-      autoRollover: input.autoRollover!,
+      ...input,
+      coverage: isoWeekCoverage(input.startDate, input.endDate),
     },
   };
 }
 
-/** Renders the exact Harness Week Plan block from a valid structured plan. */
-export function renderWeekPlan(plan: WeekPlan): string {
+/** Renders the exact Harness Week Plan block and always derives ISO-week coverage. */
+export function renderWeekPlan(input: WeekPlanInput): string {
+  const coverage = isoWeekCoverage(input.startDate, input.endDate);
   return [
     '## 周排期',
     '',
-    `- 计划开始：${plan.start}`,
-    `- 计划完成：${plan.end}`,
-    `- 计划覆盖周：${plan.coverage}`,
-    `- 自动 rollover：${plan.autoRollover ? '启用' : '暂停'}`,
+    `- 计划开始：${input.startDate}`,
+    `- 计划完成：${input.endDate}`,
+    `- 计划覆盖周：${coverage}`,
+    `- 自动 rollover：${input.autoRollover ? '启用' : '暂停'}`,
   ].join('\n');
 }
 
-function parseWeekPlanBlock(block: string): WeekPlanInput {
-  const input: WeekPlanInput = {};
+function parseWeekPlanBlock(block: string): ParsedWeekPlan {
+  const input: ParsedWeekPlan = { errors: [] };
+  const seen = new Set<string>();
   for (const line of block.split('\n')) {
-    const match = /^-\s*(计划开始|计划完成|计划覆盖周|自动 rollover)\s*：\s*(.*?)\s*$/.exec(line);
+    const match = /^-[ \t]*(计划开始|计划完成|计划覆盖周|自动 rollover)[ \t]*：[ \t]*(.*?)[ \t]*\r?$/.exec(line);
     if (!match) continue;
     const [, key, value] = match;
-    if (key === '计划开始') input.start = value;
-    else if (key === '计划完成') input.end = value;
+    if (!key || value === undefined) continue;
+    if (seen.has(key)) {
+      input.errors.push(`${key}重复`);
+      continue;
+    }
+    seen.add(key);
+    if (key === '计划开始') input.startDate = value;
+    else if (key === '计划完成') input.endDate = value;
     else if (key === '计划覆盖周') input.coverage = value;
-    else input.autoRollover = value === '启用' ? true : value === '暂停' ? false : undefined;
+    else if (value === '启用') input.autoRollover = true;
+    else if (value === '暂停') input.autoRollover = false;
+    else input.errors.push('自动 rollover 必须为启用或暂停');
   }
   return input;
 }
 
-function weekPlanBlocks(notes: { body: string }[]): string[] {
-  const blocks: string[] = [];
+function validateParsedWeekPlan(input: ParsedWeekPlan): string[] {
+  const errors = [...input.errors];
+  if (!input.startDate) errors.push('计划开始缺失');
+  else if (!isCalendarDate(input.startDate)) errors.push('计划开始必须是有效的 YYYY-MM-DD 日期');
+  if (!input.endDate) errors.push('计划完成缺失');
+  else if (!isCalendarDate(input.endDate)) errors.push('计划完成必须是有效的 YYYY-MM-DD 日期');
+  if (typeof input.autoRollover !== 'boolean' && !errors.includes('自动 rollover 必须为启用或暂停')) {
+    errors.push('自动 rollover 必须为启用或暂停');
+  }
+  if (!input.coverage) errors.push('计划覆盖周缺失');
+  if (input.startDate && input.endDate && isCalendarDate(input.startDate) && isCalendarDate(input.endDate)) {
+    if (input.endDate < input.startDate) errors.push('计划完成不能早于计划开始');
+    else if (input.coverage && input.coverage !== isoWeekCoverage(input.startDate, input.endDate)) {
+      errors.push('计划覆盖周必须与计划日期的 ISO 周覆盖一致');
+    }
+  }
+  return errors;
+}
+
+function weekPlanBlocks(notes: { body: string }[]): WeekPlanBlock[] {
+  const blocks: WeekPlanBlock[] = [];
   for (const note of notes) {
-    const headers = [...note.body.matchAll(new RegExp(WEEK_PLAN_HEADER.source, 'gm'))];
+    const headers = [...note.body.matchAll(WEEK_PLAN_CANDIDATE_RE)];
     for (const header of headers) {
       const start = header.index! + header[0].length;
       const tail = note.body.slice(start);
       const nextHeader = HEADING_RE.exec(tail);
-      blocks.push(tail.slice(0, nextHeader?.index));
+      blocks.push({ body: tail.slice(0, nextHeader?.index), malformedHeading: !WEEK_PLAN_HEADER_RE.test(header[0]) });
     }
   }
   return blocks;
@@ -113,16 +149,21 @@ function weekPlanBlocks(notes: { body: string }[]): string[] {
  * latest block intentionally blocks use of any older valid schedule.
  */
 export function parseLatestWeekPlan(notes: { body: string }[]): LatestWeekPlan {
-  const blocks = weekPlanBlocks(notes);
-  const latest = blocks.at(-1);
-  if (latest === undefined) return { kind: 'absent' };
+  const latest = weekPlanBlocks(notes).at(-1);
+  if (!latest) return { kind: 'absent' };
 
-  const input = parseWeekPlanBlock(latest);
-  const validation = validateWeekPlan(input);
-  if (!validation.ok) return { kind: 'invalid-latest', errors: validation.errors, input };
+  const input = parseWeekPlanBlock(latest.body);
+  const errors = latest.malformedHeading ? ['周排期标题格式无效', ...validateParsedWeekPlan(input)] : validateParsedWeekPlan(input);
+  if (errors.length) {
+    const { errors: _ignored, ...readback } = input;
+    return { kind: 'invalid-latest', errors, input: readback };
+  }
 
-  const suppliedCoverage = input.coverage;
-  return validation.plan.autoRollover
-    ? { kind: 'valid-enabled', plan: validation.plan, ...(suppliedCoverage ? { suppliedCoverage } : {}) }
-    : { kind: 'valid-paused', plan: validation.plan, ...(suppliedCoverage ? { suppliedCoverage } : {}) };
+  const plan: WeekPlan = {
+    startDate: input.startDate!,
+    endDate: input.endDate!,
+    autoRollover: input.autoRollover!,
+    coverage: isoWeekCoverage(input.startDate!, input.endDate!),
+  };
+  return plan.autoRollover ? { kind: 'valid-enabled', plan } : { kind: 'valid-paused', plan };
 }
