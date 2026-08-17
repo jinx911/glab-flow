@@ -4,6 +4,7 @@ import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
 import { buildForwardPlan } from './plan.js';
 import { renderNodeComment } from './render.js';
+import { parseLatestWeekPlan, validateWeekPlan } from './week-plan.js';
 import { STATUS_PREFIX, TERMINAL, ROLES } from './constants.js';
 
 /** 角色名不是用户；其余自动补 @ 前缀。 */
@@ -54,6 +55,18 @@ const FIELD_HINTS: Record<string, string> = {
 
 function hintFor(field: string): string {
   return FIELD_HINTS[field] ?? '来自对应节点评论 / spec 文档';
+}
+
+const WEEK_PLAN_INPUT_HINT = '提供 weekPlan: { startDate: YYYY-MM-DD, endDate: YYYY-MM-DD, autoRollover: true|false }';
+const WEEK_PLAN_READBACK_HINT = '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段';
+
+function withWeekPlanGate(base: ReturnType<typeof validateTransition>, reasons: string[], missing: string[]): ReturnType<typeof validateTransition> {
+  if (!reasons.length && !missing.length) return base;
+  return {
+    ok: false,
+    missing: [...base.missing, ...missing],
+    reasons: [...base.reasons, ...reasons],
+  };
 }
 
 /** 副作用动作 → 执行它的 sub-skill + 人类可读说明（Issue 写回由 buildPlaybook 末步追加）。 */
@@ -202,6 +215,11 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     }
   }
 
+  const isStoryReview = input.type === 'story' && current === '待评审' && tr.to === '已评审';
+  const isStoryDevelopmentStart = input.type === 'story' && current === '已评审' && tr.to === '开发中';
+  const submittedWeekPlan = input.weekPlan ? validateWeekPlan(input.weekPlan) : undefined;
+  const latestWeekPlan = isStoryDevelopmentStart ? parseLatestWeekPlan(input.notes) : undefined;
+
   const payload: Payload = {
     type: input.type,
     from: current,
@@ -213,6 +231,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     ...(input.datesConfirmed !== undefined ? { datesConfirmed: input.datesConfirmed } : {}),
     ...(input.humanConfirmed !== undefined ? { humanConfirmed: input.humanConfirmed } : {}),
     ...(input.closeIssue !== undefined ? { closeIssue: input.closeIssue } : {}),
+    ...(isStoryReview && submittedWeekPlan?.ok ? { weekPlan: submittedWeekPlan.plan } : {}),
   };
 
   const facts = {
@@ -222,8 +241,28 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     hasJiraSourceLabel: input.labels.includes('source::jira'),
   };
   const baseValidate = validateTransition(model, facts, payload);
+  const weekPlanReasons: string[] = [];
+  const weekPlanMissing: string[] = [];
+  if (isStoryReview) {
+    if (!input.weekPlan) {
+      weekPlanMissing.push('weekPlan');
+      weekPlanReasons.push(`周排期缺失：${WEEK_PLAN_INPUT_HINT}`);
+    } else if (!submittedWeekPlan!.ok) {
+      weekPlanMissing.push('weekPlan');
+      weekPlanReasons.push(`周排期无效：${submittedWeekPlan!.errors.join('；')}`);
+    }
+  }
+  if (latestWeekPlan) {
+    if (latestWeekPlan.kind === 'absent') {
+      weekPlanMissing.push('latestWeekPlan');
+      weekPlanReasons.push(`最新周排期缺失：${WEEK_PLAN_READBACK_HINT}`);
+    } else if (latestWeekPlan.kind === 'invalid-latest') {
+      weekPlanMissing.push('latestWeekPlan');
+      weekPlanReasons.push(`最新周排期无效：${latestWeekPlan.errors.join('；')}`);
+    }
+  }
   const playbook = buildPlaybook(tr, input.config);
-  const validate = baseValidate;
+  const validate = withWeekPlanGate(baseValidate, weekPlanReasons, weekPlanMissing);
 
   // 缺口（必填未填）带 hint
   const missing: MissingItem[] = [];
@@ -233,6 +272,14 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   for (const f of tr.requiredFields) {
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
+  }
+  if (isStoryReview && !submittedWeekPlan?.ok) {
+    missing.push({ field: 'weekPlan', hint: WEEK_PLAN_INPUT_HINT });
+  }
+  if (latestWeekPlan) {
+    if (latestWeekPlan.kind === 'absent' || latestWeekPlan.kind === 'invalid-latest') {
+      missing.push({ field: 'latestWeekPlan', hint: WEEK_PLAN_READBACK_HINT });
+    }
   }
   const runMode = input.runMode ?? 'semi-auto';
   const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;

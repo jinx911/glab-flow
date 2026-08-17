@@ -28,6 +28,8 @@ export interface Payload {
   from: string;
   to: string;
   fields: Record<string, string>;
+  /** Only set after input validation; renderers never accept a partial plan. */
+  weekPlan?: WeekPlan;
   gateOutcome?: '通过' | '退回';
   reviewType?: string;
   assigneeUser?: string;
@@ -111,6 +113,8 @@ export interface TransitionInput {
   state: 'opened' | 'closed';
   to?: string;
   fields?: Record<string, string>;
+  /** Structured schedule supplied when approving a Story. */
+  weekPlan?: WeekPlanInput;
   gateOutcome?: '通过' | '退回';
   reviewType?: string;
   assigneeUser?: string;

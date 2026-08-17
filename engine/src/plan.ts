@@ -1,6 +1,6 @@
 import type { WritePlan, IssueType, Payload } from './types.js';
 import { STATUS_NAMESPACE } from './constants.js';
-import { renderReturn, renderStatusChange } from './render.js';
+import { renderNodeComment, renderReturn } from './render.js';
 
 export interface ReturnInput {
   type: IssueType;
@@ -22,7 +22,7 @@ export function buildForwardPlan(payload: Payload, issueIid: number): WritePlan 
       { kind: 'remove_label', value: `${prefix}::${payload.from}` },
       { kind: 'add_label', value: `${prefix}::${payload.to}` },
       { kind: 'set_assignee', username: payload.assigneeUser ?? '' },
-      { kind: 'add_comment', body: renderStatusChange(payload) },
+      { kind: 'add_comment', body: renderNodeComment(payload) },
       ...(payload.closeIssue ? [{ kind: 'close_issue' as const }] : []),
     ],
   };
