@@ -9,6 +9,12 @@ description: 测试中节点的 API 测试执行（经 apifox 运行时工具）
 
 「测试中」节点（见 `../nodes.md`）的工作 agent 是 `test-design / test-flow-apifox`。本文件规定其中 test-flow-apifox 部分：消费 test-design 产出的接口用例（见同目录 `test-design.md` 的 test-plan.md），经 apifox 运行时工具执行，收集结果并挂父 GitLab Issue 评论。
 
+## 执行前预检（强制，任一失败停止执行）
+
+1. **三段链路健康**：登录入口（PHP 站，返回登录页/JSON，HTML 404 = API 配到了前端站）→ 接口网关（业务前缀非 text/html）→ 后端 service（健康检查）。失败时指明哪段断，修好前不跑套件。
+2. **运行版本校验**（本地环境）：优先 `/actuator/info` 读 commit SHA，与当前工作树 `git log -1` 比对；不一致 → 要求重建重启，不跑源码新/旧 class 的假验证。
+3. **凭据运行时注入**：从 test-flow 项目配置读凭据（keychain:// 或环境变量引用），解析失败停下问用户，不跑假登录；凭据不持久化到 Apifox 全局变量。
+
 ## 执行
 
 接口用例由 test-design 设计完毕（写在 `test-plan.md` 里），本阶段只做执行。用 apifox-* 运行时 skill 跑用例，按用例类型选择：
@@ -29,6 +35,8 @@ skill 是**运行时工具**（见 `../tools.md`），glab-flow 不自带 apifox
 ## 结果收集
 
 结果按与 `tdd-guide.md` 一致的**证据三段式**收集，作为「测试验收」门禁的输入（见 `../gate.md`）。口头「接口都通了」不被接受。
+
+**响应耗时分域统计**（防共享登录波动污染发布判断）：业务接口请求按 SLA 判定（默认 500ms）；登录/认证步骤单列基线（默认 2000ms，参考不阻断）；套件总耗时只作参考。归类按场景名（含 login/auth/token 或场景首步认证步骤归登录基线），无法归类时保守归业务 SLA 并注明。
 
 1. **命令**：实际执行的 apifox skill / CLI 调用（含用例集范围、环境参数）。
 2. **计数**：汇总行，形如 `接口用例: X passed, Y failed, Z skipped`（或 apifox 等价输出）。
