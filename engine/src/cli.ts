@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { loadModel, currentNode, progressStepsFor } from './model.js';
-import { validateTransition, validateWeekPlanTransition } from './guard.js';
+import { validateTransition } from './guard.js';
 import { toFacts } from './gitlab.js';
 import { renderStatusChange } from './render.js';
 import { buildReturnPlan, buildForwardPlan } from './plan.js';
@@ -39,14 +39,21 @@ async function main() {
       break;
     }
     case 'plan': {
-      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[] };
-      const gate = validateWeekPlanTransition(input.payload, input.notes);
-      if (!gate.ok) {
-        console.log(JSON.stringify(gate));
+      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[]; body?: string };
+      const payload = input.payload;
+      const statusLabel = payload.type === 'story' ? `story-status::${payload.from}` : `status::${payload.from}`;
+      const result = validateTransition(model, toFacts({
+        iid: 0,
+        state: 'opened',
+        labels: [`type::${payload.type}`, statusLabel],
+        description: input.body ?? '',
+      }), payload, input.notes);
+      if (!result.ok) {
+        console.log(JSON.stringify(result));
         process.exitCode = 1;
         break;
       }
-      console.log(JSON.stringify(buildForwardPlan(input.payload, Number(args[0] ?? 0))));
+      console.log(JSON.stringify(buildForwardPlan(payload, Number(args[0] ?? 0))));
       break;
     }
     case 'transition': {

@@ -108,4 +108,16 @@ describe('cli Week Plan contract — legacy direct paths', () => {
     expect(status).toBe(0);
     expect(json).toHaveProperty('ops');
   });
+
+  it.each([
+    ['草稿中', '已评审'],
+    ['待评审', '开发中'],
+  ])('plan rejects invalid Story jump %s → %s before producing WritePlan', (from, to) => {
+    const { json, status } = cli('plan', {
+      payload: { ...reviewPayload, from, to },
+    });
+    expect(status).toBe(1);
+    expect(json).toMatchObject({ ok: false, reasons: [expect.stringContaining('not allowed')] });
+    expect(json).not.toHaveProperty('ops');
+  });
 });
