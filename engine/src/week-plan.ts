@@ -60,6 +60,7 @@ export function validateWeekPlan(input: WeekPlanInput): WeekPlanValidation {
   const errors: string[] = [];
   if (!isCalendarDate(input.startDate)) errors.push('计划开始必须是有效的 YYYY-MM-DD 日期');
   if (!isCalendarDate(input.endDate)) errors.push('计划完成必须是有效的 YYYY-MM-DD 日期');
+  if (typeof input.autoRollover !== 'boolean') errors.push('自动 rollover 必须为启用或暂停');
   if (isCalendarDate(input.startDate) && isCalendarDate(input.endDate) && input.endDate < input.startDate) {
     errors.push('计划完成不能早于计划开始');
   }
@@ -75,16 +76,17 @@ export function validateWeekPlan(input: WeekPlanInput): WeekPlanValidation {
   };
 }
 
-/** Renders the exact Harness Week Plan block and always derives ISO-week coverage. */
-export function renderWeekPlan(input: WeekPlanInput): string {
-  const coverage = isoWeekCoverage(input.startDate, input.endDate);
+/** Renders only a validated plan; unsafe runtime input returns null without a heading. */
+export function renderWeekPlan(plan: WeekPlan): string | null {
+  const validation = validateWeekPlan(plan);
+  if (!validation.ok || plan.coverage !== validation.plan.coverage) return null;
   return [
     '## 周排期',
     '',
-    `- 计划开始：${input.startDate}`,
-    `- 计划完成：${input.endDate}`,
-    `- 计划覆盖周：${coverage}`,
-    `- 自动 rollover：${input.autoRollover ? '启用' : '暂停'}`,
+    `- 计划开始：${plan.startDate}`,
+    `- 计划完成：${plan.endDate}`,
+    `- 计划覆盖周：${plan.coverage}`,
+    `- 自动 rollover：${plan.autoRollover ? '启用' : '暂停'}`,
   ].join('\n');
 }
 

@@ -10,7 +10,8 @@ describe('Week Plan contract', () => {
       errors: [],
       plan: { ...input, coverage: 'W34 ～ W36' },
     });
-    expect(renderWeekPlan(input)).toBe([
+    if (!result.ok) throw new Error('expected valid plan');
+    expect(renderWeekPlan(result.plan)).toBe([
       '## 周排期',
       '',
       '- 计划开始：2026-08-17',
@@ -35,6 +36,19 @@ describe('Week Plan contract', () => {
       ok: false,
       errors: ['计划开始必须是有效的 YYYY-MM-DD 日期'],
     });
+    expect(validateWeekPlan({ startDate: '2026-08-17', endDate: '2026-08-23', autoRollover: 'yes' as unknown as boolean })).toEqual({
+      ok: false,
+      errors: ['自动 rollover 必须为启用或暂停'],
+    });
+  });
+
+  it('never renders a Week Plan heading from invalid or incomplete runtime data', () => {
+    expect(renderWeekPlan({
+      startDate: '2026-08-17', endDate: '2026-08-23', autoRollover: true, coverage: 'W35 ～ W35',
+    })).toBeNull();
+    expect(renderWeekPlan({
+      startDate: '', endDate: '2026-08-23', autoRollover: true, coverage: 'W34 ～ W34',
+    } as unknown as import('./types.js').WeekPlan)).toBeNull();
   });
 
   it('parses a paused latest block only when its recorded coverage matches', () => {
