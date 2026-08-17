@@ -57,7 +57,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 0. **接口同步 Apifox**：若本次改动新增/修改了接口，**先更新 Apifox 的接口定义再往下走**——确保自测和后续测试用的是最新接口定义，而不是过时的旧版。当前方式：IDEA Apifox 插件手动更新上传（Leader 主动提醒，不靠自觉记忆）；长期方向：后端加 springdoc/scribe 生成 OpenAPI + Apifox CLI `auto-import` 定期自动拉取。
 1. **自测计划**：本次改动的测试范围——接口测试（后端 API）/ E2E（前端）/ 数据断言（数据·逻辑）/ 手工验证（配置·部署）。按需求选，用例可 Apifox 新建或复用。
-2. **接口测试**（`sub-skills/test-flow-apifox.md`，Apifox CLI）：按 config 的 `testEnvironments.<env>.url` + `databases.<env>.mcp` 配环境，创建/复用接口用例并执行，确认 API 通 + 数据对。**接口没问题才进 E2E**。
+2. **接口测试**（`sub-skills/test-flow-apifox.md`，Apifox CLI）：按 config 的 `testEnvironments.<env>.url` + `databases.<env>.mcp` 配环境——注意区分**登录入口**与**接口网关**（两者常是不同环境，配错则请求落到前端站返回 HTML 404）。建用例前先跑**契约预检**（Schema 类型/可空性 + 状态码覆盖，见 test-design）；执行前跑**预检**（三段链路健康 + 本地运行版本 commit 校验，源码新/旧 class 会假验证）。执行接口用例确认 API 通 + 数据对。**接口没问题才进 E2E**。
 3. **E2E**（前端需求，`sub-skills/test-flow-e2e.md`，Playwright）：接口通过后验证 UI/交互。纯后端需求跳过。
 4. **填结果**：`接口自测结论` = 通过/退回 + 证据（Apifox 执行结果 / E2E 截图）。
 
