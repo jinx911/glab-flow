@@ -59,9 +59,9 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
 | `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 已知 `fields`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm}`。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
-| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload}` → `{ok,missing,reasons}` |
+| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?}` → `{ok,missing,reasons}`；Story `已评审 → 开发中` 必须传入刚回读的 `notes`，以校验最新周排期 |
 | `render` | 渲染评论正文 |
-| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload}` |
+| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?}`；Story `已评审 → 开发中` 必须传入刚回读的 `notes`，否则周排期门禁会拒绝建计划 |
 | `plan-return` | 退回建写回计划：stdin `{type,from,target,issues,confirmer,date,assigneeUser?}` |
 | `week-plan-change` | **独立排期变更**：stdin 提供完整排期与变更事实，返回仅含一条 `add_comment` 的 `WritePlan`；不改变状态、Assignee、Issue 正文或既有评论 |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |

@@ -167,6 +167,13 @@ describe('glab-flow process contracts', () => {
     expect(engineProduction).not.toMatch(/\bmilestone\b/i);
   });
 
+  it('documents notes for legacy CLI Week Plan validation and planning', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+
+    expect(skill).toMatch(/`validate`[\s\S]{0,280}notes[\s\S]{0,180}已评审\s*→\s*开发中/);
+    expect(skill).toMatch(/`plan`[\s\S]{0,280}notes[\s\S]{0,180}已评审\s*→\s*开发中/);
+  });
+
   it('requires code evidence before review-preview blocks on existing system behavior', () => {
     const reviewPreview = readProjectFile('agents/review-preview.md');
     const tools = readProjectFile('skills/glab-flow/tools.md');
