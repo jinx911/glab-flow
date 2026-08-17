@@ -213,6 +213,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     ...(input.datesConfirmed !== undefined ? { datesConfirmed: input.datesConfirmed } : {}),
     ...(input.humanConfirmed !== undefined ? { humanConfirmed: input.humanConfirmed } : {}),
     ...(input.closeIssue !== undefined ? { closeIssue: input.closeIssue } : {}),
+    ...(input.weekPlan ? { weekPlan: input.weekPlan } : {}),
   };
 
   const facts = {
@@ -221,9 +222,8 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     state: input.state,
     hasJiraSourceLabel: input.labels.includes('source::jira'),
   };
-  const baseValidate = validateTransition(model, facts, payload);
+  const validate = validateTransition(model, facts, payload, input.notes);
   const playbook = buildPlaybook(tr, input.config);
-  const validate = baseValidate;
 
   // 缺口（必填未填）带 hint
   const missing: MissingItem[] = [];
@@ -233,6 +233,12 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   for (const f of tr.requiredFields) {
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
+  }
+  if (validate.missing.includes('weekPlan')) {
+    missing.push({ field: 'weekPlan', hint: '提供 weekPlan: { startDate: YYYY-MM-DD, endDate: YYYY-MM-DD, autoRollover: true|false }' });
+  }
+  if (validate.missing.includes('latestWeekPlan')) {
+    missing.push({ field: 'latestWeekPlan', hint: '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段' });
   }
   const runMode = input.runMode ?? 'semi-auto';
   const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;

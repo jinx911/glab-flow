@@ -30,6 +30,21 @@ const DEVELOPMENT_START_FIELDS = {
   计划上线时间: '2026-08-09',
 };
 
+const REVIEW_FIELDS = {
+  评审日期: '2026-08-07',
+  产品确认人: '@pm',
+  评审结论: '通过',
+  需求文档或评审记录: 'review-record',
+};
+
+const VALID_WEEK_PLAN = { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true };
+const PAUSED_WEEK_PLAN_NOTE = `## 周排期
+
+- 计划开始：2026-08-17
+- 计划完成：2026-09-06
+- 计划覆盖周：W34 ～ W36
+- 自动 rollover：暂停`;
+
 const TEST_SUBMISSION_FIELDS = {
   代码评审结论: '通过',
   自测计划: '接口测试(Apifox) + 数据断言',
@@ -161,6 +176,81 @@ describe('transition — plan + preview + shouldConfirm', () => {
   });
 });
 
+describe('transition — Story Week Plan gates', () => {
+  const reviewInput = (over: Partial<TransitionInput> = {}) => baseInput({
+    labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
+    fields: REVIEW_FIELDS, gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
+    ...over,
+  });
+  const developmentInput = (over: Partial<TransitionInput> = {}) => baseInput({
+    labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+    fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+    ...over,
+  });
+
+  it('requires an input Week Plan when approving a Story', () => {
+    const r = runTransition(model, reviewInput());
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.find((m) => m.field === 'weekPlan')?.hint).toContain('startDate');
+    expect(r.validate.reasons).toContainEqual(expect.stringContaining('周排期缺失'));
+    expect(r.plan).toBeUndefined();
+    expect(r.comment).not.toContain('## 周排期');
+  });
+
+  it('rejects an invalid input Week Plan without rendering a partial comment', () => {
+    const r = runTransition(model, reviewInput({ weekPlan: { ...VALID_WEEK_PLAN, endDate: '2026-08-16' } }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.validate.reasons).toContainEqual(expect.stringContaining('计划完成不能早于计划开始'));
+    expect(r.plan).toBeUndefined();
+    expect(r.comment).not.toContain('## 周排期');
+  });
+
+  it('writes the exact Week Plan in the combined review comment', () => {
+    const r = runTransition(model, reviewInput({ weekPlan: VALID_WEEK_PLAN }));
+    const comment = r.plan?.ops.find((op) => op.kind === 'add_comment');
+    expect(r.validate.ok).toBe(true);
+    expect(r.comment).toContain('## 周排期');
+    expect(comment).toMatchObject({ kind: 'add_comment', body: r.comment });
+    expect((comment as { body: string }).body).toContain(`## 周排期
+
+- 计划开始：2026-08-17
+- 计划完成：2026-09-06
+- 计划覆盖周：W34 ～ W36
+- 自动 rollover：启用`);
+  });
+
+  it('rejects development entry when no latest Week Plan is present while retaining planned dates', () => {
+    const r = runTransition(model, developmentInput());
+    expect(r.validate.ok).toBe(false);
+    expect(r.payload?.fields).toMatchObject(DEVELOPMENT_START_FIELDS);
+    expect(r.missing.map((m) => m.field)).toContain('latestWeekPlan');
+    expect(r.validate.reasons).toContainEqual(expect.stringContaining('最新周排期缺失'));
+    expect(r.plan).toBeUndefined();
+  });
+
+  it('rejects development entry when the latest Week Plan is malformed', () => {
+    const r = runTransition(model, developmentInput({ notes: [{ body: `${PAUSED_WEEK_PLAN_NOTE}\n\n## 周排期\n\n- 计划开始：bad` }] }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.validate.reasons).toContainEqual(expect.stringContaining('最新周排期无效'));
+    expect(r.plan).toBeUndefined();
+  });
+
+  it('accepts a valid paused latest Week Plan for development entry', () => {
+    const r = runTransition(model, developmentInput({ notes: [{ body: PAUSED_WEEK_PLAN_NOTE }] }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.plan).toBeDefined();
+  });
+
+  it('keeps Bug transitions compatible without a Week Plan', () => {
+    const r = runTransition(model, baseInput({
+      type: 'bug', labels: ['type::bug', 'status::已确认缺陷'], body: TABLE_BODY,
+    }));
+    expect(r.next).toBe('开发中');
+    expect(r.validate.ok).toBe(true);
+    expect(r.plan).toBeDefined();
+  });
+});
+
 describe('transition — default next node when to omitted', () => {
   it('picks the default forward transition', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::草稿中'], body: TABLE_BODY, fields: {} }));
@@ -283,6 +373,7 @@ describe('transition — prefill from render-normalized comments (semantic slot 
       labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
       notes: [{ body: rendered }],
       gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
+      weekPlan: VALID_WEEK_PLAN,
     }));
     expect(r.payload?.fields.评审日期).toBe('2026-08-01');
     expect(r.payload?.fields.产品确认人).toBe('@pm');

@@ -1,4 +1,5 @@
 import type { Payload } from './types.js';
+import { renderWeekPlan, validateWeekPlan } from './week-plan.js';
 
 export function renderStatusChange(p: Payload): string {
   const f = p.fields;
@@ -120,6 +121,14 @@ export function renderNodeComment(p: Payload): string {
     if (!rendered.has(k) && f[k]) tail.push(`- ${k}：${f[k]}`);
   }
   if (tail.length) blocks.push(tail.join('\n'));
+
+  // Only the Story review approval records a newly supplied schedule.  The
+  // Validate at the rendering boundary so malformed runtime input can never
+  // emit a partial Harness heading.
+  if (p.type === 'story' && p.from === '待评审' && p.to === '已评审' && p.weekPlan) {
+    const validation = validateWeekPlan(p.weekPlan);
+    if (validation.ok) blocks.push(renderWeekPlan(validation.plan)!);
+  }
 
   return blocks.join('\n\n');
 }

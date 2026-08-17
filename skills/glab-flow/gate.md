@@ -74,6 +74,16 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 
 agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 步重新取证、第 2 步重新校验，直到 `ok:true` 再建计划。换句话说：**门禁不通过 → 回去干活，而不是改门禁**。
 
+## 周排期门禁与独立变更
+
+Story `待评审→已评审` 的一键 `transition` 必须带有效 `weekPlan`；通过后，引擎把完整的 `## 周排期` 区块附加到这一次合并状态评论。Story `已评审→开发中` 必须以本轮刚读取的 Issue notes 检查**最新**区块：有效的「启用」和「暂停」都可通过，缺失则停。
+
+若最新 `## 周排期` 区块无效，Leader **停止**，不建状态流转计划、不写标签或状态评论，并把解析错误列为待补排期缺口。即使更早评论里有有效排期，也不得回退（fallback）使用旧区块；Harness 同样只读取最新区块。
+
+日期、原因或负责人变化时，走 `pnpm cli week-plan-change`，而非 `transition`。这是**仅评论（comment-only）**路径：先按普通预览与确认，再新增恰好一条含 `## 排期变更` 和完整 replacement `## 周排期` 的评论，随后 readback。它没有标签、Assignee、关闭或 Milestone 操作，且不得编辑旧排期评论。
+
+Harness 是唯一的 Milestone writer。glab-flow 的引擎和 Leader 都没有 Milestone API/`WriteOp`，不得写入 GitLab Milestone；只读到的 Milestone 信息仅供展示，不能成为写回动作。
+
 ## 引用
 
 - 护栏 G1–G14 的完整判定与触发条件见 `guards.md`。

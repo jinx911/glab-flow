@@ -28,6 +28,8 @@ export interface Payload {
   from: string;
   to: string;
   fields: Record<string, string>;
+  /** Structured schedule input; rendering derives coverage only after validation. */
+  weekPlan?: WeekPlanInput;
   gateOutcome?: '通过' | '退回';
   reviewType?: string;
   assigneeUser?: string;
@@ -61,6 +63,41 @@ export interface GuardResult {
   reasons: string[];
 }
 
+/** Harness-compatible Week Plan creation input. Coverage is always derived. */
+export interface WeekPlanInput {
+  startDate: string;
+  endDate: string;
+  autoRollover: boolean;
+}
+
+/** Facts required when appending a replacement Week Plan after a schedule change. */
+export interface WeekPlanChangeInput {
+  iid: number;
+  weekPlan: WeekPlanInput;
+  changeDate: string;
+  originalPlan: string;
+  reason: string;
+  impact: string;
+  nextStep: string;
+  owner: string;
+}
+
+/** A validated plan, including engine-derived ISO-week coverage. */
+export interface WeekPlan extends WeekPlanInput {
+  coverage: string;
+}
+
+export type WeekPlanValidation =
+  | { ok: true; errors: []; plan: WeekPlan }
+  | { ok: false; errors: string[]; plan?: undefined };
+
+/** The newest `## 周排期` block controls the outcome, even when malformed. */
+export type LatestWeekPlan =
+  | { kind: 'absent' }
+  | { kind: 'valid-enabled'; plan: WeekPlan }
+  | { kind: 'valid-paused'; plan: WeekPlan }
+  | { kind: 'invalid-latest'; errors: string[]; input: Partial<WeekPlanInput> & { coverage?: string } };
+
 export type RunMode = 'semi-auto' | 'full-auto';
 
 export interface MissingItem {
@@ -88,6 +125,8 @@ export interface TransitionInput {
   state: 'opened' | 'closed';
   to?: string;
   fields?: Record<string, string>;
+  /** Structured schedule supplied when approving a Story. */
+  weekPlan?: WeekPlanInput;
   gateOutcome?: '通过' | '退回';
   reviewType?: string;
   assigneeUser?: string;

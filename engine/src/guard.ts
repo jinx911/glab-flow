@@ -1,10 +1,63 @@
-import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp } from './types.js';
+import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
+import { parseLatestWeekPlan, validateWeekPlan } from './week-plan.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
+
+const WEEK_PLAN_INPUT_HINT = '提供 weekPlan: { startDate: YYYY-MM-DD, endDate: YYYY-MM-DD, autoRollover: true|false }';
+const WEEK_PLAN_READBACK_HINT = '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段';
+
+function isWeekPlanInput(value: unknown): value is NonNullable<Payload['weekPlan']> {
+  if (!value || typeof value !== 'object') return false;
+  const plan = value as Record<string, unknown>;
+  return typeof plan.startDate === 'string' && typeof plan.endDate === 'string' && typeof plan.autoRollover === 'boolean';
+}
+
+const CHANGE_FACTS = ['changeDate', 'originalPlan', 'reason', 'impact', 'nextStep', 'owner'] as const;
+
+/** Validates the complete, comment-only schedule-change command payload. */
+export function validateWeekPlanChange(input: unknown): GuardResult {
+  if (!input || typeof input !== 'object') {
+    return fail(['排期变更输入必须是对象'], ['iid', 'weekPlan', ...CHANGE_FACTS]);
+  }
+
+  const value = input as Partial<WeekPlanChangeInput>;
+  const missing: string[] = [];
+  const reasons: string[] = [];
+  if (!Number.isInteger(value.iid) || value.iid! <= 0) missing.push('iid');
+
+  for (const field of CHANGE_FACTS) {
+    if (typeof value[field] !== 'string' || !value[field]!.trim()) missing.push(field);
+  }
+
+  if (!isWeekPlanInput(value.weekPlan)) {
+    missing.push('weekPlan');
+  } else {
+    const validation = validateWeekPlan(value.weekPlan);
+    if (!validation.ok) reasons.push(`周排期无效：${validation.errors.join('；')}`);
+  }
+
+  return missing.length || reasons.length ? fail(reasons, missing) : ok();
+}
+
+/** Applies the schedule contract to any forward entry point, including legacy CLI commands. */
+export function validateWeekPlanTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
+  if (payload.type !== 'story') return ok();
+  if (payload.from === '待评审' && payload.to === '已评审') {
+    if (!isWeekPlanInput(payload.weekPlan)) return fail([`周排期缺失：${WEEK_PLAN_INPUT_HINT}`], ['weekPlan']);
+    const validation = validateWeekPlan(payload.weekPlan);
+    return validation.ok ? ok() : fail([`周排期无效：${validation.errors.join('；')}`], ['weekPlan']);
+  }
+  if (payload.from === '已评审' && payload.to === '开发中') {
+    const latest = parseLatestWeekPlan(notes);
+    if (latest.kind === 'absent') return fail([`最新周排期缺失：${WEEK_PLAN_READBACK_HINT}`], ['latestWeekPlan']);
+    if (latest.kind === 'invalid-latest') return fail([`最新周排期无效：${latest.errors.join('；')}`], ['latestWeekPlan']);
+  }
+  return ok();
+}
 
 /**
  * 阻塞发布问题「均已验证通过」的肯定判定（G11）。
@@ -24,7 +77,7 @@ export function isAffirmative(v: string | undefined): boolean {
   return AFFIRMATIVE_NOTE_PREFIX.some((p) => raw.startsWith(p));
 }
 
-export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload): GuardResult {
+export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: { body: string }[] = []): GuardResult {
   const t = transitionFor(model, payload.type, payload.from, payload.to);
   if (!t) return fail([`transition ${payload.from}->${payload.to} not allowed`]);
 
@@ -84,7 +137,10 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   // G12 terminal atomicity
   if (t.terminal && !payload.closeIssue) reasons.push('终态需同一次操作关闭 Issue(closeIssue)');
 
-  if (missing.length || reasons.length) return fail(reasons, missing);
+  const weekPlanGate = validateWeekPlanTransition(payload, notes);
+  if (missing.length || reasons.length || !weekPlanGate.ok) {
+    return fail([...reasons, ...weekPlanGate.reasons], [...missing, ...weekPlanGate.missing]);
+  }
   return ok();
 }
 

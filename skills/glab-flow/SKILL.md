@@ -63,6 +63,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `render` | 渲染评论正文 |
 | `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload}` |
 | `plan-return` | 退回建写回计划：stdin `{type,from,target,issues,confirmer,date,assigneeUser?}` |
+| `week-plan-change` | **独立排期变更**：stdin 提供完整排期与变更事实，返回仅含一条 `add_comment` 的 `WritePlan`；不改变状态、Assignee、Issue 正文或既有评论 |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
@@ -118,6 +119,25 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
 
 `transition` 内部确定性编排 = 推导节点 + 评论字段扫描预填（`scanFieldsFromNotes`：精确 key 优先，缺失则按「实际日期 / 确认人 / 结论 / 依据」语义槽位回填，兼容 `render` 归一化评论）+ `validate` + `plan` + `render` + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。`evidence` 命令是独立的结构化取证工具（从 `## 状态变更` 块抽固定语义槽位，供 G1/G3/G11 人工排障），不参与 transition 内部预填。
+
+### 周排期（Harness 协议）
+
+周排期是给 Harness 周滚动读取的、不可改写的 Issue 评论协议；**Harness is the sole Milestone writer**。glab-flow 的引擎没有 Milestone API 或 Milestone `WriteOp`，Leader 也不得创建、关联、迁移或关闭 GitLab Milestone。即使 Leader 从 GitLab 读到 Milestone 信息，也只可展示为只读信息。
+
+Story 的 `待评审 → 已评审` 除既有需求评审证据外，必须提供有效的结构化 `weekPlan`。引擎将下列区块**原样追加一次**到该次合并状态评论；`计划覆盖周`由引擎根据 ISO 周计算，日期和 `自动 rollover` 不得臆测：
+
+```markdown
+## 周排期
+
+- 计划开始：2026-08-17
+- 计划完成：2026-09-06
+- 计划覆盖周：W34 ～ W36
+- 自动 rollover：启用
+```
+
+Story 的 `已评审 → 开发中` 在既有「计划提测时间 / 计划上线时间」要求外，必须重新读取 Issue notes，并确认**最新** `## 周排期` 区块完整有效（`启用`或`暂停`均有效）。若最新区块无效或缺失，停止流转并报告排期缺口；绝不回退使用更早的有效区块。
+
+排期变化不走状态流转：Leader 调用 `pnpm cli week-plan-change`，提供完整 replacement `weekPlan` 与变更日期、原排期、原因、影响、后续动作、负责人。它只产生一条含 `## 排期变更` 和 replacement `## 周排期` 的评论；按普通预览→确认→写入→回读执行，**不**改标签、Assignee、Issue 正文、既有评论或 Milestone。
 
 ### 批量推进（可选）
 

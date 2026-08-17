@@ -136,6 +136,37 @@ describe('glab-flow process contracts', () => {
     expect(nodes).not.toMatch(/<!-- glab-flow:artifact-receipt:v1/);
   });
 
+  it('documents the canonical Week Plan protocol while leaving Milestones to Harness', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const gate = readProjectFile('skills/glab-flow/gate.md');
+    const resume = readProjectFile('skills/glab-flow/resume.md');
+    const canonicalWeekPlan = [
+      '## 周排期',
+      '',
+      '- 计划开始：2026-08-17',
+      '- 计划完成：2026-09-06',
+      '- 计划覆盖周：W34 ～ W36',
+      '- 自动 rollover：启用',
+    ].join('\n');
+
+    expect(skill).toContain(canonicalWeekPlan);
+    expect(nodes).toMatch(/待评审[\s\S]{0,80}已评审[\s\S]{0,160}周排期/);
+    expect(nodes).toMatch(/已评审[\s\S]{0,80}开发中[\s\S]{0,160}(最新|latest).*周排期/);
+    expect(gate).toMatch(/week-plan-change[\s\S]{0,160}(仅评论|comment-only)/i);
+    expect(gate).toMatch(/最新[\s\S]{0,80}(无效|invalid)[\s\S]{0,120}(停止|停)/);
+    expect(resume).toMatch(/最新[\s\S]{0,80}周排期[\s\S]{0,120}(无效|invalid)/);
+    expect(resume).toMatch(/不得[\s\S]{0,80}(回退|fallback)[\s\S]{0,80}(旧|更早)/);
+    expect([skill, nodes, gate, resume].join('\n')).toMatch(/Harness[\s\S]{0,80}(唯一|sole)[\s\S]{0,80}(Milestone|里程碑)/i);
+
+    const engineProduction = listFiles(ENGINE_SRC)
+      .filter((filePath) => filePath.endsWith('.ts'))
+      .filter((filePath) => !filePath.endsWith('.test.ts'))
+      .map(readProjectFile)
+      .join('\n');
+    expect(engineProduction).not.toMatch(/\bmilestone\b/i);
+  });
+
   it('requires code evidence before review-preview blocks on existing system behavior', () => {
     const reviewPreview = readProjectFile('agents/review-preview.md');
     const tools = readProjectFile('skills/glab-flow/tools.md');
