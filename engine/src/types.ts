@@ -61,6 +61,33 @@ export interface GuardResult {
   reasons: string[];
 }
 
+/** Harness-compatible schedule facts. `coverage` is accepted when reading notes,
+ * but the engine always derives it from the two dates when rendering. */
+export interface WeekPlanInput {
+  start?: string;
+  end?: string;
+  autoRollover?: boolean;
+  coverage?: string;
+}
+
+export interface WeekPlan {
+  start: string;
+  end: string;
+  coverage: string;
+  autoRollover: boolean;
+}
+
+export type WeekPlanValidation =
+  | { ok: true; errors: []; plan: WeekPlan }
+  | { ok: false; errors: string[]; plan?: undefined };
+
+/** The newest `## 周排期` block controls the outcome, even when malformed. */
+export type LatestWeekPlan =
+  | { kind: 'absent' }
+  | { kind: 'valid-enabled'; plan: WeekPlan; suppliedCoverage?: string }
+  | { kind: 'valid-paused'; plan: WeekPlan; suppliedCoverage?: string }
+  | { kind: 'invalid-latest'; errors: string[]; input: WeekPlanInput };
+
 export type RunMode = 'semi-auto' | 'full-auto';
 
 export interface MissingItem {
