@@ -52,6 +52,8 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
    - 从返回 JSON 取 `labels` 数组。
    - 推导节点：`pnpm cli node <type> <labels...>`（在 glab-flow 仓库根跑），stdout 的 `node` 即 **GitLab 当前节点**。
 
+   同时读取 Issue notes，供后续 Story 周排期回读：`已评审→开发中` 只接受**最新** `## 周排期` 区块的解析结果。最新有效「启用」或「暂停」可继续；最新区块缺失或无效则停止，记录排期缺口，**不得回退（fallback）到旧/更早的有效区块**。
+
 3. **对比 `cachedNode` vs GitLab 节点**。把 state 里的 `cachedNode` 与上一步 GitLab 推导出的节点字符串比较：
    - **一致** → 本地缓存有效，直接续；`cachedNodeAt` 不变。
    - **不一致** → **GitLab 为准**。Leader 停下来给用户一句明确提示：
@@ -67,6 +69,8 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
 4. **对账串行写回阶段**。先从父 Issue 重新拉取 notes（有受影响 MR 时也逐个拉取 MR notes）。再检查 `writebackAudit`：metadata（标签 + Assignee）、state-comment（合并评论）、readback 三个阶段中，哪个是**首个未完成阶段**。任一阶段曾失败或状态不明，先记录回读结果，只重试这个首个未完成阶段；已回读成功的评论不得重复发送。
 
 5. **从当前节点继续 SKILL.md 编排循环**。节点定了之后，按 `SKILL.md` 的"Leader 每轮编排"走：查 `nodes.md` 契约 → 判断证据是否齐 → `validate` → `plan`/`plan-return` → 门禁预览确认（见 `gate.md`）→ glab 应用。恢复只是把 Leader 重新放到正确的节点上，后续动作与首次进入完全相同。
+
+若只是日期或安排发生变化，不从恢复流程伪造一次状态流转。走独立的 `week-plan-change`：它只新增一条 `## 排期变更` + replacement `## 周排期` 评论，保留状态、Assignee、Issue 正文和历史评论。Harness 是唯一的 Milestone writer；glab-flow 恢复时不会生成任何 Milestone API 或 `WriteOp`。
 
 ## state schema 参考
 

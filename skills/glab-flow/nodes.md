@@ -33,6 +33,14 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 每类内容体的字段槽位见 `engine/src/render.ts` 的 `NODE_CONTENT`。`mr-review` 仍在每个受影响 MR 上以独立评论给出评审结论（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
 
+### Story 周排期契约（Harness 读取）
+
+- **待评审→已评审**：在同一条「状态变更头 + 内容体」合并评论中追加一次完整 `## 周排期` 区块。有效的 `weekPlan` 是需求评审通过的前置条件；`计划覆盖周`由引擎推导，Leader 不手填或推测。
+- **已评审→开发中**：除技术方案与既有计划提测/上线字段外，必须从刚回读的 Issue notes 验证**最新** `## 周排期` 区块。最新区块可为「启用」或「暂停」，但必须完整有效；最新无效或缺失就停止，不能用旧排期回退放行。
+- **排期变更**：不推进节点。用 `week-plan-change` 只新增一条 `## 排期变更` + replacement `## 周排期` 评论，不改标签、Assignee、Issue 正文、历史评论或 Milestone。
+
+Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁移、不关闭 Milestone，且其 `WriteOp` 不含任何 Milestone 操作。
+
 ### 写回顺序（三阶段串行）
 
 合并评论与标签/Assignee 按严格串行写回，每阶段记 `writebackAudit`（resume 定位首个未完成）：
