@@ -4,3 +4,5 @@ engine/dist/
 .worktrees/
 .DS_Store
 *.log
+.pnpm-store/
+不覆盖

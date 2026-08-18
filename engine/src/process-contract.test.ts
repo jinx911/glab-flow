@@ -83,9 +83,13 @@ function assertNoPattern(text: string, patterns: RegExp[]): void {
 
 describe('glab-flow process contracts', () => {
   it('keeps the engine free of GitLab writeback and shell/network side effects', () => {
+    // issue 22 豁免:version.ts 用 execFileSync 只读本地 git ref(零网络/零写入),
+    // 用于运行时版本守卫——检测本地副本是否落后 origin/master,防静默漂移(issue 22)。
+    const exempt = new Set(['engine/src/version.ts']);
     const productionFiles = listFiles(ENGINE_SRC)
       .filter((filePath) => filePath.endsWith('.ts'))
-      .filter((filePath) => !filePath.endsWith('.test.ts'));
+      .filter((filePath) => !filePath.endsWith('.test.ts'))
+      .filter((filePath) => !exempt.has(filePath));
 
     const filesWithForbiddenTerms = productionFiles
       .map((filePath) => ({ filePath, content: readProjectFile(filePath) }))
@@ -93,6 +97,9 @@ describe('glab-flow process contracts', () => {
       .map(({ filePath }) => filePath);
 
     expect(filesWithForbiddenTerms).toEqual([]);
+    // 豁免文件本身必须无网络/写副作用——只允许 child_process(只读 git)。
+    const versionSrc = readProjectFile('engine/src/version.ts');
+    expect(versionSrc).not.toMatch(/fetch\(|node:http|node:https|writeFileSync|mkdirSync|rmSync/);
   });
 
   it('documents Leader-owned glab writeback and forbids stale engine apply wording', () => {
