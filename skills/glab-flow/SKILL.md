@@ -19,6 +19,22 @@ glab-flow 是 GitLab-native、自包含的流程引擎：引擎只做确定性�
 
 **子命令路由**：首参为 `learn` → 走 `learn.md` 手动命令分支（`/glab-flow learn <note>` 记一条 `manual_note` lesson；`/glab-flow learn --upgrade` 在非终态触发 upgrade ritual），**不进入状态机驱动**。
 
+## 运行时版本守卫（启动第 0 件事；教训见 issue 22：本地副本静默落后，周排期门禁失效）
+
+glab-flow 通过 `~/.claude/skills/glab-flow` 符号链接运行**本仓库当前检出的代码**——本地 master 落后 origin 时，已合并的流转契约（如周排期）会静默失效。每次启动 flow **必须**先做版本检查：
+
+```bash
+cd "$ENGINE_ROOT" && git fetch origin --quiet 2>/dev/null; pnpm cli version --fetched
+```
+
+- `upToDate: true` → 继续。
+- `upToDate: false` → **停止，不推进任何节点**。把 `notes` 展示给用户，引导更新：
+  ```bash
+  cd <ENGINE_ROOT> && git merge --ff-only origin/master && pnpm install
+  ```
+  用户明确拒绝更新时，在 flow 中标注「运行于已知陈旧版本（commit=<SHA>）」再继续——但周排期等新契约缺失导致的流转失败，责任在陈旧副本而非流程。
+- 非 git 安装（复制分发）→ `version` 会报无法比较；此时以 `capability` 版本人工核对，并在 lessons 记录环境限制。
+
 ## 配置（启动第一件事）
 
 glab-flow 是配置驱动的——`host`/`project_id`/`workspace.root` 等参数因项目而异，绝不写死。每次启动 flow，**先读 config**（`$ENGINE_ROOT` 见下文「引擎与命令」节，启动时先解析一次、全局复用）：
@@ -66,6 +82,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `week-plan-change` | **独立排期变更**：stdin 提供完整排期与变更事实，返回仅含一条 `add_comment` 的 `WritePlan`；不改变状态、Assignee、Issue 正文或既有评论 |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
+| `version` | 运行时版本守卫（issue 22）：`--fetched` 表示 Skill 已先 `git fetch origin`；输出 `{commit, upToDate, remoteCommit, capability, notes}`；落后即阻断 |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
 | `state-writeback` | 追加串行写回阶段的成功/失败审计；用于恢复时定位首个未完成阶段 |
 | `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |

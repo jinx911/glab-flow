@@ -11,6 +11,7 @@ import { initState } from './state.js';
 import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
 import type { Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
+import { checkRuntimeVersion } from './version.js';
 
 const model = loadModel();
 
@@ -82,6 +83,13 @@ async function main() {
       console.log(JSON.stringify(buildWeekPlanChangePlan(input as WeekPlanChangeInput)));
       break;
     }
+    case 'version': {
+      // issue 22: 运行时版本守卫。Skill 启动时先 `git fetch origin`(零网络的引擎不做网络),
+      // 再 `pnpm cli version --fetched` 拿判定;不传 --fetched 则只比本地缓存 ref。
+      const fetched = args.includes('--fetched');
+      console.log(JSON.stringify(checkRuntimeVersion(fetched)));
+      break;
+    }
     case 'config': {
       console.log(JSON.stringify(parseConfig(readStdin())));
       break;
@@ -115,7 +123,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | plan-return | week-plan-change | evidence | config | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | plan-return | week-plan-change | evidence | config | version | state-init | state-writeback | progress');
       process.exit(1);
   }
 }
