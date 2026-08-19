@@ -116,3 +116,21 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
     expect(md).not.toContain('## 周排期');
   });
 });
+
+describe('测试报告环境字段(测试中→待发布,issue 环境接入)', () => {
+  it('渲染 测试环境/测试账号 进合并评论', () => {
+    const md = renderNodeComment({
+      type: 'story', from: '测试中', to: '待发布',
+      fields: { 测试环境: 'stage https://stage-oa.kuainiu.io', 测试账号: 'dengken@kn.group', 回归详情: '回归通过' },
+      assigneeUser: '@dev',
+    });
+    expect(md).toContain('## 测试报告');
+    expect(md).toContain('- 测试环境：stage https://stage-oa.kuainiu.io');
+    expect(md).toContain('- 测试账号：dengken@kn.group');
+  });
+  it('环境字段缺失时不渲染空行(不卡流转,与内容体语义一致)', () => {
+    const md = renderNodeComment({ type: 'story', from: '测试中', to: '待发布', fields: { 回归详情: 'r' }, assigneeUser: '@dev' });
+    expect(md).toContain('## 测试报告');
+    expect(md).not.toContain('测试环境：');
+  });
+});
