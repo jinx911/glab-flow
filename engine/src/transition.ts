@@ -35,6 +35,8 @@ const FIELD_HINTS: Record<string, string> = {
   测试Assignee: '@测试用户',
   测试结论: '通过 / 退回',
   回归范围或证据: '回归范围或证据链接',
+  测试环境: '执行测试的环境名 + url（来自 config 的 test_environments，如 stage https://stage-oa.kuainiu.io）',
+  测试账号: '测试使用的账号（来自 config 的 test_environments.<env>.account）',
   阻塞发布问题均已验证通过: '是 / 已验证 / 无阻塞（来自测试问题评论的验证结果）',
   feature分支MR评审结论: 'feature→master MR 代码评审结论（用 code-review sub-skill 跑全 MR diff）；填「通过，无 HIGH 残留」或退回',
   发布日期: '发布日期',

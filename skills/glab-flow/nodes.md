@@ -80,6 +80,25 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
 
 配置多的需求尤其必要；缺这份清单是提测阶段最常见的返工点。
 
+### 测试中：环境接入（进入节点第一步，必读 config）
+
+测试执行前，Leader **必须**先从配置拿环境信息——不靠记忆、不臆造地址：
+
+1. **读 config 的 `test_environments`**（`cd "$ENGINE_ROOT" && cat <config.md> | pnpm cli config` → `testEnvironments`），把候选环境列成表让用户选（AskUserQuestion）：
+
+   | 环境名 | url | 账号 | 说明 |
+   |---|---|---|---|
+   | stage | https://stage-oa.kuainiu.io | dengken@kn.group | Stage 测试环境 |
+   | tenant_kn | http://tenant.oa.com | … | 快牛默认租户（本地） |
+
+2. 选中环境的 `url` / `account` / `password` 作为本轮测试执行环境，写进测试报告（见内容体 keys）。
+3. **区分三个入口**（配错则请求落错站）：
+   - `login_environment`（PHP 登录入口，发登录请求拿 token）
+   - `api_environment`（接口网关，业务 /v2 请求 base）
+   - 前端入口（浏览器 E2E 用，即 `test_environments.<env>.url`）
+4. **`test_environments` 缺失或所选环境没有 url/账号** → 停下引导用户补 `.glab-flow/config.md`，不臆造地址、不用本地环境冒充测试环境。配置来源细节见 `config.md`。
+5. 测试环境执行前的预检（三段链路健康 / 运行版本）与凭据注入规则见 `sub-skills/test-flow-apifox.md`。
+
 ### 测试中→待发布：MR 评审前置（G14）+ 提前产出发布计划
 
 进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」。
