@@ -75,6 +75,13 @@ API 用例在设计阶段只列「用例描述 + 期望契约」，执行交给 
 
 UI 渲染、弹窗文案、按钮显隐分支、交互时序这类验收标准，单测和代码评审抓不到——**必须标 `e2e` 策略**，由同目录 `test-flow-e2e.md` 经 e2e-runner / Playwright 真实点击执行。设计阶段在 test-plan.md 里列「场景 + 步骤 + 预期（可见性/文案/显隐）」，执行委托 test-flow-e2e，不在 test-plan.md 里手写浏览器脚本。覆盖范围参考 design.md 的「路由分流核查」——多套实现（web/mobile/租户灰度）都要有用例，不能只测一套。
 
+## 套件跨环境规则(逻辑一样参数不同)
+
+- **套件 = 逻辑,不含环境**:一个需求一个主套件,名字用 `<iid>-<需求名> API 回归`,**禁止**名字嵌环境(如「本地xx回归」意味着每环境复制一套,改用例要改 N 处——现有这类套件应改名合并)。
+- **环境切换 = 运行时**:同一套件,执行时 `--environment <envId>` 切(test-context 的 apifoxTargets[].envId);每环境各跑一次各出报告。
+- **参数差异 = 运行时变量注入**:账号/密码用场景变量 `{{<credentials.vars 名>}}`(test-config 声明映射,执行时注入),域名/base_url 用 Apifox 环境自带,**不把值写进 Apifox 资产**;测试数据前缀按环境区分(local `E2E{iid}L` / test `E2E{iid}T`),数据互不混用。
+- **登录 = 共用契约**:所有项目从 test-config `login.owner` 项目持有的登录接口拿 token(`{{login.token_var}}`),后置提取注入后续步骤;不为每个项目各写一套登录。
+
 ## glab-flow 上下文
 
 - **节点归属**：「测试中」节点（`../nodes.md`），Leader Read 本文件内联执行或 spawn `general-purpose` 以本文件为 prompt。产出 `test-plan.md` 落 `.glab-flow/<iid>/spec/`；**测试报告**内容写进节点合并评论（见 `../nodes.md`「节点内容评论」），才可标记「测试计划」完成或推进待发布。
