@@ -19,6 +19,32 @@ description: 测试中节点的 API 测试执行（经 apifox 运行时工具）
 
 接口用例由 test-design 设计完毕（写在 `test-plan.md` 里），本阶段只做执行。用 apifox-* 运行时 skill 跑用例，按用例类型选择：
 
+### CLI 执行命令模板（套件/场景 run 的固定参数）
+
+```bash
+apifox test-suite run <suiteId> --project <projectId> \
+  -e <envId> \                              # 环境(test-context 的 apifoxTargets[].envId,切 local/test 就是它)
+  --carry-runtime-variables \                # ★必须:登录场景后置写的 x_client_token 跨场景可见(默认关闭,不加则业务场景全裸)
+  --env-var "local_client_email=<账号>" \    # 凭据运行时注入(变量名来自 test-config credentials.vars)
+  --env-var "local_client_password=<密码>" \
+  --upload-report detail \                   # ★detail 级:上传含请求/响应详情的云端报告(排障能看当时发了什么;总览级只有计数)
+  --reporters cli,json --out-dir <dir>
+```
+
+- `--carry-runtime-variables`、`--upload-report detail` 两参数不可省：前者是登录 token 传递链路的一半，后者是失败排障的证据来源；报告链接（`https://app.apifox.com/link/...`）记入执行记录。
+- 数据驱动（多组同构参数）见下方「测试数据集使用规则」。
+
+### 测试数据集使用规则（判断口诀）
+
+> **换环境变的 → test-config；每轮变的 → 测试数据集；永远不变的 → 留在 case 里。**
+
+- **轮次变量**（每轮测试要不同的值：case_id/类型枚举/供应商/员工号等）→ Apifox「自动化测试-测试数据」建数据集（N 行 × 这些列），执行 `-d <testDataId> -n <N>` 按行循环，场景断言写一次。
+- **≥3 组同构数据**（合同类型枚举、边界矩阵等）→ 优先数据集驱动，**不复制 case**。
+- **环境身份**（账号/密码）→ 不进数据集，走 `--env-var`（test-config credentials）。
+- **逻辑常量**（如 `end_date=9999-12-31`、`years=99`）→ 留在 case 请求体，抽到数据集丢语义。
+- **CLI 创建的 test-data 必须回读数据行非空**——`test-data create` 只建元数据，空壳数据集是垃圾资产，发现即删（历史踩坑）。
+- 返回值断言不进数据集（那是断言的事）；数据集列值可被后置脚本提取写入全局变量供下游场景引用（与 token 同机制）。
+
 | 用例形态 | apifox 运行时 skill | 用途 |
 |---|---|---|
 | 单接口用例 | apifox-test-case | 跑单个接口的请求/响应/断言 |
@@ -41,6 +67,7 @@ skill 是**运行时工具**（见 `../tools.md`），glab-flow 不自带 apifox
 1. **命令**：实际执行的 apifox skill / CLI 调用（含用例集范围、环境参数）。
 2. **计数**：汇总行，形如 `接口用例: X passed, Y failed, Z skipped`（或 apifox 等价输出）。
 3. **失败列表**：逐条列 `用例编号 — 接口 — 失败原因摘要（状态码/断言差异）`；全绿则写「无失败」。
+4. **云端报告链接**：`--upload-report detail` 产出的 `https://app.apifox.com/link/...`（含请求/响应详情，排障与复查入口）。
 
 结果与 test-plan.md 的用例编号一一对应，方便定位哪条验收标准的测试未过。
 
