@@ -12,6 +12,7 @@ import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
 import type { Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 import { checkRuntimeVersion } from './version.js';
+import { parseTestConfig, buildTestContext } from './test-config.js';
 
 const model = loadModel();
 
@@ -90,6 +91,34 @@ async function main() {
       console.log(JSON.stringify(checkRuntimeVersion(fetched)));
       break;
     }
+    case 'test-config': {
+      // 测试配置解析/上下文:stdin = test-config.md 全文。仅解析用 `--parse`;
+      // 组上下文用 `--repos a,b --env local [--iid N]`(routes 推 Apifox 项目,配置送到脸上)。
+      const md = readStdin();
+      const config = parseTestConfig(md);
+      const flag = (name: string): string | undefined => {
+        const i = args.indexOf(name);
+        return i >= 0 && args[i + 1] ? args[i + 1] : undefined;
+      };
+      const reposArg = flag('--repos');
+      const env = flag('--env');
+      const iidArg = flag('--iid');
+      if (reposArg && env) {
+        const ctx = buildTestContext(config, {
+          repos: reposArg.split(',').map((r) => r.trim()).filter(Boolean),
+          env,
+          ...(iidArg && /^\d+$/.test(iidArg) ? { iid: Number(iidArg) } : {}),
+        });
+        if (!ctx.apifox.envId) {
+          console.error(`test-config: 环境 "${env}" 的 Apifox 环境 ID 缺失(apifox_projects.${ctx.apifox.project}.envs.${ctx.apifox.envName})`);
+          process.exitCode = 1;
+        }
+        console.log(JSON.stringify(ctx));
+      } else {
+        console.log(JSON.stringify(config));
+      }
+      break;
+    }
     case 'config': {
       console.log(JSON.stringify(parseConfig(readStdin())));
       break;
@@ -123,7 +152,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | plan-return | week-plan-change | evidence | config | version | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | plan-return | week-plan-change | evidence | config | version | test-config | state-init | state-writeback | progress');
       process.exit(1);
   }
 }

@@ -64,8 +64,15 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
 提测前必须自测——门禁强制 `代码评审结论` + `自测计划` + `接口自测结论` 三个字段非空，不能只填一个"结论"跳过。自测有层次（缩小版 test-flow）：
 
 0. **接口同步 Apifox**：若本次改动新增/修改了接口，**先更新 Apifox 的接口定义再往下走**——确保自测和后续测试用的是最新接口定义，而不是过时的旧版。当前方式：IDEA Apifox 插件手动更新上传（Leader 主动提醒，不靠自觉记忆）；长期方向：后端加 springdoc/scribe 生成 OpenAPI + Apifox CLI `auto-import` 定期自动拉取。
+0.5. **测试上下文注入（配置送到脸上，不靠找）**：自测开始前跑一次，环境/账号/Apifox 项目/环境 ID/数据库/前端构建/测试数据前缀**一次拿全**：
+   ```bash
+   cat <workspace.root>/.glab-flow/test-config.md | cd "$ENGINE_ROOT" && pnpm cli test-config --repos <本次改动仓库,逗号分隔> --env local --iid <iid>
+   ```
+   - `--repos` 从 Issue 影响模块/spec 的「关键文件」取改动仓库；routes 按仓库推导该用的 **Apifox 项目**（如 oa-platform+前端→oa_platform，oa-service→oa_service），不用记。
+   - 输出的 `apifox.envId` 直接喂 Apifox CLI（`--project <projectId> --environment <envId>`）；`databases.*` 查 `config.md` 的 databases 得 MCP；`testData.prefix` 已替换 iid。
+   - 文件不存在 → 引导用户按 `test-config.example.md` 建一次（每项目一次），**不让自测在无测试配置下裸跑**。字段细节见 `test-config.example.md`。
 1. **自测计划**：本次改动的测试范围——接口测试（后端 API）/ E2E（前端）/ 数据断言（数据·逻辑）/ 手工验证（配置·部署）。按需求选，用例可 Apifox 新建或复用。
-2. **接口测试**（`sub-skills/test-flow-apifox.md`，Apifox CLI）：按 config 的 `testEnvironments.<env>.url` + `databases.<env>.mcp` 配环境——注意区分**登录入口**与**接口网关**（两者常是不同环境，配错则请求落到前端站返回 HTML 404）。建用例前先跑**契约预检**（Schema 类型/可空性 + 状态码覆盖，见 test-design）；执行前跑**预检**（三段链路健康 + 本地运行版本 commit 校验，源码新/旧 class 会假验证）。执行接口用例确认 API 通 + 数据对。**接口没问题才进 E2E**。
+2. **接口测试**（`sub-skills/test-flow-apifox.md`，Apifox CLI）：环境/项目用步骤 0.5 `test-context` 的输出（`apifox.projectId` + `apifox.envId` + `databases.*`）——注意区分**登录入口**与**接口网关**（两者常是不同环境，配错则请求落到前端站返回 HTML 404）。建用例前先跑**契约预检**（Schema 类型/可空性 + 状态码覆盖，见 test-design）；执行前跑**预检**（三段链路健康 + 本地运行版本 commit 校验，源码新/旧 class 会假验证）。执行接口用例确认 API 通 + 数据对。**接口没问题才进 E2E**。
 3. **E2E**（前端需求，`sub-skills/test-flow-e2e.md`，Playwright）：接口通过后验证 UI/交互。纯后端需求跳过。
 4. **填结果**：`接口自测结论` = 通过/退回 + 证据（Apifox 执行结果 / E2E 截图）。
 
@@ -80,23 +87,18 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
 
 配置多的需求尤其必要；缺这份清单是提测阶段最常见的返工点。
 
-### 测试中：环境接入（进入节点第一步，必读 config）
+### 测试中：环境接入（进入节点第一步，test-context 注入）
 
-测试执行前，Leader **必须**先从配置拿环境信息——不靠记忆、不臆造地址：
+测试执行前，Leader **必须**先拿全测试上下文——不靠记忆、不翻散落配置：
 
-1. **读 config 的 `test_environments`**（`cd "$ENGINE_ROOT" && cat <config.md> | pnpm cli config` → `testEnvironments`），把候选环境列成表让用户选（AskUserQuestion）：
-
-   | 环境名 | url | 账号 | 说明 |
-   |---|---|---|---|
-   | stage | https://stage-oa.kuainiu.io | dengken@kn.group | Stage 测试环境 |
-   | tenant_kn | http://tenant.oa.com | … | 快牛默认租户（本地） |
-
-2. 选中环境的 `url` / `account` / `password` 作为本轮测试执行环境，写进测试报告（见内容体 keys）。
-3. **区分三个入口**（配错则请求落错站）：
-   - `login_environment`（PHP 登录入口，发登录请求拿 token）
-   - `api_environment`（接口网关，业务 /v2 请求 base）
-   - 前端入口（浏览器 E2E 用，即 `test_environments.<env>.url`）
-4. **`test_environments` 缺失或所选环境没有 url/账号** → 停下引导用户补 `.glab-flow/config.md`，不臆造地址、不用本地环境冒充测试环境。配置来源细节见 `config.md`。
+1. **跑 test-context（环境/账号/Apifox 项目一次拿全）**：
+   ```bash
+   cat <workspace.root>/.glab-flow/test-config.md | cd "$ENGINE_ROOT" && pnpm cli test-config --repos <改动仓库> --env <候选环境> --iid <iid>
+   ```
+   把 `test-config.md` 里 `environments` 的候选环境列成表让用户选（AskUserQuestion：本地 local / 测试 test / …），选中环境跑上面命令（或每个候选都跑、展示对比）。输出即完备上下文：**Apifox 项目+环境 ID**（routes 按改动仓库推导，不用记该用 oa_platform 还是 oa_service）、账号、数据库 MCP 引用、前端构建、测试数据前缀。
+2. `apifox.envId` 直接作为 Apifox CLI 的 `--environment`；`databases.*` 查 `config.md` 的 databases 得 MCP 名；`credentials` 为本轮测试账号，写进测试报告（见内容体 keys）。
+3. **区分三个入口**（配错则请求落错站）：登录入口 / 接口网关（API base 以 Apifox 环境的 baseUrls 为准，不复制进本地配置）/ 前端入口（`webUrl`，E2E 浏览器用）。
+4. **test-config.md 不存在或缺字段** → 停下引导按 `test-config.example.md` 补（每项目一次），不臆造地址、不用本地环境冒充测试环境。
 5. 测试环境执行前的预检（三段链路健康 / 运行版本）与凭据注入规则见 `sub-skills/test-flow-apifox.md`。
 
 ### 测试中→待发布：MR 评审前置（G14）+ 提前产出发布计划

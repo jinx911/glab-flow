@@ -32,8 +32,9 @@ description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md
 5. **可选项**（一次性逐项问，用户说"跳过"就不配）：
    - `deploy_branch`：是否要自动部署到某分支（如 `test`）？是 → 填分支名；否 → 不配（发布节点跳过合并）。
    - `jenkins`：是否配 Jenkins 构建？是 → 收 `job_name`（必填）、`branch_param`（默认 `oa_branch`）、`default_params`（键值表，可空）。
-   - `databases`：是否声明数据库 MCP？是 → 收 `<name>: { mcp, desc }` 对（如 `main: { mcp: "mcp__platform-local__mysql_query", desc: "主数据库" }`）。
-   - `test_environments`：是否声明测试环境？是 → 收 `<name>: { url, account, password, desc }` 对。
+   - `databases`：是否声明逻辑数据目标？是 → 收 `<name>: { mcp, desc }` 对；不收连接串、密码或 Token。测试租户只记录 `websites.uuid` 解析规则，DMS 的 RDS/镜像选择留到执行时由用户确认。
+   - `test_environments`：是否声明测试环境？是 → 固定收集 `local`、`test` 两个 Profile：`url`、`runtime`、`login.credential_ref`、平台/默认租户/可选租户逻辑目标、测试数据前缀与清理规则、前端构建策略。**绝不询问或写入明文账号密码**。
+   - `apifox.projects`：是否声明接口测试项目映射？是 → 对每个接口域收 `{ project_id, branch, environments.local, environments.test }`，并收 `apifox.routes` 的 API 前缀、相关仓库和项目键；local 与 test 必须分开，不得共用 base URL 或环境 ID。
 
 ## 生成
 
@@ -53,7 +54,7 @@ Leader 以 `skills/glab-flow/config.example.md` 为模板，把上面探测到�
 cat <workspace.root>/.glab-flow/config.md | pnpm cli config
 ```
 
-期望：stdout 输出合法 JSON，且包含正确的 `gitlab.host`、`gitlab.projectId`、`workspace.root`、`runMode`。若失败（stderr 出现 `config: ...`）→ 读错误信息定位缺哪个键、哪个围栏不对，修 `<workspace.root>/.glab-flow/config.md` 后再跑，直到 JSON 合法。**未通过校验不算完成**——`/glab-flow` 在坏配置上会直接挂。
+期望：stdout 输出合法 JSON，且包含正确的 `gitlab.host`、`gitlab.projectId`、`workspace.root`、`runMode`；若配置了 `apifox.projects`，还必须确认每个项目都有正确的 projectId、分支和互不混用的 local/test 环境。若失败（stderr 出现 `config: ...`）→ 读错误信息定位缺哪个键、哪个围栏不对，修 `<workspace.root>/.glab-flow/config.md` 后再跑，直到 JSON 合法。**未通过校验不算完成**——`/glab-flow` 在坏配置上会直接挂。
 
 ## 完成提示
 
