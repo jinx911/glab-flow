@@ -59,11 +59,79 @@ describe('parseConfig', () => {
     expect(c.gitlab.projectId).toBe('3915');
   });
 
-  it('maps databases and test_environments with defaults', () => {
-    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\ndatabases:\n  main: { mcp: mcp__db__q, desc: 主库 }\ntest_environments:\n  default: { url: http://x, account: a }\n```';
+  it('maps databases and secure test environment profiles', () => {
+    const md = [
+      '```yaml',
+      'gitlab: { host: h, project_id: "1" }',
+      'workspace: { root: /r }',
+      'databases:',
+      '  main: { mcp: mcp__db__q, desc: 主库 }',
+      'test_environments:',
+      '  local:',
+      '    url: http://tenant.oa.com',
+      '    runtime: local-docker',
+      '    login: { credential_ref: oa_local_hr_admin, role: "HR 管理员" }',
+      '    data:',
+      '      platform: { database_ref: local_platform }',
+      '      default_tenant: { website: tenant.oa.com, database_ref: local_tenant }',
+      '    frontend:',
+      '      build:',
+      '        required: true',
+      '        command: pnpm build:backend',
+      '        workdir: /workspace/frontend',
+      '        output_dir: /workspace/platform/public/frontend',
+      '```',
+    ].join('\n');
     const c = parseConfig(md);
     expect(c.databases?.main).toEqual({ mcp: 'mcp__db__q', desc: '主库' });
-    expect(c.testEnvironments?.default).toEqual({ url: 'http://x', account: 'a' });
+    expect(c.testEnvironments?.local).toEqual({
+      url: 'http://tenant.oa.com',
+      runtime: 'local-docker',
+      login: { credentialRef: 'oa_local_hr_admin', role: 'HR 管理员' },
+      data: {
+        platform: { databaseRef: 'local_platform' },
+        defaultTenant: { website: 'tenant.oa.com', databaseRef: 'local_tenant' },
+      },
+      frontend: {
+        build: {
+          required: true,
+          command: 'pnpm build:backend',
+          workdir: '/workspace/frontend',
+          outputDir: '/workspace/platform/public/frontend',
+        },
+      },
+    });
+  });
+
+  it('maps explicitly configured environment credentials', () => {
+    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\ntest_environments:\n  local: { url: http://x, account: user, password: secret }\n```';
+    expect(parseConfig(md).testEnvironments?.local).toEqual({ url: 'http://x', account: 'user', password: 'secret' });
+  });
+
+  it('maps Apifox project routing with distinct local and test environments', () => {
+    const md = [
+      '```yaml',
+      'gitlab: { host: h, project_id: "1" }',
+      'workspace: { root: /r }',
+      'apifox:',
+      '  projects:',
+      '    oa_platform:',
+      '      project_id: "8731182"',
+      '      branch: main',
+      '      environments:',
+      '        local: { name: "本地 tenant", base_url: "http://tenant.oa.com" }',
+      '        test: { id: "48357135", name: "Test", base_url: "https://test.example.com" }',
+      '```',
+    ].join('\n');
+
+    expect(parseConfig(md).apifox?.projects.oa_platform).toEqual({
+      projectId: '8731182',
+      branch: 'main',
+      environments: {
+        local: { name: '本地 tenant', baseUrl: 'http://tenant.oa.com' },
+        test: { id: '48357135', name: 'Test', baseUrl: 'https://test.example.com' },
+      },
+    });
   });
 
   it('passes through gitlab.harness_clone when present', () => {

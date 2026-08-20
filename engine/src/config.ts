@@ -9,6 +9,36 @@ export interface JenkinsJobConfig {
   defaultParams?: Record<string, string>;
 }
 
+export interface ApifoxEnvironmentConfig {
+  id?: string;
+  name?: string;
+  baseUrl?: string;
+}
+
+export interface ApifoxProjectConfig {
+  projectId: string;
+  branch: string;
+  environments: Record<string, ApifoxEnvironmentConfig>;
+}
+
+export interface TestEnvironmentConfig {
+  url: string;
+  runtime?: 'local-docker' | 'deployed';
+  account?: string;
+  password?: string;
+  login?: { credentialRef: string; role?: string };
+  data?: {
+    platform?: { databaseRef: string };
+    defaultTenant?: { website: string; databaseRef?: string; resolver?: string };
+    tenants?: Record<string, { website?: string; databaseRef?: string; resolver?: string; desc?: string }>;
+    testData?: { prefix?: string; cleanupRequired?: boolean; prohibited?: string[] };
+  };
+  frontend?: {
+    build?: { required: boolean; command?: string; workdir?: string; outputDir?: string };
+  };
+  desc?: string;
+}
+
 export interface GlabConfig {
   gitlab: { host: string; projectId: string; harnessClone?: string };
   workspace: { root: string };
@@ -25,7 +55,11 @@ export interface GlabConfig {
     jobs?: Record<string, JenkinsJobConfig>;
   };
   databases?: Record<string, { mcp: string; desc?: string }>;
-  testEnvironments?: Record<string, { url: string; account?: string; password?: string; desc?: string }>;
+  testEnvironments?: Record<string, TestEnvironmentConfig>;
+  apifox?: {
+    projects: Record<string, ApifoxProjectConfig>;
+    routes?: Record<string, { project: string; repositories: string[]; apiPrefixes: string[] }>;
+  };
 }
 
 interface RawJenkinsJob {
@@ -44,7 +78,31 @@ interface RawConfig {
   roles?: Record<string, unknown>;
   jenkins?: { job_name?: string; branch_param?: string; default_params?: Record<string, string>; jobs?: Record<string, RawJenkinsJob> };
   databases?: Record<string, { mcp?: string; desc?: string }>;
-  test_environments?: Record<string, { url?: string; account?: string; password?: string; desc?: string }>;
+  test_environments?: Record<string, {
+    url?: string;
+    runtime?: string;
+    account?: string;
+    password?: string;
+    login?: { credential_ref?: string; role?: string };
+    data?: {
+      platform?: { database_ref?: string };
+      default_tenant?: { website?: string; database_ref?: string; resolver?: string };
+      tenants?: Record<string, { website?: string; database_ref?: string; resolver?: string; desc?: string }>;
+      test_data?: { prefix?: string; cleanup_required?: boolean; prohibited?: string[] };
+    };
+    frontend?: {
+      build?: { required?: boolean; command?: string; workdir?: string; output_dir?: string };
+    };
+    desc?: string;
+  }>;
+  apifox?: {
+    projects?: Record<string, {
+      project_id?: string | number;
+      branch?: string;
+      environments?: Record<string, { id?: string | number; name?: string; base_url?: string }>;
+    }>;
+    routes?: Record<string, { project?: string; repositories?: string[]; api_prefixes?: string[] }>;
+  };
 }
 
 // Matches a ```yaml\n...\n``` fenced block exactly (no CRLF / trailing-space / uppercase support).
@@ -123,7 +181,120 @@ export function parseConfig(markdown: string): GlabConfig {
       ? { databases: Object.fromEntries(Object.entries(raw.databases).map(([k, v]) => [k, { mcp: v.mcp ?? '', ...(v.desc ? { desc: v.desc } : {}) }])) }
       : {}),
     ...(raw.test_environments
-      ? { testEnvironments: Object.fromEntries(Object.entries(raw.test_environments).map(([k, v]) => [k, { url: v.url ?? '', ...(v.account ? { account: v.account } : {}), ...(v.password ? { password: v.password } : {}), ...(v.desc ? { desc: v.desc } : {}) }])) }
+      ? {
+          testEnvironments: Object.fromEntries(
+            Object.entries(raw.test_environments).map(([k, v]) => [
+              k,
+              {
+                url: v.url ?? '',
+                ...(v.runtime === 'local-docker' || v.runtime === 'deployed' ? { runtime: v.runtime } : {}),
+                ...(v.account ? { account: v.account } : {}),
+                ...(v.password ? { password: v.password } : {}),
+                ...(v.login?.credential_ref
+                  ? { login: { credentialRef: v.login.credential_ref, ...(v.login.role ? { role: v.login.role } : {}) } }
+                  : {}),
+                ...(v.data
+                  ? {
+                      data: {
+                        ...(v.data.platform?.database_ref ? { platform: { databaseRef: v.data.platform.database_ref } } : {}),
+                        ...(v.data.default_tenant?.website
+                          ? {
+                              defaultTenant: {
+                                website: v.data.default_tenant.website,
+                                ...(v.data.default_tenant.database_ref ? { databaseRef: v.data.default_tenant.database_ref } : {}),
+                                ...(v.data.default_tenant.resolver ? { resolver: v.data.default_tenant.resolver } : {}),
+                              },
+                            }
+                          : {}),
+                        ...(v.data.tenants
+                          ? {
+                              tenants: Object.fromEntries(
+                                Object.entries(v.data.tenants).map(([tenantName, tenant]) => [
+                                  tenantName,
+                                  {
+                                    ...(tenant.website ? { website: tenant.website } : {}),
+                                    ...(tenant.database_ref ? { databaseRef: tenant.database_ref } : {}),
+                                    ...(tenant.resolver ? { resolver: tenant.resolver } : {}),
+                                    ...(tenant.desc ? { desc: tenant.desc } : {}),
+                                  },
+                                ]),
+                              ),
+                            }
+                          : {}),
+                        ...(v.data.test_data
+                          ? {
+                              testData: {
+                                ...(v.data.test_data.prefix ? { prefix: v.data.test_data.prefix } : {}),
+                                ...(typeof v.data.test_data.cleanup_required === 'boolean'
+                                  ? { cleanupRequired: v.data.test_data.cleanup_required }
+                                  : {}),
+                                ...(v.data.test_data.prohibited ? { prohibited: v.data.test_data.prohibited } : {}),
+                              },
+                            }
+                          : {}),
+                      },
+                    }
+                  : {}),
+                ...(v.frontend?.build
+                  ? {
+                      frontend: {
+                        build: {
+                          required: v.frontend.build.required === true,
+                          ...(v.frontend.build.command ? { command: v.frontend.build.command } : {}),
+                          ...(v.frontend.build.workdir ? { workdir: v.frontend.build.workdir } : {}),
+                          ...(v.frontend.build.output_dir ? { outputDir: v.frontend.build.output_dir } : {}),
+                        },
+                      },
+                    }
+                  : {}),
+                ...(v.desc ? { desc: v.desc } : {}),
+              },
+            ]),
+          ),
+        }
+      : {}),
+    ...(raw.apifox?.projects
+      ? {
+          apifox: {
+            projects: Object.fromEntries(
+              Object.entries(raw.apifox.projects)
+                .filter(([, project]) => project?.project_id !== undefined && project.project_id !== null && String(project.project_id).trim() !== '')
+                .map(([key, project]) => [
+                  key,
+                  {
+                    projectId: String(project!.project_id),
+                    branch: project!.branch?.trim() || 'main',
+                    environments: Object.fromEntries(
+                      Object.entries(project!.environments ?? {}).map(([name, environment]) => [
+                        name,
+                        {
+                          ...(environment.id !== undefined && environment.id !== null && String(environment.id).trim() !== '' ? { id: String(environment.id) } : {}),
+                          ...(environment.name ? { name: environment.name } : {}),
+                          ...(environment.base_url ? { baseUrl: environment.base_url } : {}),
+                        },
+                      ]),
+                    ),
+                  },
+              ]),
+            ),
+            ...(raw.apifox.routes
+              ? {
+                  routes: Object.fromEntries(
+                    Object.entries(raw.apifox.routes)
+                      .filter(([, route]) => route?.project)
+                      .map(([key, route]) => [
+                        key,
+                        {
+                          project: route!.project as string,
+                          repositories: route!.repositories ?? [],
+                          apiPrefixes: route!.api_prefixes ?? [],
+                        },
+                      ]),
+                  ),
+                }
+              : {}),
+          },
+        }
       : {}),
   };
 }

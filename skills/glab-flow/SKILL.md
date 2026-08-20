@@ -83,6 +83,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `version` | 运行时版本守卫（issue 22）：`--fetched` 表示 Skill 已先 `git fetch origin`；输出 `{commit, upToDate, remoteCommit, capability, notes}`；落后即阻断 |
+| `test-config` | 测试上下文注入：stdin = `.glab-flow/test-config.md` 全文；`--repos a,b --env local [--iid N]` → routes 推 Apifox 项目 + 环境 ID + 账号/数据库/前端构建/测试数据，一次拿全（开发中自测步骤 0.5 / 测试中第一步用；模板见 `test-config.example.md`） |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
 | `state-writeback` | 追加串行写回阶段的成功/失败审计；用于恢复时定位首个未完成阶段 |
 | `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |
