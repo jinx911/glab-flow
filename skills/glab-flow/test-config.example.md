@@ -22,8 +22,12 @@ environments:
       build: "pnpm build:backend"
       workdir: "/Users/<you>/IdeaProjects/oa/oa-frontend-intergration"
       output: "/Users/<you>/IdeaProjects/oa/oa-platform/public/frontend"
-    test_data: { prefix: "E2E{iid}", cleanup_required: true, prohibited: [非本需求前缀数据] }
-    credentials: { account: "you@kn.group", password: "<本地密码>" }
+    test_data: { prefix: "E2E{iid}L", cleanup_required: true, prohibited: [非本需求前缀数据] }  # L/T 后缀隔离环境数据
+    credentials:
+      account: "you@kn.group"
+      password: "<本地密码>"
+      vars: { account: local_client_email, password: local_client_password }  # 场景 {{变量名}} 映射,执行时按名注入
+    login: { owner: oa_platform, endpoint: "/client/v1/login", token_var: x_client_token }  # 共用登录契约:所有项目从此拿 token
     web_url: "http://tenant.oa.com"   # 前端入口(E2E 浏览器用;API base 以 Apifox 环境为准)
     desc: "本地 Docker;前端必须构建到 oa-platform"
 
@@ -62,6 +66,8 @@ routes:
 | `environments.<name>.databases` | — | 键→引用映射;值是 `config.md` 里 `databases` 的键名(如 `local_platform`),引擎只透传键,Leader 用它查 MCP |
 | `environments.<name>.frontend` | — | 本地构建策略;`test` 环境不配(禁本地 build) |
 | `environments.<name>.test_data` | — | `{iid}` 占位在 test-context 输出时替换为本 Issue iid |
+| `environments.<name>.credentials.vars` | — | 场景变量名映射:account/password 的 `{{名}}`,执行时按名注入(不落 Apifox) |
+| `environments.<name>.login` | — | 共用登录契约:`owner`(持有登录接口的项目)/`endpoint`/`token_var`(token 变量名);跨项目统一从此拿 token |
 | `environments.<name>.credentials` | — | 测试账号(明文已确认可接受;不持久化到 Apifox) |
 | `environments.<name>.web_url` | — | 前端入口(E2E);API base 不在这里,以 Apifox 环境的 baseUrls 为准 |
 | `apifox_projects.<name>` | ✅ | 项目 ID + 环境名→环境 ID 索引;环境 ID 缺失时 test-context 报错退出 |
@@ -76,6 +82,8 @@ cat .glab-flow/test-config.md | pnpm cli test-config --repos oa-platform,oa-fron
 {
   "env": "local",
   "apifox": { "project": "oa_platform", "projectId": "8731182", "branch": "main", "envName": "local", "envId": "48389105" },
+  "apifoxTargets": [ { "project": "oa_platform", "projectId": "8731182", "envId": "48389105" } ],  // 跨平台+Java 需求含多个,逐项目跑
+  "login": { "owner": "oa_platform", "endpoint": "/client/v1/login", "tokenVar": "x_client_token" },
   "databases": { "platform": "local_platform", "tenant": "local_tenant_kn" },
   "frontend": { "build": "pnpm build:backend", "workdir": "...", "output": "..." },
   "testData": { "prefix": "E2E172", "cleanupRequired": true },

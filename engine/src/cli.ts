@@ -109,8 +109,9 @@ async function main() {
           env,
           ...(iidArg && /^\d+$/.test(iidArg) ? { iid: Number(iidArg) } : {}),
         });
-        if (!ctx.apifox.envId) {
-          console.error(`test-config: 环境 "${env}" 的 Apifox 环境 ID 缺失(apifox_projects.${ctx.apifox.project}.envs.${ctx.apifox.envName})`);
+        const missing = ctx.apifoxTargets.filter((t) => !t.envId);
+        if (missing.length) {
+          console.error(`test-config: 环境 "${env}" 缺 Apifox 环境 ID: ${missing.map((t) => `apifox_projects.${t.project}.envs.${t.envName}`).join('; ')}`);
           process.exitCode = 1;
         }
         console.log(JSON.stringify(ctx));

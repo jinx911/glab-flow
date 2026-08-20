@@ -73,7 +73,7 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
    - 文件不存在 → 引导用户按 `test-config.example.md` 建一次（每项目一次），**不让自测在无测试配置下裸跑**。字段细节见 `test-config.example.md`。
 1. **自测计划**：本次改动的测试范围——接口测试（后端 API）/ E2E（前端）/ 数据断言（数据·逻辑）/ 手工验证（配置·部署）。按需求选，用例可 Apifox 新建或复用。
 2. **接口测试**（`sub-skills/test-flow-apifox.md`，Apifox CLI）：环境/项目用步骤 0.5 `test-context` 的输出（`apifox.projectId` + `apifox.envId` + `databases.*`）——注意区分**登录入口**与**接口网关**（两者常是不同环境，配错则请求落到前端站返回 HTML 404）。建用例前先跑**契约预检**（Schema 类型/可空性 + 状态码覆盖，见 test-design）；执行前跑**预检**（三段链路健康 + 本地运行版本 commit 校验，源码新/旧 class 会假验证）。执行接口用例确认 API 通 + 数据对。**接口没问题才进 E2E**。
-3. **E2E**（前端需求，`sub-skills/test-flow-e2e.md`，Playwright）：接口通过后验证 UI/交互。纯后端需求跳过。
+3. **E2E**（前端需求）：接口通过后验证 UI/交互——**自测阶段优先用 Codex/Claude 内置浏览器**（browser_navigate→webUrl→snapshot→click）对 test-plan 的 UI 用例做冒烟（关键分支点一遍：列表/表单/弹窗三分支），零配置比 Playwright 轻；完整 E2E 留到测试中（`sub-skills/test-flow-e2e.md`）。纯后端需求跳过。
 4. **填结果**：`接口自测结论` = 通过/退回 + 证据（Apifox 执行结果 / E2E 截图）。
 
 自测前**核实环境可用**（URL 可达 / 数据库 MCP 可连 / 账号有效），不可用则停下来报告缺口，不臆造环境。

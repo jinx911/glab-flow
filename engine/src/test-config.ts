@@ -27,7 +27,10 @@ export interface TestEnvironmentProfile {
   databases?: Record<string, string>;
   frontend?: { build?: string; workdir?: string; output?: string };
   testData?: { prefix?: string; cleanupRequired?: boolean; prohibited?: string[] };
-  credentials?: { account?: string; password?: string };
+  /** account/password 为值;vars 为场景变量名映射({{名}})——运行时按名注入,不落 Apifox。 */
+  credentials?: { account?: string; password?: string; vars?: { account?: string; password?: string } };
+  /** 全局登录契约(共用 PHP 登录):哪个项目持有登录接口、token 变量名、注入方式。 */
+  login?: { owner: string; endpoint?: string; tokenVar?: string; note?: string };
   /** 前端入口 url(E2E 浏览器测试用;API base 以 Apifox 环境为准)。 */
   webUrl?: string;
   desc?: string;
@@ -39,13 +42,26 @@ export interface TestConfig {
   routes: RouteRule[];
 }
 
+/** 一个 Apifox 测试目标(routes 推导;跨平台+Java 需求会有多个,逐项目跑)。 */
+export interface ApifoxTarget {
+  project: string;
+  projectId: string;
+  branch: string;
+  envName: string;
+  envId: string | undefined;
+}
+
 export interface TestContext {
   env: string;
-  apifox: { project: string; projectId: string; branch: string; envName: string; envId: string | undefined };
+  /** 兼容字段:单项目时等于 apifoxTargets[0](既有消费者不破)。 */
+  apifox: ApifoxTarget;
+  /** 全部命中项目(多仓跨项目需求逐个跑;单项目时长度 1)。 */
+  apifoxTargets: ApifoxTarget[];
   databases: Record<string, string>;
   frontend: { build?: string; workdir?: string; output?: string };
   testData: { prefix?: string; cleanupRequired?: boolean; prohibited?: string[] };
-  credentials: { account?: string; password?: string };
+  credentials: { account?: string; password?: string; vars?: { account?: string; password?: string } };
+  login?: { owner: string; endpoint?: string; tokenVar?: string; note?: string };
   webUrl?: string;
   /** routes 推导说明(哪些仓库命中/未命中),供 Leader 展示决策依据。 */
   resolution: { repos: string[]; matchedRoutes: string[]; unmatchedRepos: string[] };
@@ -58,7 +74,8 @@ interface RawTestConfig {
     databases?: Record<string, string>;
     frontend?: { build?: string; workdir?: string; output?: string };
     test_data?: { prefix?: string; cleanup_required?: boolean; prohibited?: string[] };
-    credentials?: { account?: string; password?: string };
+    credentials?: { account?: string; password?: string; vars?: { account?: string; password?: string } };
+    login?: { owner?: string; endpoint?: string; token_var?: string; note?: string };
     web_url?: string;
     desc?: string;
   }>;
@@ -94,7 +111,25 @@ export function parseTestConfig(markdown: string): TestConfig {
             },
           }
         : {}),
-      ...(env.credentials ? { credentials: env.credentials } : {}),
+      ...(env.credentials
+        ? {
+            credentials: {
+              ...(env.credentials.account ? { account: env.credentials.account } : {}),
+              ...(env.credentials.password ? { password: env.credentials.password } : {}),
+              ...(env.credentials.vars ? { vars: env.credentials.vars } : {}),
+            },
+          }
+        : {}),
+      ...(env.login?.owner
+        ? {
+            login: {
+              owner: env.login.owner,
+              ...(env.login.endpoint ? { endpoint: env.login.endpoint } : {}),
+              ...(env.login.token_var ? { tokenVar: env.login.token_var } : {}),
+              ...(env.login.note ? { note: env.login.note } : {}),
+            },
+          }
+        : {}),
       ...(env.web_url ? { webUrl: env.web_url } : {}),
       ...(env.desc ? { desc: env.desc } : {}),
     };
@@ -148,22 +183,25 @@ export function buildTestContext(
 
   const resolution = resolveApifoxProject(config, input.repos);
   if (resolution.matchedRoutes.length > 1) {
-    warnings.push(`改动仓库命中多个 Apifox 项目(${resolution.matchedRoutes.join(', ')}),已回落到环境 Profile 默认 "${profile.apifox.project}";若不符请拆分 --repos 分轮测试或调整 routes`);
+    warnings.push(`改动仓库命中 ${resolution.matchedRoutes.length} 个 Apifox 项目(${resolution.matchedRoutes.join(', ')})——apifoxTargets 含全部,逐项目跑`);
   }
   if (resolution.unmatchedRepos.length) {
     warnings.push(`仓库 ${resolution.unmatchedRepos.join(', ')} 未命中任何 route,不参与 Apifox 项目推导`);
   }
 
-  // routes 推导为主(改哪个仓→用哪个项目测);未命中(如 --repos 为空/全未命中)时回落环境 Profile 的默认项目。
-  const projectName = resolution.project ?? profile.apifox.project;
-  if (!resolution.project) {
-    warnings.push(`routes 未能从 [${input.repos.join(', ')}] 推导出唯一项目,已回落到环境 Profile 默认 "${profile.apifox.project}"`);
+  // 项目集 = routes 命中的全部(跨平台+Java 需求逐项目跑);未命中时回落 Profile 默认单项目。
+  const projectNames = resolution.matchedRoutes.length ? resolution.matchedRoutes : [profile.apifox.project];
+  if (!resolution.matchedRoutes.length) {
+    warnings.push(`routes 未能从 [${input.repos.join(', ')}] 推导出项目,已回落到环境 Profile 默认 "${profile.apifox.project}"`);
   }
-  const project = config.apifoxProjects[projectName];
-  if (!project) {
-    warnings.push(`apifox_projects 缺 "${projectName}"(environments.${input.env}.apifox.project 指向它)——请在 test-config 补齐项目索引`);
-  }
-  const envId = project?.envs[profile.apifox.env];
+  const apifoxTargets = projectNames.map<ApifoxTarget>((name) => {
+    const project = config.apifoxProjects[name];
+    if (!project) {
+      warnings.push(`apifox_projects 缺 "${name}"——请在 test-config 补齐项目索引`);
+      return { project: name, projectId: '', branch: 'main', envName: profile.apifox.env, envId: undefined };
+    }
+    return { project: name, projectId: project.projectId, branch: project.branch, envName: profile.apifox.env, envId: project.envs[profile.apifox.env] };
+  });
 
   const testData = { ...profile.testData };
   if (testData.prefix && input.iid !== undefined) {
@@ -172,17 +210,13 @@ export function buildTestContext(
 
   return {
     env: input.env,
-    apifox: {
-      project: projectName,
-      projectId: project?.projectId ?? '',
-      branch: project?.branch ?? 'main',
-      envName: profile.apifox.env,
-      envId,
-    },
+    apifox: apifoxTargets[0]!,
+    apifoxTargets,
     databases: profile.databases ?? {},
     frontend: profile.frontend ?? {},
     testData,
     credentials: profile.credentials ?? {},
+    ...(profile.login ? { login: profile.login } : {}),
     ...(profile.webUrl ? { webUrl: profile.webUrl } : {}),
     resolution: { repos: input.repos, matchedRoutes: resolution.matchedRoutes, unmatchedRepos: resolution.unmatchedRepos },
     warnings,
