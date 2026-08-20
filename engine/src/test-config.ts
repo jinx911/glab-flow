@@ -148,7 +148,7 @@ export function buildTestContext(
 
   const resolution = resolveApifoxProject(config, input.repos);
   if (resolution.matchedRoutes.length > 1) {
-    warnings.push(`改动仓库命中多个 Apifox 项目(${resolution.matchedRoutes.join(', ')}),已取第一个 "${resolution.project}";若不符请拆分 --repos 或调整 routes`);
+    warnings.push(`改动仓库命中多个 Apifox 项目(${resolution.matchedRoutes.join(', ')}),已回落到环境 Profile 默认 "${profile.apifox.project}";若不符请拆分 --repos 分轮测试或调整 routes`);
   }
   if (resolution.unmatchedRepos.length) {
     warnings.push(`仓库 ${resolution.unmatchedRepos.join(', ')} 未命中任何 route,不参与 Apifox 项目推导`);
