@@ -58,6 +58,8 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 
 「测试中」节点（见 `../nodes.md`）的工作 agent 是 `test-design / test-flow-apifox`。本文件规定其中 test-flow-apifox 部分：消费 test-design 产出的接口用例（见同目录 `test-design.md` 的 test-plan.md），经 apifox 运行时工具执行，收集结果并挂父 GitLab Issue 评论。
 
+> **双跑铁律**：自测（开发中）与测试环境测试（测试中）都必须包含**接口测试（本文件）+ E2E（`test-flow-e2e.md`）**——只跑接口不算完成。本文件管接口；E2E 的执行与产物落点规则见同目录 `test-flow-e2e.md` 的「双跑与产物落点」。
+
 ## 执行前预检（强制，任一失败停止执行）
 
 1. **三段链路健康**：登录入口（PHP 站，返回登录页/JSON，HTML 404 = API 配到了前端站）→ 接口网关（业务前缀非 text/html）→ 后端 service（健康检查）。失败时指明哪段断，修好前不跑套件。

@@ -24,10 +24,28 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 
 工具是**运行时依赖**（见 `../tools.md`），glab-flow 不自带浏览器能力，只提供执行方法论与结果契约。调用约定（与 `test-flow-apifox.md` 一致）：
 
-- **目标环境从 config 取**：`test_environments`（见 `../config.md`）选定环境 URL + 账号，不依赖工作区 playwright.config 的硬编码 baseURL。
+- **目标环境从 config 取**：`test_environments`（见 `../test-config.md`）选定环境 URL + 账号，不依赖工作区 playwright.config 的硬编码 baseURL。
 - **同步取结果**：执行后必须拿到结构化结果（通过/失败 + 失败明细 + 截图/trace），不异步丢任务。
 - **对齐 test-plan.md**：执行范围对齐 test-design 的 e2e 用例编号，结果回填到用例编号，便于追溯。
 - **未装 e2e-runner 时降级**：Leader 不报错中止，改用 Playwright（或项目自带 E2E runner）按 test-plan.md 手动执行，结果标注「未用 e2e-runner，Playwright 执行」。降级结果同样须满足下面的证据三段式。
+
+## 双跑与产物落点（强制）
+
+**自测（开发中）与测试环境测试（测试中）都必须包含接口测试 + E2E 两类**——只跑接口不算完成：接口测契约，E2E 测可见性/交互/时序，二者覆盖面不重叠。自测阶段 E2E 至少覆盖主流程（test-plan.md 的 P0 e2e 用例）；测试中阶段覆盖全部 e2e 用例。
+
+**所有产出按需求目录归位，禁止散落工作区根/全局位置**：
+
+```
+<workspace.root>/.glab-flow/<iid>/
+├─ spec/test-plan.md          # 测试计划（唯一，不按日期复制多份）
+├─ e2e/*.spec.ts              # E2E 用例（按需求隔离，不放工作区根 e2e/）
+├─ fixtures/*.sql             # 接口/E2E 共用的前置 seed
+└─ archive/                   # 历史报告与过程产物（唯一归档处，不再建 backups/reorg 平行目录）
+```
+
+- **工作区根的 `e2e/`、`playwright-report/`、`test-results/` 是临时执行位**：跑完把 spec 移入需求目录、报告结论写进 Issue 评论后**立即清理**（`rm -rf playwright-report test-results`），不留跨需求残留；下个需求看到上个需求的 spec/报告 = 违规。
+- **登录态文件（`e2e/.auth/user.json`）属临时凭据**：用后即删，不进归档。
+- **报告不落本地文件**：执行证据的唯一事实源是 Issue 评论（证据三段式）+ Apifox 云端报告；本地 HTML 报告看过即弃。
 
 ## 结果收集（证据三段式）
 
