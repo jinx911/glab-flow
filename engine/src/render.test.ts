@@ -134,3 +134,27 @@ describe('测试报告环境字段(测试中→待发布,issue 环境接入)', (
     expect(md).not.toContain('测试环境：');
   });
 });
+
+describe('测试报告双轨证据(issue 31:执行证据 vs 资产状态)', () => {
+  it('渲染 reportId与环境/请求与断言统计/Apifox资产状态 进合并评论', () => {
+    const md = renderNodeComment({
+      type: 'story', from: '测试中', to: '待发布',
+      fields: {
+        测试环境: 'stage https://stage-oa.kuainiu.io',
+        reportId与环境: '25522733 | https://app.apifox.com/link/... | environmentName=Stage(test-report get 回读);场景页签为空,项目级报告为准',
+        请求与断言统计: 'requests 25/25 passed, assertions 25/25 passed',
+        Apifox资产状态: '场景/套件已归位(Stage 套件 28005/28044);矩阵未沉淀 test-data(散在场景+seed)',
+        回归详情: '全场景回归通过',
+      },
+      assigneeUser: '@dev',
+    });
+    expect(md).toContain('- reportId与环境：25522733');
+    expect(md).toContain('- 请求与断言统计：requests 25/25');
+    expect(md).toContain('- Apifox资产状态：场景/套件已归位');
+  });
+  it('资产字段缺失时跳过(不卡流转)', () => {
+    const md = renderNodeComment({ type: 'story', from: '测试中', to: '待发布', fields: { 回归详情: 'r' }, assigneeUser: '@dev' });
+    expect(md).not.toContain('Apifox资产状态：');
+    expect(md).not.toContain('reportId与环境：');
+  });
+});
