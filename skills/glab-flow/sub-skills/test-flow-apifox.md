@@ -48,9 +48,9 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 
 不得把两者混写为「Apifox 已完整沉淀」。
 
-## 矩阵数据沉淀建议(≥3 组同构)
+## 矩阵数据沉淀(≥3 组同构)
 
-如「N 条规则 × new/renewal × 扫描件/电子」这类矩阵,优先落 **Apifox test-data**:一行一 case,字段含员工号/合同类型/归档路径/当前与目标供应商/是否跨公司/期望值(如 last_join_at);场景只写一次流程,`-d <testDataId> -n <N>` 迭代运行。散落在场景内硬编码或 DB seed 的矩阵,复用与审计都差;临时用 seed 可接受,但报告中资产状态组要如实写「未沉淀 test-data」。
+如「N 条规则 × new/renewal × 扫描件/电子」这类矩阵,落 **Apifox 云端数据集**(一行一 case,字段含员工号/合同类型/归档路径/当前与目标供应商/是否跨公司/期望值如 last_join_at):场景只写一次流程+`{{占位符}}`,执行 `-d <testDataId> -n <N>` 迭代运行。开发中矩阵还在变时可先用本地 `*-data.json` + `-d <path>` 过渡,稳定后按上文「数据集写入通道」沉淀云端。散落在场景内硬编码或 DB seed 的矩阵,复用与审计都差;临时用 seed 可接受,但报告中资产状态组要如实写「未沉淀数据集」。
 
 ---
 
@@ -73,26 +73,51 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 ```bash
 apifox test-suite run <suiteId> --project <projectId> \
   -e <envId> \                              # 环境(test-context 的 apifoxTargets[].envId,切 local/test 就是它)
+  --variables .glab-flow/apifox-vars.json \  # ★环境变量注入文件:凭据+跨环境参数按环境条目存,CLI 按 -e 的 ID 自动匹配
+  -d <testDataId> \                          # 矩阵场景才加:云端数据集一行一轮迭代(非矩阵场景不传)
   --carry-runtime-variables \                # ★必须:登录场景后置写的 x_client_token 跨场景可见(默认关闭,不加则业务场景全裸)
-  --env-var "local_client_email=<账号>" \    # 凭据运行时注入(变量名来自 test-config credentials.vars)
-  --env-var "local_client_password=<密码>" \
   --upload-report detail \                   # ★detail 级:上传含请求/响应详情的云端报告(排障能看当时发了什么;总览级只有计数)
   --reporters cli,json --out-dir <dir>
 ```
 
-- `--carry-runtime-variables`、`--upload-report detail` 两参数不可省：前者是登录 token 传递链路的一半，后者是失败排障的证据来源；报告链接（`https://app.apifox.com/link/...`）记入执行记录。
+- `--variables`、`--carry-runtime-variables`、`--upload-report detail` 三参数不可省：第一个是环境切换的全部秘密（base_url 由 `-e` 切、凭据/参数由该文件按环境注入），第二个是登录 token 传递链路的一半，第三个是失败排障的证据来源；报告链接（`https://app.apifox.com/link/...`）记入执行记录。
+- **切环境 = 只换 `-e` 的环境 ID**，场景/套件/变量文件全部不动。
 - 数据驱动（多组同构参数）见下方「测试数据集使用规则」。
+
+### apifox-vars.json 格式（官方 --variables 文件）
+
+```json
+{
+  "environments": [
+    { "id": <本地envId>, "variable": { "values": [
+        {"key": "local_client_email", "value": "...", "type": "any"},
+        {"key": "data_prefix", "value": "E2E{iid}L", "type": "any"}
+    ]}},
+    { "id": <Stage envId>, "variable": { "values": [
+        {"key": "local_client_email", "value": "...", "type": "any"},
+        {"key": "data_prefix", "value": "E2E{iid}T", "type": "any"}
+    ]}}
+  ],
+  "globals": {"variable": {"values": []}}
+}
+```
+
+- 文件路径记在 test-config 的 `variables_file`；`environments` 是数组——**一份文件装所有环境**，CLI 按 `-e` 匹配条目。
+- ⚠️ **CLI 与环境变量的坑（实测三轮坐实）**：Apifox 环境 UI / `environment update` 写的变量，CLI 运行时**取不到**（下发时 key 被剥离，占位符解析为空、登录 1000001108）。CLI 路线的环境变量**只认 `--variables` 文件**。UI 手工配的变量只对 UI 发起的测试生效。
 
 ### 测试数据集使用规则（判断口诀）
 
-> **换环境变的 → test-config；每轮变的 → 测试数据集；永远不变的 → 留在 case 里。**
+> **随环境轴变（每环境一值）→ apifox-vars.json；随轮次轴变（同环境 N 值）→ Apifox 云端数据集（-d testDataId）；不变 → 写死在 case。**
 
-- **轮次变量**（每轮测试要不同的值：case_id/类型枚举/供应商/员工号等）→ Apifox「自动化测试-测试数据」建数据集（N 行 × 这些列），执行 `-d <testDataId> -n <N>` 按行循环，场景断言写一次。
-- **≥3 组同构数据**（合同类型枚举、边界矩阵等）→ 优先数据集驱动，**不复制 case**。
-- **环境身份**（账号/密码）→ 不进数据集，走 `--env-var`（test-config credentials）。
+区分标准是**参数在哪根轴上有多个值**，不是参数种类（账号和业务参数走同一机制）：
+
+- **环境轴**（每环境恰好一个值：账号/密码、供应商ID映射、company_id、data_prefix）→ `apifox-vars.json` 对应环境条目，场景里写 `{{key}}` 占位符，`-e` 切换自动跟随。**不放测试数据**——`-d` 是"把所有行跑一遍"，放环境参数会在同一 base_url 下用别环境的凭据跑一轮，必挂。
+- **轮次轴**（同环境内要跑 N 组：case_id/类型枚举/边界矩阵/员工号）→ **Apifox 云端数据集**（自动化测试 → 测试数据，按需求建目录归位），执行 `-d <testDataId>` 一行一轮迭代。矩阵通常与环境无关，建一份两环境共用。
 - **逻辑常量**（如 `end_date=9999-12-31`、`years=99`）→ 留在 case 请求体，抽到数据集丢语义。
-- **CLI 创建的 test-data 必须回读数据行非空**——`test-data create` 只建元数据，空壳数据集是垃圾资产，发现即删（历史踩坑）。
-- 返回值断言不进数据集（那是断言的事）；数据集列值可被后置脚本提取写入全局变量供下游场景引用（与 token 同机制）。
+- **行值必须来自真实库**（编造员工号→业务 code≠0 假失败）；有前置 seed 的场景先跑 SQL fixture。
+- **数据集写入通道**（实测打通）：元数据 CLI 建（`test-data create`，只收 name/type/folderId）；**行数据走 UI 内部 API**——浏览器登录 app.apifox.com 后同源 `POST /api/v1/projects/<pid>/test-data`，body `{relatedId:0, dataSetId, environmentId:0, data:"<CSV文本>", columns:{列:{generator:{type:"rule",config:{callee:"$special.manual"}}}}, relatedType:3}`；**POST 是追加不是覆盖**，重灌后删旧行（`DELETE /test-data/<rowId>`，先 `GET /test-data?dataSetId=` 列出）。CLI 官方 schema 无行字段。
+- 返回值断言不进数据集（那是断言的事）；行值可被后置脚本提取写入全局变量供下游场景引用（与 token 同机制）。
+- 本地 `*-data.json` 是云端沉淀前的过渡形态，沉淀后 `-d <testDataId>` 执行，本地文件仅留档。
 
 | 用例形态 | apifox 运行时 skill | 用途 |
 |---|---|---|
@@ -104,7 +129,7 @@ apifox test-suite run <suiteId> --project <projectId> \
 skill 是**运行时工具**（见 `../tools.md`），glab-flow 不自带 apifox 能力，只提供执行方法论与结果契约。调用约定：
 
 - **同步取结果**：执行后必须拿到结构化结果（通过/失败计数 + 失败明细），不异步丢任务。
-- **对齐 test-plan.md**：执行范围对齐 test-design 产出的接口用例清单，每条用例的执行结果回填到它的用例编号，便于追溯。
+- **对齐 test-plan.md**：执行范围对齐 test-design 产出的接口用例清单，每条用例的执行结果回填到它的用例编号，便于追溯。**环境与 `-d` 参数从 test-plan.md 的「测试环境与数据集」章节读**（环境矩阵 + 场景↔数据集映射表），不在执行时现场翻 config 或猜数据集。
 - **未装 apifox 时降级**：Leader 不报错中止，改为用 HTTP 客户端（如 curl / 项目自带测试客户端）按 test-plan.md 的期望契约手动执行，并在结果里标注「未用 apifox，人工执行」。降级结果同样须满足下面的证据三段式。
 
 ## 结果收集
