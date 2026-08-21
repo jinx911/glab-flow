@@ -5,6 +5,55 @@ description: 测试中节点的 API 测试执行（经 apifox 运行时工具）
 
 > 本文件是 glab-flow 自有子 skill（方法论，单 Leader）。在对应节点由 Leader Read 本文件内联执行，或 spawn `general-purpose` 以其为 prompt。运行时工具依赖见 `../tools.md`。
 
+## Apifox 资源边界(职责四分,防"跑了但页面看起来像没跑")
+
+| 资源 | 职责 | 关键事实 |
+|---|---|---|
+| 场景用例 | 多步骤业务流程**编排** | **不绑定执行环境**(environmentId 回读恒 null,页面回退显示本地)——环境只在 run 时 `-e` 指定 |
+| 测试套件 | 聚合场景/用例,批量回归入口 | local/Stage 分开建套件(名含环境词的例外:回归入口本身区分环境) |
+| 测试数据 | 参数矩阵/边界/迭代数据(一行一 case) | CLI 建的必须回读数据行非空,空壳即删 |
+| **测试报告** | **执行证据的事实源** | **以项目级 `test-report list/get` 为准,不默认等同于场景详情页的"测试报告"页签**(该页签可能为空) |
+
+## 执行后证据门禁(强制,不满足不得声明"测试通过")
+
+CLI 执行完成后,**必须** `apifox test-report get <reportId> --project <projectId>` 回读,证据记录:
+
+- 执行命令(完整参数含 `-e`/`--env-var`/`--upload-report detail`)
+- projectId / branch / **environmentName**(从报告回读,不是猜测)——Stage 测试必须显示 Stage
+- 云端 reportId + 报告链接
+- **stats 回读**:requests/passed/failed/assertions 计数(与 CLI 输出核对)
+- 本地 JSON/JUnit 报告路径
+- **场景页签为空时必须写明「项目级报告为准,场景页签不展示执行历史」**——不得写模糊结论
+
+禁止:只凭 CLI stdout 说通过;把"项目级报告存在"写成"场景页签可见";环境显示与实际执行环境不一致时不说明。
+
+## 测试后资产一致性检查(报告前必做)
+
+回读三份 list 并核对:
+
+```bash
+apifox test-scenario list --project <id>   # 标签/命名区分 local vs Stage;Stage 场景在 Stage 分组
+apifox test-suite list --project <id>     # 套件非空;local/Stage 各有入口
+apifox test-report list --project <id>    # 报告可从项目级查到,environmentName 正确
+```
+
+不一致(如页面显示本地但实际跑的 Stage)→ 在报告中**单列说明**,不静默。
+
+## 测试报告拆两类(glab-flow 合并评论的测试报告内容体)
+
+「测试报告」评论必须拆成两组,不得混写:
+
+1. **执行证据**:CLI 命令 + reportId + environmentName + stats + DB 回读断言——证明"真跑了、真过了"。
+2. **Apifox 资产状态**:场景/套件/测试数据是否整理归位、命名分组是否区分环境、页面展示与执行是否一致——描述资产治理水平。
+
+不得把两者混写为「Apifox 已完整沉淀」。
+
+## 矩阵数据沉淀建议(≥3 组同构)
+
+如「N 条规则 × new/renewal × 扫描件/电子」这类矩阵,优先落 **Apifox test-data**:一行一 case,字段含员工号/合同类型/归档路径/当前与目标供应商/是否跨公司/期望值(如 last_join_at);场景只写一次流程,`-d <testDataId> -n <N>` 迭代运行。散落在场景内硬编码或 DB seed 的矩阵,复用与审计都差;临时用 seed 可接受,但报告中资产状态组要如实写「未沉淀 test-data」。
+
+---
+
 # Test Flow (Apifox)：API 测试执行
 
 「测试中」节点（见 `../nodes.md`）的工作 agent 是 `test-design / test-flow-apifox`。本文件规定其中 test-flow-apifox 部分：消费 test-design 产出的接口用例（见同目录 `test-design.md` 的 test-plan.md），经 apifox 运行时工具执行，收集结果并挂父 GitLab Issue 评论。
