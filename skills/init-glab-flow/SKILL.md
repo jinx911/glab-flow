@@ -1,11 +1,16 @@
 ---
 name: init-glab-flow
-description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md。
+description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md（交付流程）与 test-config.md（测试配置）。
 ---
 
 # /init-glab-flow：生成项目级 glab-flow 配置
 
-`/init-glab-flow` 是一次性的环境探测与配置生成命令。它询问少量必要信息，以 `skills/glab-flow/config.example.md` 为模板，把探测到的值填进 `<workspace.root>/.glab-flow/config.md`，让 `/glab-flow <iid>` 能在该工作区直接跑起来。**本命令只写配置基础设施，不写业务代码、不动 Issue。**
+`/init-glab-flow` 是一次性的环境探测与配置生成命令。它询问少量必要信息，以 `skills/glab-flow/config.example.md` + `skills/glab-flow/test-config.example.md` 为模板，把探测到的值分别填进：
+
+- `<workspace.root>/.glab-flow/config.md` — **交付流程配置**（GitLab/分支/Jenkins/数据库索引）
+- `<workspace.root>/.glab-flow/test-config.md` — **测试配置**（Apifox 项目路由/环境 ID/凭据变量/测试数据策略；接口测试启用时才生成）
+
+让 `/glab-flow <iid>` 能在该工作区直接跑起来。**本命令只写配置基础设施，不写业务代码、不动 Issue。**
 
 ## 输入
 
@@ -33,8 +38,13 @@ description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md
    - `deploy_branch`：是否要自动部署到某分支（如 `test`）？是 → 填分支名；否 → 不配（发布节点跳过合并）。
    - `jenkins`：是否配 Jenkins 构建？是 → 收 `job_name`（必填）、`branch_param`（默认 `oa_branch`）、`default_params`（键值表，可空）。
    - `databases`：是否声明逻辑数据目标？是 → 收 `<name>: { mcp, desc }` 对；不收连接串、密码或 Token。测试租户只记录 `websites.uuid` 解析规则，DMS 的 RDS/镜像选择留到执行时由用户确认。
-   - `test_environments`：是否声明测试环境？是 → 固定收集 `local`、`test` 两个 Profile：`url`、`runtime`、`login.credential_ref`、平台/默认租户/可选租户逻辑目标、测试数据前缀与清理规则、前端构建策略。**绝不询问或写入明文账号密码**。
-   - `apifox.projects`：是否声明接口测试项目映射？是 → 对每个接口域收 `{ project_id, branch, environments.local, environments.test }`，并收 `apifox.routes` 的 API 前缀、相关仓库和项目键；local 与 test 必须分开，不得共用 base URL 或环境 ID。
+
+6. **测试配置**（要做接口/E2E 测试才生成，跳过则整个 test-config.md 不建）：
+   - `apifox_projects`：对每个接口测试项目收 `{ project_id, branch, envs: {local, test} }`（环境名 → Apifox 环境 ID；用 `apifox environment list --project <id>` 现场探测）。
+   - `routes`：改动仓库 → Apifox 项目映射（改哪些仓用哪个项目测）。
+   - `environments`：`local`/`test` 各一个 Profile——数据库引用、前端构建（本地）、测试数据前缀（`E2E{iid}L/T`）、凭据变量名（`credentials.vars`）、共用登录契约（`login.owner/endpoint/token_var`）、`web_url`。
+   - `variables_file`：固定 `.glab-flow/apifox-vars.json`——**同步生成该文件**（`environments[]` 每环境条目存凭据值 + data_prefix，格式见 test-config.example）。⚠️ CLI 只认 `--variables` 文件（环境 UI 配的变量运行时不生效，实测坐实）。
+   - 明文凭据策略：test-config 与 vars 文件落在 `.glab-flow/`（gitignore 范围）内可存明文；若团队要求更高，值留占位由用户手填。
 
 ## 生成
 
@@ -44,6 +54,8 @@ Leader 以 `skills/glab-flow/config.example.md` 为模板，把上面探测到�
 <workspace.root>/.glab-flow/config.md
 ```
 
+测试配置以 `skills/glab-flow/test-config.example.md` 为模板写到 `<workspace.root>/.glab-flow/test-config.md`（步骤 6 跳过则不生成），并同时生成 `<workspace.root>/.glab-flow/apifox-vars.json`。
+
 文件保留 frontmatter（`name: glab-flow-config-example` 仅是模板自带说明，生成到项目时 frontmatter 可保留也可去掉，引擎只看 ` ```yaml ` 围栏块，不解析 frontmatter）。保持 markdown 标题与注释，方便人读。
 
 ## 校验
@@ -52,14 +64,15 @@ Leader 以 `skills/glab-flow/config.example.md` 为模板，把上面探测到�
 
 ```bash
 cat <workspace.root>/.glab-flow/config.md | pnpm cli config
+cat <workspace.root>/.glab-flow/test-config.md | pnpm cli test-config --repos <仓库,逗号分隔> --env local   # 生成了 test-config 才跑
 ```
 
-期望：stdout 输出合法 JSON，且包含正确的 `gitlab.host`、`gitlab.projectId`、`workspace.root`、`runMode`；若配置了 `apifox.projects`，还必须确认每个项目都有正确的 projectId、分支和互不混用的 local/test 环境。若失败（stderr 出现 `config: ...`）→ 读错误信息定位缺哪个键、哪个围栏不对，修 `<workspace.root>/.glab-flow/config.md` 后再跑，直到 JSON 合法。**未通过校验不算完成**——`/glab-flow` 在坏配置上会直接挂。
+期望：config 输出合法 JSON（`gitlab.host`/`gitlab.projectId`/`workspace.root`/`runMode`）；test-config 输出 TestContext JSON（`apifoxTargets[].envId` 非空、无 warnings 或 warnings 已解释）。若失败（stderr 出现 `config: ...` / `test-config: ...`）→ 读错误信息定位缺哪个键、哪个围栏不对，修文件后再跑，直到 JSON 合法。**未通过校验不算完成**——`/glab-flow` 在坏配置上会直接挂。
 
 ## 完成提示
 
 校验通过后，Leader 给用户一句确认：
 
-> config 已写入 `<workspace.root>/.glab-flow/config.md`。可用 `/glab-flow <iid>` 开始。
+> config 已写入 `<workspace.root>/.glab-flow/config.md`（+ test-config.md / apifox-vars.json）。可用 `/glab-flow <iid>` 开始。
 
-并附带一行解析出的关键字段摘要（host / projectId / root / runMode），让用户一眼确认探测无误。若用户想改某个值，直接编辑该文件后再跑一次 `cat ... | pnpm cli config` 验证即可，不必重跑 `/init-glab-flow`。
+并附带一行解析出的关键字段摘要（host / projectId / root / runMode；测试启用时附 apifox 项目与 envId），让用户一眼确认探测无误。若用户想改某个值，直接编辑该文件后再跑一次校验命令即可，不必重跑 `/init-glab-flow`。
