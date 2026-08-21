@@ -6,3 +6,4 @@ engine/dist/
 *.log
 .pnpm-store/
 不覆盖
+.playwright-mcp/
