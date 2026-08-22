@@ -18,14 +18,15 @@ description: 测试中节点的 API 测试执行（经 apifox 运行时工具）
 
 CLI 执行完成后,**必须** `apifox test-report get <reportId> --project <projectId>` 回读,证据记录:
 
-- 执行命令(完整参数含 `-e`/`--env-var`/`--upload-report detail`)
+- 执行命令(完整参数含 `-e`/`--variables`/`--upload-report detail`)
 - projectId / branch / **environmentName**(从报告回读,不是猜测)——Stage 测试必须显示 Stage
+- **saveDetailType**(回读校验:`all` 才有效;`none` = 缺 `--upload-report detail`,报告页空,须重跑——见「执行后回读校验」)
 - 云端 reportId + 报告链接
 - **stats 回读**:requests/passed/failed/assertions 计数(与 CLI 输出核对)
 - 本地 JSON/JUnit 报告路径
 - **场景页签为空时必须写明「项目级报告为准,场景页签不展示执行历史」**——不得写模糊结论
 
-禁止:只凭 CLI stdout 说通过;把"项目级报告存在"写成"场景页签可见";环境显示与实际执行环境不一致时不说明。
+禁止:只凭 CLI stdout 说通过;把"项目级报告存在"写成"场景页签可见";环境显示与实际执行环境不一致时不说明;**saveDetailType=none 的报告当证据用**。
 
 ## 测试后资产一致性检查(报告前必做)
 
@@ -65,8 +66,16 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 1. **三段链路健康**：登录入口（PHP 站，返回登录页/JSON，HTML 404 = API 配到了前端站）→ 接口网关（业务前缀非 text/html）→ 后端 service（健康检查）。失败时指明哪段断，修好前不跑套件。
 2. **运行版本校验**（本地环境）：优先 `/actuator/info` 读 commit SHA，与当前工作树 `git log -1` 比对；不一致 → 要求重建重启，不跑源码新/旧 class 的假验证。
 3. **凭据运行时注入**：从 test-flow 项目配置读凭据（keychain:// 或环境变量引用），解析失败停下问用户，不跑假登录；凭据不持久化到 Apifox 全局变量。
+4. **命令参数完备**：套件/场景 run 命令必须逐项含 `-e <envId>`、`--variables <vars文件>`、`--carry-runtime-variables`、`--upload-report detail`、（矩阵场景）`-d <testDataId>`——发命令前对照模板逐项核对，缺任一即废命令重拼，**不跑缺参命令**。
 
-## 执行
+## 执行后回读校验（报告有效性门禁）
+
+`apifox test-report get <reportId>` 回读时**必须检查 `saveDetailType` 字段**：
+
+- `saveDetailType: "all"` → 合规（含请求/响应详情，可排障）
+- `saveDetailType: "none"` → **本次执行视为无效**：页面看得到报告但没有详情（用户点开是空的），即使 stats 全绿也不算证据——带全参数重跑，换新 reportId 再回读
+
+历史踩坑：Stage 验收套件跑了 7 单 `none`（执行时漏 `--upload-report detail`），页面打开全空，只能重跑。
 
 接口用例由 test-design 设计完毕（写在 `test-plan.md` 里），本阶段只做执行。用 apifox-* 运行时 skill 跑用例，按用例类型选择：
 

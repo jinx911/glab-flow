@@ -37,7 +37,7 @@ const FIELD_HINTS: Record<string, string> = {
   回归范围或证据: '回归范围或证据链接',
   测试环境: '执行测试的环境名 + url（来自 config 的 test_environments，如 stage https://stage-oa.kuainiu.io）',
   测试账号: '测试使用的账号（来自 config 的 test_environments.<env>.account）',
-  reportId与环境: '执行证据：云端 reportId + 链接 + test-report get 回读的 environmentName（Stage 测试必须显示 Stage；场景页签为空时写明「项目级报告为准」）',
+  reportId与环境: '执行证据：云端 reportId + 链接 + test-report get 回读的 environmentName 与 saveDetailType=all（缺 --upload-report detail 的 none 报告页空、不算证据须重跑）',
   请求与断言统计: '执行证据：报告回读 stats（requests/passed/failed/assertions），与 CLI 输出核对',
   Apifox资产状态: '资产治理：场景/套件/测试数据是否归位、命名分组区分 local/Stage、页面展示与执行是否一致；不得混写「Apifox 已完整沉淀」',
   阻塞发布问题均已验证通过: '是 / 已验证 / 无阻塞（来自测试问题评论的验证结果）',
