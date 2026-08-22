@@ -32,7 +32,7 @@ Run `/init-glab-flow <workspace.root>` — 一次性探测生成：
 
 格式详见 `skills/glab-flow/config.md` / `test-config.example.md`。
 
-## 测试执行体系（已定型,#172 全链路实测）
+## 测试执行体系（已定型,合同花名册需求全链路实测）
 
 **双跑铁律**：自测（开发中）与测试环境测试（测试中）都必须包含接口测试 + E2E，只跑接口不算完成。
 
