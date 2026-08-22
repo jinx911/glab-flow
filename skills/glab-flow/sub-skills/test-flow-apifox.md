@@ -127,6 +127,8 @@ apifox test-suite run <suiteId> --project <projectId> \
 - **逻辑常量**（如 `end_date=9999-12-31`、`years=99`）→ 留在 case 请求体，抽到数据集丢语义。
 - **行值必须来自真实库**（编造员工号→业务 code≠0 假失败）；有前置 seed 的场景先跑 SQL fixture。
 - **数据集写入通道**（实测打通）：元数据 CLI 建（`test-data create`，只收 name/type/folderId）；**行数据走 UI 内部 API**——浏览器登录 app.apifox.com 后同源 `POST /api/v1/projects/<pid>/test-data`，body `{relatedId:0, dataSetId, environmentId:0, data:"<CSV文本>", columns:{列:{generator:{type:"rule",config:{callee:"$special.manual"}}}}, relatedType:3}`；**POST 是追加不是覆盖**，重灌后删旧行（`DELETE /test-data/<rowId>`，先 `GET /test-data?dataSetId=` 列出）。CLI 官方 schema 无行字段。
+  - ⚠️ **建数据集必须显式 `relatedType: "PUBLIC"`**：省略时服务端默认 `TEST_SCENARIO + relatedId=0`（绑定到不存在的场景）——数据集**从全局列表/目录树消失**（按 ID 直查还在，`-d` 也能跑，但页面看不见、无法管理）。踩坑实录：批量建 13 个漏了该字段，次日检查发现"只剩 1 个"，PUT 补 `relatedType:PUBLIC` 后全部恢复可见。
+  - **沉淀后必检**：`test-data list` 数量与预期一致——不一致立即按 ID 直查排 relatedType。
 - 返回值断言不进数据集（那是断言的事）；行值可被后置脚本提取写入全局变量供下游场景引用（与 token 同机制）。
 - 本地 `*-data.json` 是云端沉淀前的过渡形态，沉淀后 `-d <testDataId>` 执行，本地文件仅留档。
 
