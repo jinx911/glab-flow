@@ -1,0 +1,102 @@
+import { describe, expect, it } from 'vitest';
+import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
+
+const planText = `# 测试计划
+
+<!-- glab-flow:test-plan:v1
+plan-version: v3
+case: TP-001 | local,test | api,e2e
+case: TP-002 | test | data,manual
+asset: TP-001 | scenario
+-->`;
+
+const localRun = `<!-- glab-flow:test-run:v1
+environment: local
+plan-version: v3
+version: service:abc123
+outcome: passed
+asset-audit: v3/local
+cases: TP-001=passed
+evidence: api=report:101,e2e=note:https://git.example/1
+-->`;
+
+const testRun = `<!-- glab-flow:test-run:v1
+environment: test
+plan-version: v3
+version: service:abc123
+outcome: passed
+asset-audit: v3/test
+cases: TP-001=passed,TP-002=passed
+evidence: api=report:102,e2e=note:https://git.example/2,data=db:assertion,manual=video:https://git.example/2
+-->`;
+
+describe('test plan and environment execution receipts', () => {
+  it('accepts independent complete local and test runs for one plan', () => {
+    const parsed = parseTestPlan(planText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: localRun }, { body: testRun }], 'local'))).toEqual({ ok: true, errors: [] });
+    expect(validateTestRun(parsed.plan, 'test', parseLatestTestRun([{ body: localRun }, { body: testRun }], 'test'))).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects a missing required local case or method evidence', () => {
+    const parsed = parseTestPlan(planText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const missingCase = localRun.replace('cases: TP-001=passed', 'cases:');
+    const missingEvidence = localRun.replace('evidence: api=report:101,e2e=note:https://git.example/1', 'evidence: api=report:101');
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: missingCase }], 'local')).ok).toBe(false);
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: missingEvidence }], 'local')).errors).toContain('local 缺 e2e 执行证据');
+  });
+
+  it('rejects a stale plan version', () => {
+    const parsed = parseTestPlan(planText.replace('plan-version: v3', 'plan-version: v4'));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: localRun }], 'local')).errors[0]).toContain('版本不匹配');
+  });
+
+  it('does not fall back when the newest local run is malformed or failed', () => {
+    const parsed = parseTestPlan(planText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const malformed = `<!-- glab-flow:test-run:v1\nenvironment: local\nplan-version: v3\n-->`;
+    const failed = localRun.replace('outcome: passed', 'outcome: failed');
+    expect(parseLatestTestRun([{ body: localRun }, { body: malformed }], 'local').kind).toBe('invalid-latest');
+    expect(parseLatestTestRun([{ body: localRun }, { body: failed }], 'local').kind).toBe('invalid-latest');
+  });
+
+  it('round-trips a rendered run and rejects unknown cases', () => {
+    const parsed = parseTestPlan(planText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const rendered = renderTestRun({
+      environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'passed', assetAudit: 'v3/local',
+      cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/1' },
+    });
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: rendered }], 'local'))).toEqual({ ok: true, errors: [] });
+    const unexpected = rendered.replace('cases: TP-001=passed', 'cases: TP-001=passed,TP-999=passed');
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: unexpected }], 'local')).errors).toContain('local 记录含非本环境计划 case：TP-999');
+  });
+
+  it('never turns an untrusted failed runtime payload into a passing receipt', () => {
+    const parsed = parseTestPlan(planText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const rendered = renderTestRun({
+      environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'failed', assetAudit: 'v3/local',
+      cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/1' },
+    });
+    expect(rendered).toContain('outcome: failed');
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: rendered }], 'local')).ok).toBe(false);
+  });
+
+  it('requires a scenario declaration for every API case and a matching audit reference', () => {
+    expect(parseTestPlan(planText.replace('asset: TP-001 | scenario\n', '')).ok).toBe(false);
+    const parsed = parseTestPlan(planText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: localRun.replace('asset-audit: v3/local', 'asset-audit: v3/test') }], 'local')).errors)
+      .toContain('local 测试执行记录未关联当前资产审计：应为 v3/local');
+  });
+});

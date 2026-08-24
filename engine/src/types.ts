@@ -28,6 +28,8 @@ export interface Payload {
   from: string;
   to: string;
   fields: Record<string, string>;
+  /** Current contents of the Issue-scoped, versioned test-plan.md. */
+  testPlan?: string;
   /** Structured schedule input; rendering derives coverage only after validation. */
   weekPlan?: WeekPlanInput;
   gateOutcome?: '通过' | '退回';
@@ -125,6 +127,8 @@ export interface TransitionInput {
   state: 'opened' | 'closed';
   to?: string;
   fields?: Record<string, string>;
+  /** Current contents of .glab-flow/<iid>/spec/test-plan.md, read by Leader. */
+  testPlan?: string;
   /** Structured schedule supplied when approving a Story. */
   weekPlan?: WeekPlanInput;
   gateOutcome?: '通过' | '退回';
@@ -158,3 +162,71 @@ export interface TransitionOutput {
   shouldConfirm: boolean;
   applied: false;
 }
+
+/** Environment names are configuration-owned; local/test are the current default gates. */
+export type TestEnvironment = string;
+export type TestMethod = 'api' | 'e2e' | 'data' | 'manual';
+export type ApifoxAssetType = 'scenario' | 'suite-or-group' | 'test-data' | 'scenario-instance';
+export type ApifoxAssetAction = 'reuse' | 'create' | 'update' | 'retire' | 'cleanup';
+
+export interface TestPlanCase {
+  id: string;
+  environments: TestEnvironment[];
+  methods: TestMethod[];
+  assets: ApifoxAssetType[];
+}
+
+/** Parsed machine manifest embedded in the human-readable test-plan.md. */
+export interface TestPlan {
+  version: string;
+  cases: TestPlanCase[];
+}
+
+/** Parsed machine receipt embedded in an immutable Issue comment. */
+export interface TestRun {
+  environment: TestEnvironment;
+  planVersion: string;
+  version: string;
+  outcome: 'passed' | 'failed';
+  /** Must equal `${planVersion}/${environment}` for the matching latest asset audit. */
+  assetAudit: string;
+  cases: Record<string, 'passed'>;
+  evidence: Partial<Record<TestMethod, string>>;
+}
+
+export type LatestTestRun =
+  | { kind: 'absent' }
+  | { kind: 'valid'; run: TestRun }
+  | { kind: 'invalid-latest'; errors: string[] };
+
+export type TestRunValidation =
+  | { ok: true; errors: [] }
+  | { ok: false; errors: string[] };
+
+/** A resource inspected through Apifox CLI and tied to one planned test case. */
+export interface ApifoxAssetRecord {
+  caseId: string;
+  type: ApifoxAssetType;
+  id: string;
+  action: ApifoxAssetAction;
+}
+
+/** Parsed immutable Issue comment proving that planned Apifox resources were audited. */
+export interface ApifoxAssetAudit {
+  environment: TestEnvironment;
+  planVersion: string;
+  project: string;
+  branch: string;
+  unresolvedFindings: number;
+  evidence: string;
+  assets: ApifoxAssetRecord[];
+}
+
+export type LatestApifoxAssetAudit =
+  | { kind: 'absent' }
+  | { kind: 'valid'; audit: ApifoxAssetAudit }
+  | { kind: 'invalid-latest'; errors: string[] };
+
+export type ApifoxAssetAuditValidation =
+  | { ok: true; errors: [] }
+  | { ok: false; errors: string[] };

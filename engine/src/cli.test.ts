@@ -9,7 +9,7 @@ const TSX = join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
 const CLI = join(REPO_ROOT, 'engine', 'src', 'cli.ts');
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(TSX, [CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
@@ -46,6 +46,86 @@ describe('cli validate — body passthrough (G6b reachable, ⑩)', () => {
     expect(status).toBe(0);
     const g = json as { ok: boolean };
     expect(g.ok).toBe(true);
+  });
+});
+
+describe('cli versioned environment TestRun gates', () => {
+  const plan = `<!-- glab-flow:test-plan:v1
+plan-version: v3
+case: TP-001 | local,test | api,e2e
+asset: TP-001 | scenario
+-->`;
+  const localRun = `<!-- glab-flow:test-run:v1
+environment: local
+plan-version: v3
+version: service:abc123
+outcome: passed
+asset-audit: v3/local
+cases: TP-001=passed
+evidence: api=report:101,e2e=note:https://git.example/local
+-->`;
+  const testRun = `<!-- glab-flow:test-run:v1
+environment: test
+plan-version: v3
+version: service:abc123
+outcome: passed
+asset-audit: v3/test
+cases: TP-001=passed
+evidence: api=report:102,e2e=note:https://git.example/test
+-->`;
+  const localAudit = `<!-- glab-flow:apifox-asset-audit:v1
+environment: local
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/local
+asset: TP-001 | scenario | scenario-101 | reuse
+-->`;
+  const testAudit = `<!-- glab-flow:apifox-asset-audit:v1
+environment: test
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/test
+asset: TP-001 | scenario | scenario-101 | reuse
+-->`;
+  const submit = {
+    type: 'story' as const, from: '开发中', to: '测试中',
+    fields: { 代码评审结论: '通过', 提测日期: '2026-08-24', 研发Assignee: '@dev', 可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对' },
+    assigneeUser: '@qa', datesConfirmed: true,
+  };
+  const accept = {
+    type: 'story' as const, from: '测试中', to: '待发布',
+    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'report', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
+    assigneeUser: '@dev', datesConfirmed: true,
+  };
+
+  it('enforces the same plan through legacy validate and plan commands', () => {
+    expect(cli('validate', { type: 'story', labels: ['type::story', 'story-status::开发中'], payload: submit }).json).toMatchObject({ ok: false, missing: ['testPlan'] });
+    expect(cli('plan', { payload: submit, testPlan: plan, notes: [{ body: localAudit }, { body: localRun }] })).toMatchObject({ status: 0, json: { ops: expect.any(Array) } });
+    expect(cli('validate', { type: 'story', labels: ['type::story', 'story-status::测试中'], payload: accept, testPlan: plan, notes: [{ body: localAudit }, { body: localRun }] }).json)
+      .toMatchObject({ ok: false, missing: expect.arrayContaining(['testAssetAudit', 'testTestRun']) });
+    expect(cli('plan', { payload: accept, testPlan: plan, notes: [{ body: localAudit }, { body: localRun }, { body: testAudit }, { body: testRun }] })).toMatchObject({ status: 0, json: { ops: expect.any(Array) } });
+  });
+
+  it('renders a parseable TestRun preview without I/O', () => {
+    const result = cli('test-run', {
+      plan,
+      run: { environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'passed', assetAudit: 'v3/local', cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/local' } },
+    });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:test-run:v1') });
+  });
+
+  it('renders a parseable asset-audit preview without I/O', () => {
+    const result = cli('asset-audit', {
+      plan,
+      audit: { environment: 'local', planVersion: 'v3', project: '8731182', branch: 'main', unresolvedFindings: 0, evidence: 'list-get:https://apifox.example/local', assets: [{ caseId: 'TP-001', type: 'scenario', id: 'scenario-101', action: 'reuse' }] },
+    });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:apifox-asset-audit:v1') });
   });
 });
 

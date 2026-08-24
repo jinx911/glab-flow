@@ -3,9 +3,12 @@ import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
 import { parseLatestWeekPlan, validateWeekPlan } from './week-plan.js';
+import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.js';
+import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
+const unique = (values: string[]): string[] => [...new Set(values)];
 
 const WEEK_PLAN_INPUT_HINT = '提供 weekPlan: { startDate: YYYY-MM-DD, endDate: YYYY-MM-DD, autoRollover: true|false }';
 const WEEK_PLAN_READBACK_HINT = '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段';
@@ -57,6 +60,35 @@ export function validateWeekPlanTransition(payload: Payload, notes: { body: stri
     if (latest.kind === 'invalid-latest') return fail([`最新周排期无效：${latest.errors.join('；')}`], ['latestWeekPlan']);
   }
   return ok();
+}
+
+/** Applies one versioned test plan to the local and test acceptance gates. */
+export function validateTestRunTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
+  const environment = payload.from === '开发中' && payload.to === '测试中'
+    ? 'local'
+    : payload.from === '测试中' && payload.to === '待发布'
+      ? 'test'
+      : undefined;
+  if (!environment) return ok();
+
+  const parsedPlan = parseTestPlan(payload.testPlan);
+  if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
+  const validation = validateTestRun(parsedPlan.plan, environment, parseLatestTestRun(notes, environment));
+  return validation.ok ? ok() : fail(validation.errors, [`${environment}TestRun`]);
+}
+
+/** Requires a current, read-back Apifox asset audit before each environment TestRun can pass. */
+export function validateApifoxAssetAuditTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
+  const environment = payload.from === '开发中' && payload.to === '测试中'
+    ? 'local'
+    : payload.from === '测试中' && payload.to === '待发布'
+      ? 'test'
+      : undefined;
+  if (!environment) return ok();
+  const parsedPlan = parseTestPlan(payload.testPlan);
+  if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
+  const validation = validateApifoxAssetAudit(parsedPlan.plan, environment, parseLatestApifoxAssetAudit(notes, environment));
+  return validation.ok ? ok() : fail(validation.errors, [`${environment}AssetAudit`]);
 }
 
 /**
@@ -138,8 +170,13 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (t.terminal && !payload.closeIssue) reasons.push('终态需同一次操作关闭 Issue(closeIssue)');
 
   const weekPlanGate = validateWeekPlanTransition(payload, notes);
-  if (missing.length || reasons.length || !weekPlanGate.ok) {
-    return fail([...reasons, ...weekPlanGate.reasons], [...missing, ...weekPlanGate.missing]);
+  const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
+  const testRunGate = validateTestRunTransition(payload, notes);
+  if (missing.length || reasons.length || !weekPlanGate.ok || !assetAuditGate.ok || !testRunGate.ok) {
+    return fail(
+      unique([...reasons, ...weekPlanGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons]),
+      unique([...missing, ...weekPlanGate.missing, ...assetAuditGate.missing, ...testRunGate.missing]),
+    );
   }
   return ok();
 }

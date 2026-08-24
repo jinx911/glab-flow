@@ -5,10 +5,51 @@ import { renderStatusChange } from './render.js';
 import type { TransitionInput } from './types.js';
 
 const model = loadModel();
-const notes = [{ body: '' }];
+const TEST_PLAN = `<!-- glab-flow:test-plan:v1
+plan-version: v3
+case: TP-001 | local,test | api,e2e
+asset: TP-001 | scenario
+-->`;
+const LOCAL_RUN = `<!-- glab-flow:test-run:v1
+environment: local
+plan-version: v3
+version: service:abc123
+outcome: passed
+asset-audit: v3/local
+cases: TP-001=passed
+evidence: api=report:101,e2e=note:https://git.example/local
+-->`;
+const TEST_RUN = `<!-- glab-flow:test-run:v1
+environment: test
+plan-version: v3
+version: service:abc123
+outcome: passed
+asset-audit: v3/test
+cases: TP-001=passed
+evidence: api=report:102,e2e=note:https://git.example/test
+-->`;
+const LOCAL_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
+environment: local
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/local
+asset: TP-001 | scenario | scenario-101 | reuse
+-->`;
+const TEST_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
+environment: test
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/test
+asset: TP-001 | scenario | scenario-101 | reuse
+-->`;
+const notes = [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }, { body: TEST_AUDIT }, { body: TEST_RUN }];
 
 function baseInput(over: Partial<TransitionInput>): TransitionInput {
-  return { type: 'story', iid: 42, labels: [], body: '', notes, state: 'opened', ...over };
+  return { type: 'story', iid: 42, labels: [], body: '', notes, testPlan: TEST_PLAN, state: 'opened', ...over };
 }
 
 const TABLE_BODY = `# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n`;
@@ -47,8 +88,6 @@ const PAUSED_WEEK_PLAN_NOTE = `## 周排期
 
 const TEST_SUBMISSION_FIELDS = {
   代码评审结论: '通过',
-  自测计划: '接口测试(Apifox) + 数据断言',
-  接口自测结论: '通过',
   提测日期: '2026-08-07',
   研发Assignee: '@dev',
   可测试版本或环境: 'test-v1',
@@ -136,6 +175,33 @@ describe('transition — missing fields carry hints', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: fieldsWithoutMR, datesConfirmed: true }));
     expect(r.validate.ok).toBe(false);
     expect(r.missing.find((m) => m.field === 'feature分支MR评审结论')?.hint).toMatch(/MR 代码评审/);
+  });
+});
+
+describe('transition — versioned environment test runs', () => {
+  const localSubmission = (over: Partial<TransitionInput> = {}) => baseInput({
+    labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+    ...over,
+  });
+  const testAcceptance = (over: Partial<TransitionInput> = {}) => baseInput({
+    labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true,
+    ...over,
+  });
+
+  it('blocks submission without the current test plan or a local TestRun', () => {
+    expect(runTransition(model, localSubmission({ testPlan: undefined })).validate.missing).toContain('testPlan');
+    expect(runTransition(model, localSubmission({ notes: [] })).validate.missing).toContain('localAssetAudit');
+  });
+
+  it('allows submission after the current local TestRun and blocks release without test TestRun', () => {
+    expect(runTransition(model, localSubmission({ notes: [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }] })).validate.ok).toBe(true);
+    expect(runTransition(model, testAcceptance({ notes: [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }] })).validate.missing).toContain('testAssetAudit');
+  });
+
+  it('invalidates both gates when the plan version changes', () => {
+    const changed = TEST_PLAN.replace('plan-version: v3', 'plan-version: v4');
+    expect(runTransition(model, localSubmission({ testPlan: changed })).validate.reasons.join('\n')).toContain('版本不匹配');
+    expect(runTransition(model, testAcceptance({ testPlan: changed })).validate.reasons.join('\n')).toContain('版本不匹配');
   });
 });
 
@@ -333,7 +399,7 @@ describe('transition — evidence smart prefill', () => {
   it('prefills required fields from note "- 字段：值" lines', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-      notes: [{ body: NOTE }], fields: rest, datesConfirmed: true,
+      notes: [{ body: NOTE }, { body: TEST_AUDIT }, { body: TEST_RUN }], fields: rest, datesConfirmed: true,
     }));
     expect(r.payload?.fields.测试完成日期).toBe('2026-08-05');
     expect(r.prefilled.测试完成日期).toContain('2026-08-05');

@@ -118,6 +118,22 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
 });
 
 describe('测试报告环境字段(测试中→待发布,issue 环境接入)', () => {
+  it('renders verified plan and environment-run references instead of free-text self-test claims', () => {
+    const submission = renderNodeComment({
+      type: 'story', from: '开发中', to: '测试中',
+      fields: { 测试计划版本: 'v3', Apifox资产审计记录: 'Issue note #100', local测试执行记录: 'Issue note #101', 自测计划: '旧自由文本' }, assigneeUser: '@qa',
+    });
+    const acceptance = renderNodeComment({
+      type: 'story', from: '测试中', to: '待发布',
+      fields: { 测试计划版本: 'v3', test测试执行记录: 'Issue note #102' }, assigneeUser: '@dev',
+    });
+    expect(submission).toContain('- 测试计划版本：v3');
+    expect(submission).toContain('- Apifox资产审计记录：Issue note #100');
+    expect(submission).toContain('- local测试执行记录：Issue note #101');
+    expect(submission).not.toContain('- 自测计划：旧自由文本');
+    expect(acceptance).toContain('- test测试执行记录：Issue note #102');
+  });
+
   it('渲染 测试环境/测试账号 进合并评论', () => {
     const md = renderNodeComment({
       type: 'story', from: '测试中', to: '待发布',

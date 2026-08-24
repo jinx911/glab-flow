@@ -17,7 +17,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
    pnpm cli transition
    ```
 
-   stdin JSON 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 已知 `fields` + 可选 `to`/`runMode`/`config`。stdout 一次给出：
+   stdin JSON 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 当前 `testPlan` 文本 + 已知 `fields` + 可选 `to`/`runMode`/`config`。stdout 一次给出：
    - `dirty` / `dirtyReason`（脏则停，见下文「脏状态」）；
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」）；
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）；
@@ -68,8 +68,8 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 
 - 草稿中缺需求草稿 → 委派 `spec-author` 产出六清楚草稿。
 - 待评审缺评审意见 → 委派 `review-preview` 预审产出问题清单。
-- 开发中缺代码/自测 → 委派 `git-ops` + `tdd-guide` + `codegraph` 做开发。
-- 测试中缺测试计划 → 委派 `test-design` / `test-flow`/`apifox` 相关 agent。
+- 开发中缺代码、local AssetAudit 或 local TestRun → 委派 `git-ops` + `codegraph` 实现，再按 test-plan 盘点/回读 Apifox 资产并完成 local 完整业务闭环；实现后做定向测试、全量回归、类型检查和代码走查。
+- 测试中缺 test AssetAudit 或 test TestRun → 按同一份 test-plan 委派 `test-flow-apifox` / `test-flow-e2e` 在 test 环境执行；不得把 local 回执或自由文本报告作为替代。
 - 测试中→待发布 缺 `feature分支MR评审结论`（G14）→ playbook 的 `create_mr_to_master`（git-ops 提 PR feature→master，标题=Issue 地址）+ `mr_review`（`mr-review` sub-skill，优先 mr-review-lite、降级 code-review）跑全 MR diff，无 CRITICAL/HIGH 残留才填「通过」放行；有残留则留在测试中修复重评，不进 待发布。
 
 agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 步重新取证、第 2 步重新校验，直到 `ok:true` 再建计划。换句话说：**门禁不通过 → 回去干活，而不是改门禁**。

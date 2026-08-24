@@ -50,7 +50,7 @@ description: 开发中节点代码评审方法论 + 严重度分级；调用 *-r
 
 - **同步调用**：用 `run_in_background: false` spawn reviewer，等它返回结果再合并结论。评审需要拿完整结果做门禁判定，不异步 fire-and-forget。
 - **只读**：reviewer agent 不改代码，只产问题清单（含严重度、文件、行、问题、建议）。修复由 Leader 转 `general-purpose` 或开发者执行。
-- **传入上下文**：把待评审的 diff、相关 spec（design.md 关键文件表）、自测证据（见 `tdd-guide.md`）一并喂给 reviewer，让它对齐规格而非凭空挑刺。
+- **传入上下文**：把待评审的 diff、相关 spec（design.md 关键文件表）、当前 test-plan 与 local TestRun 证据一并喂给 reviewer，让它对齐规格而非凭空挑刺。
 - **未装 reviewer 时降级**：Leader 不报错中止，改为按上述四维度 + 严重度框架自行 Read diff 评审，并在结论里标注「未调用 reviewer，人工评审」。
 
 ## 通过门槛

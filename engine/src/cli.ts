@@ -9,10 +9,13 @@ import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
 import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
-import type { Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
+import type { ApifoxAssetAudit, Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
+import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
+import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
+import type { TestRun } from './types.js';
 
 const model = loadModel();
 
@@ -30,7 +33,8 @@ async function main() {
       break;
     }
     case 'validate': {
-      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload; body?: string; notes?: { body: string }[] };
+      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload; body?: string; notes?: { body: string }[]; testPlan?: string };
+      if (input.testPlan !== undefined) input.payload.testPlan = input.testPlan;
       const result = validateTransition(model, toFacts({ iid: 0, state: 'opened', labels: input.labels, description: input.body ?? '' }), input.payload, input.notes);
       console.log(JSON.stringify(result));
       break;
@@ -41,8 +45,9 @@ async function main() {
       break;
     }
     case 'plan': {
-      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[]; body?: string };
+      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[]; body?: string; testPlan?: string };
       const payload = input.payload;
+      if (input.testPlan !== undefined) payload.testPlan = input.testPlan;
       const statusLabel = payload.type === 'story' ? `story-status::${payload.from}` : `status::${payload.from}`;
       const result = validateTransition(model, toFacts({
         iid: 0,
@@ -61,6 +66,34 @@ async function main() {
     case 'transition': {
       const input = JSON.parse(readStdin()) as TransitionInput;
       console.log(JSON.stringify(runTransition(model, input)));
+      break;
+    }
+    case 'test-run': {
+      const input = JSON.parse(readStdin()) as { plan: string; run: TestRun };
+      const parsed = parseTestPlan(input.plan);
+      if (!parsed.ok) {
+        console.log(JSON.stringify({ validate: { ok: false, missing: ['testPlan'], reasons: parsed.errors } }));
+        process.exitCode = 1;
+        break;
+      }
+      const comment = renderTestRun(input.run);
+      const validation = validateTestRun(parsed.plan, input.run.environment, parseLatestTestRun([{ body: comment }], input.run.environment));
+      console.log(JSON.stringify({ validate: { ok: validation.ok, missing: validation.ok ? [] : [`${input.run.environment}TestRun`], reasons: validation.errors }, ...(validation.ok ? { comment } : {}) }));
+      if (!validation.ok) process.exitCode = 1;
+      break;
+    }
+    case 'asset-audit': {
+      const input = JSON.parse(readStdin()) as { plan: string; audit: ApifoxAssetAudit };
+      const parsed = parseTestPlan(input.plan);
+      if (!parsed.ok) {
+        console.log(JSON.stringify({ validate: { ok: false, missing: ['testPlan'], reasons: parsed.errors } }));
+        process.exitCode = 1;
+        break;
+      }
+      const comment = renderApifoxAssetAudit(input.audit);
+      const validation = validateApifoxAssetAudit(parsed.plan, input.audit.environment, parseLatestApifoxAssetAudit([{ body: comment }], input.audit.environment));
+      console.log(JSON.stringify({ validate: { ok: validation.ok, missing: validation.ok ? [] : [`${input.audit.environment}AssetAudit`], reasons: validation.errors }, ...(validation.ok ? { comment } : {}) }));
+      if (!validation.ok) process.exitCode = 1;
       break;
     }
     case 'evidence': {
@@ -153,7 +186,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | plan-return | week-plan-change | evidence | config | version | test-config | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | evidence | config | version | test-config | state-init | state-writeback | progress');
       process.exit(1);
   }
 }

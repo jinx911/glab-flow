@@ -74,10 +74,12 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | 命令 | 作用 |
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
-| `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 已知 `fields`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm}`。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
-| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?}` → `{ok,missing,reasons}`；Story `已评审 → 开发中` 必须传入刚回读的 `notes`，以校验最新周排期 |
+| `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 当前 `testPlan` 全文 + 已知 `fields`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm}`。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
+| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?}` → `{ok,missing,reasons}`；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与刚回读 `notes`，以验证当前环境资产审计和 TestRun |
 | `render` | 渲染评论正文 |
-| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?}`；Story `已评审 → 开发中` 必须传入刚回读的 `notes`，否则周排期门禁会拒绝建计划 |
+| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?}`；周排期和 local/test TestRun 门禁均需传刚回读 `notes`，否则拒绝建计划 |
+| `test-run` | 预览/校验一条环境执行记录：stdin `{plan,run}` → `{validate,comment}`；只产出评论草稿，不执行测试或写 GitLab |
+| `asset-audit` | 预览/校验一条 Apifox 资产审计：stdin `{plan,audit}` → `{validate,comment}`；只解析计划与回读事实，不调用 Apifox 或写 GitLab |
 | `plan-return` | 退回建写回计划：stdin `{type,from,target,issues,confirmer,date,assigneeUser?}` |
 | `week-plan-change` | **独立排期变更**：stdin 提供完整排期与变更事实，返回仅含一条 `add_comment` 的 `WritePlan`；不改变状态、Assignee、Issue 正文或既有评论 |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
@@ -207,14 +209,16 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - Assignee 必须 `@用户`（G6），不接受角色名占位。
 - 不建 Jira（G13）：流程只在 GitLab Issue 上走，不外建工单。
 - 测试问题挂父需求（G11）：阻塞发布问题全部验证通过才放行待发布。
+- 多环境测试：开发中→测试中必须有当前计划的 `local` Apifox 资产审计和 TestRun；测试中→待发布必须有同计划版本的 `test` 资产审计和 TestRun。单测、构建、静态检查和代码评审不能替代真实业务闭环执行。
 - feature MR 评审前置（G14）：测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）。
+- 禁止 TDD：不采用“先写失败测试再实现”的开发仪式；实现后必须完成定向测试、完整业务闭环、全量回归、类型检查和代码走查。
 
 ## 内容生成
 
 节点内容生成由 `sub-skills/` 内置子 skill 提供——Leader 对每个节点 Read 对应子 skill 后内联执行，或 spawn `general-purpose` 以其为 prompt：
 
 - 需求/方案 → `sub-skills/spec-author.md`
-- 开发 → `sub-skills/git-ops.md` / `sub-skills/tdd-guide.md` / `sub-skills/code-review.md`
+- 开发 → `sub-skills/git-ops.md` / `sub-skills/code-review.md`（实现后验证）
 - 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`（API）/ `sub-skills/test-flow-e2e.md`（前端 E2E）
 - 测试→待发布 MR 评审 → `sub-skills/mr-review.md`（G14，无 HIGH 残留才放行）
 - 发布 → `sub-skills/jenkins-deploy.md`（Jenkins 触发前必须单独确认 job/分支/部署参数；发布流转确认不等于构建参数确认）
@@ -253,4 +257,4 @@ glab-flow 的同伴文件（与 SKILL.md 同目录 `skills/glab-flow/`，自包�
 - `resume.md` —— 恢复 / 脏状态处理 / GitLab 对账。
 - `learn.md` —— 自我迭代闭环（capture / apply / upgrade ritual）。
 - `tools.md` —— 运行时工具依赖清单（glab / codegraph / *-reviewer / apifox-* / MySQL MCP，非 vendor）。
-- `sub-skills/*.md` —— 9 个内置子 skill（spec-author / git-ops / tdd-guide / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）。
+- `sub-skills/*.md` —— 8 个内置子 skill（spec-author / git-ops / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）。

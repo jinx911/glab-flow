@@ -16,8 +16,8 @@ flowchart TD
       S2 -->|"门禁:需求评审 通过"| S3["已评审"]
       S2 -.->|"需求评审 退回(带问题清单)"| S1
       S3 -->|"门禁:技术方案评审(只记录)<br/>+实际开始+计划提测/上线"| S4["开发中"]
-      S4 -->|"门禁:代码评审与自测"| S5["测试中"]
-      S5 -->|"门禁:测试验收(阻塞问题全验证)"| S6["待发布"]
+      S4 -->|"门禁:代码评审 + local 资产审计 + TestRun"| S5["测试中"]
+      S5 -->|"门禁:test 资产审计 + TestRun + 阻塞问题全验证"| S6["待发布"]
       S5 -.->|"整体返工"| S4
       S6 -->|"门禁:发布 (hard)"| S7["生产验收中"]
       S7 -->|"门禁:产品验收 (hard·终态)"| S8["已完成 ✅关闭Issue"]
@@ -27,8 +27,8 @@ flowchart TD
     subgraph Bug["Bug流  type::bug + status::*"]
       direction LR
       B1["已确认缺陷"] --> B2["开发中"]
-      B2 -->|"代码评审与自测"| B3["测试中"]
-      B3 -->|"测试验收"| B4["待发布"]
+      B2 -->|"代码评审 + local 资产审计 + TestRun"| B3["测试中"]
+      B3 -->|"test 资产审计 + TestRun"| B4["待发布"]
       B4 -->|"发布 (hard)"| B5["生产验证中"]
       B5 -->|"生产验证 (hard·终态)"| B6["已完成 ✅关闭Issue"]
     end
@@ -77,7 +77,7 @@ flowchart TD
     L2["② 规则权威<br/>harness: issue-state-machine.md + AGENTS.md<br/>派生 state-machine.yaml + 一致性校验"] --> L3
     L3["③ 状态机驱动<br/>读 labels → 查模型 → 节点/必填/门禁/Assignee角色"] --> L4
     L4["④ 护栏 / 前置校验<br/>确定性纯函数  G1–G14 + G6b（关键路径不放 LLM）"] --> L5
-    L5["⑤ 内容生成<br/>专家 agent（复用 spec-author / git-ops / code-review / tdd-guide ...）"] --> L6
+    L5["⑤ 内容生成<br/>专家 agent（spec-author / git-ops / code-review / test-flow ...；实现后验证）"] --> L6
     L6["⑥ GitLab 写回层<br/>Leader 直接 glab CLI · preview-confirm · 引擎零 I/O"] --> L7
     L7["⑦ 持久化<br/>GitLab Issue = 唯一真相 · .glab-flow/&lt;issue&gt;/ = 工作产物"]
 ```

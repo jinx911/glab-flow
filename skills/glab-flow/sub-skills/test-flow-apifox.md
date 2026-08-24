@@ -1,6 +1,6 @@
 ---
 name: glab-flow-test-flow-apifox
-description: 测试中节点的 API 测试执行（经 apifox 运行时工具），收集结果并挂父需求评论。
+description: local/test 环境的 API 测试执行（经 apifox 运行时工具），回读报告并写入 TestRun。
 ---
 
 > 本文件是 glab-flow 自有子 skill（方法论，单 Leader）。在对应节点由 Leader Read 本文件内联执行，或 spawn `general-purpose` 以其为 prompt。运行时工具依赖见 `../tools.md`。
@@ -57,9 +57,45 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 
 # Test Flow (Apifox)：API 测试执行
 
-「测试中」节点（见 `../nodes.md`）的工作 agent 是 `test-design / test-flow-apifox`。本文件规定其中 test-flow-apifox 部分：消费 test-design 产出的接口用例（见同目录 `test-design.md` 的 test-plan.md），经 apifox 运行时工具执行，收集结果并挂父 GitLab Issue 评论。
+本文件规定 API 执行：消费 test-design 产出的接口用例（见同目录 `test-design.md` 的 test-plan.md），在 local 或 test 环境经 apifox 运行时工具执行，回读报告，并将结果写入对应环境的 TestRun。
 
-> **双跑铁律**：自测（开发中）与测试环境测试（测试中）都必须包含**接口测试（本文件）+ E2E（`test-flow-e2e.md`）**——只跑接口不算完成。本文件管接口；E2E 的执行与产物落点规则见同目录 `test-flow-e2e.md` 的「双跑与产物落点」。
+> **同一计划、两环境执行**：local 与 test 都执行当前 test-plan 中对各自环境要求的 API 用例；若计划还要求 e2e，则同时遵循 `test-flow-e2e.md`。不能把 local 单测/构建成功、test 的一段文字说明，或某个环境的结果当成另一环境的 TestRun。
+
+## Apifox 资产治理与审计（TestRun 前置）
+
+先以当前 CLI `--help` 和项目 UI 发现可用资源，再执行只读 `list/get`。Apifox 当前官方产品对测试套件存在版本/迁移差异：可用时它是冒烟、模块回归、发布回归等稳定聚合入口；不可用时使用场景分组/批量运行，不得伪造 suite 资源或停止复用治理。
+
+1. 从 test-plan 的 `asset:` 声明逐项盘点：`scenario`、`suite-or-group`、`test-data`、`scenario-instance`。
+2. 场景必须回读步骤非空；套件/分组必须回读成员非空；测试数据必须回读实际数据行；场景实例必须对应同一流程的环境/数据/循环配置。
+3. 新需求先检索现有业务域/功能能力资产，复用或更新优先于新建；新建/更新必须按当前 Apifox schema 校验、写入后 `get` 回读。不得自动删除已有资产。
+4. 发现空壳、重复、孤儿、未清理 `TMP-<iid>-` 数据或未能解释的新建资产时停止，处置后重新审计。
+5. 将项目、分支、环境、回读证据、计划资产与未处置问题数喂给 `pnpm cli asset-audit`。输出评论新增到 Issue 后回读；只有最新审计通过，才生成 `asset-audit: <plan-version>/<environment>` 的 TestRun。
+
+审计 marker 例：
+
+```text
+<!-- glab-flow:apifox-asset-audit:v1
+environment: local
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: scenario:list-get:https://app.apifox.com/...
+asset: TP-001 | scenario | scenario-101 | reuse
+asset: TP-001 | suite-or-group | group-201 | reuse
+-->
+```
+
+## 报告上传授权预检（强制，未通过停止）
+
+`--upload-report detail` 会创建 Apifox 云端报告并上传请求/响应详情，因而同时涉及执行平台与 Apifox 项目两道独立授权；“用户已同意本轮测试”不自动穿透任一层。
+
+1. 先展示本次将写入的目标：Apifox `projectId`、branch、environment、suite、数据集前缀，以及会上传请求/响应详情的 `--upload-report detail`。
+2. 在 Codex 等受限执行平台发起 CLI 时，必须申请**仅限** `apifox test-suite run` 的 `require_escalated` 执行授权；不可把它扩展为通用 shell 权限。
+3. 在 Apifox 中确认目标项目/分支已经启用外部 AI 的直接编辑/执行权限。若返回外部 AI 写入拒绝，立即停止：引导在“项目设置 → 功能设置 → AI 功能设置 → 外部 AI 编辑权限”授权该分支，或由人工在同一 suite、环境、变量和数据集下执行。
+4. 不得为绕开拒绝而删除、降级或静默省略 `--upload-report detail`，也不得只凭 stdout 宣称通过。先执行 `apifox test-suite run --help` 确认当前 CLI 是否支持 `detail`；不支持则停止并升级/修复 CLI，不臆造替代值。
+
+人工执行也必须提供 reportId 并完成下述 `test-report get` 回读；没有可回读的详情报告就不能形成 TestRun。
 
 ## 执行前预检（强制，任一失败停止执行）
 
@@ -143,11 +179,11 @@ skill 是**运行时工具**（见 `../tools.md`），glab-flow 不自带 apifox
 
 - **同步取结果**：执行后必须拿到结构化结果（通过/失败计数 + 失败明细），不异步丢任务。
 - **对齐 test-plan.md**：执行范围对齐 test-design 产出的接口用例清单，每条用例的执行结果回填到它的用例编号，便于追溯。**环境与 `-d` 参数从 test-plan.md 的「测试环境与数据集」章节读**（环境矩阵 + 场景↔数据集映射表），不在执行时现场翻 config 或猜数据集。
-- **未装 apifox 时降级**：Leader 不报错中止，改为用 HTTP 客户端（如 curl / 项目自带测试客户端）按 test-plan.md 的期望契约手动执行，并在结果里标注「未用 apifox，人工执行」。降级结果同样须满足下面的证据三段式。
+- **Apifox 不可用时**：停止该 API TestRun，报告缺口并请用户修复 Apifox 能力或人工在 Apifox 执行；不得以本地 HTTP 客户端输出替代要求上传详情报告的 API 证据。
 
 ## 结果收集
 
-结果按与 `tdd-guide.md` 一致的**证据三段式**收集，作为「测试验收」门禁的输入（见 `../gate.md`）。口头「接口都通了」不被接受。
+结果按**证据三段式**收集，作为对应环境 TestRun 的 `api` 证据。口头「接口都通了」不被接受。
 
 **响应耗时分域统计**（防共享登录波动污染发布判断）：业务接口请求按 SLA 判定（默认 500ms）；登录/认证步骤单列基线（默认 2000ms，参考不阻断）；套件总耗时只作参考。归类按场景名（含 login/auth/token 或场景首步认证步骤归登录基线），无法归类时保守归业务 SLA 并注明。
 
@@ -156,7 +192,7 @@ skill 是**运行时工具**（见 `../tools.md`），glab-flow 不自带 apifox
 3. **失败列表**：逐条列 `用例编号 — 接口 — 失败原因摘要（状态码/断言差异）`；全绿则写「无失败」。
 4. **云端报告链接**：`--upload-report detail` 产出的 `https://app.apifox.com/link/...`（含请求/响应详情，排障与复查入口）。
 
-结果与 test-plan.md 的用例编号一一对应，方便定位哪条验收标准的测试未过。
+结果与 test-plan.md 的用例编号一一对应，方便定位哪条验收标准的测试未过。报告回读全绿且最新资产审计通过后，以 `pnpm cli test-run` 生成当前环境的 marker（必须带 `asset-audit: <plan-version>/<environment>`）；新增到 Issue 后再次回读，才可把该 TestRun 传给 `transition`。
 
 ## 挂评论
 
@@ -169,6 +205,6 @@ skill 是**运行时工具**（见 `../tools.md`），glab-flow 不自带 apifox
 
 ## glab-flow 上下文
 
-- **节点归属**：「测试中」节点（`../nodes.md`），Leader Read 本文件内联执行或 spawn `general-purpose` 以本文件为 prompt。产出是测试结果评论 + test-plan.md 的结果回填，不产出新的 spec 文档。
+- **节点归属**：local 执行在「开发中」收尾，test 执行在「测试中」收尾。产出是已回读的 Apifox 报告和对应环境 TestRun，不以测试结果评论代替 TestRun。
 - **单 Leader**：Leader 调度 apifox 运行时工具、收集结果、判定阻塞、挂评论，不组建多 agent 团队，不引入团队编排、状态文件或阶段闸门管道。需要并行跑多场景时 spawn 至多一个 `general-purpose`。
-- **门禁对齐**：测试结果是「测试验收」门禁的输入（见 `../gate.md`）。阻塞问题未全验证 → Leader 不推进状态（见 `../gate.md`「证据不足时」）；全验证通过 → 建 plan 推向「待发布」（Assignee=研发，见 `../nodes.md`）。
+- **门禁对齐**：local TestRun 是「开发中→测试中」门禁，test TestRun 是「测试中→待发布」门禁（见 `../gate.md`）。阻塞问题、报告详情缺失或最新 TestRun 无效 → Leader 不推进状态。

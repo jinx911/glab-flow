@@ -8,8 +8,8 @@
 | 草稿中 | spec-author | 需求草稿(六清楚) | 草稿门槛 | →待评审 |
 | 待评审 | review-preview | 评审意见+问题清单 | 需求评审(二值) | 通过→已评审 / 退回→草稿中 |
 | 已评审 | spec-author/architect | 技术方案 `design.md` → `.glab-flow/<iid>/spec/` | 技术方案评审(只记录)+开发门槛 | 进开发 Assignee=研发 |
-| 开发中 | git-ops+tdd-guide+codegraph | 代码+MR描述+自测 | 代码评审与自测 | →测试中, Assignee=测试 |
-| 测试中 | test-design/test-flow-apifox/test-flow-e2e | 测试计划;测试问题评论 | 测试验收(阻塞全验证) | →待发布, Assignee=研发 |
+| 开发中 | git-ops+codegraph+code-review | 代码+MR描述+local 执行记录 | 代码评审 + local TestRun | →测试中, Assignee=测试 |
+| 测试中 | test-flow-apifox/test-flow-e2e | test 执行记录;测试问题评论 | test TestRun + 阻塞全验证 | →待发布, Assignee=研发 |
 | 待发布 | jenkins-deploy | 执行上线(deploy) | 发布(hard_gate) | →生产验收中, Assignee=产品 |
 | 生产验收中→已完成 | Leader起草终态评论 | 验收记录 | 产品验收(hard_gate·terminal) | →已完成+关闭, Assignee=产品; 反哺context/faq/cases |
 
@@ -59,9 +59,22 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
 - **待发布「生产版本」**：多仓时填**各仓部署版本**（分号分隔，如 `oa-service:v1.2; oa-frontend:v3.4`），不再是单一版本号。
 - **MR**：每仓一条 feature 分支 + 一条 MR；`git-ops` 按仓操作。
 
-### 开发中→测试中：自测（门禁强制，层次化）
+### 已评审后：测试计划（唯一版本化输入）
 
-提测前必须自测——门禁强制 `代码评审结论` + `自测计划` + `接口自测结论` 三个字段非空，不能只填一个"结论"跳过。自测有层次（缩小版 test-flow）：
+技术方案评审完成、编码开始前，`test-design` 必须建立唯一的 `<workspace.root>/.glab-flow/<iid>/spec/test-plan.md`。计划以 machine-readable marker 声明版本和每个用例应执行的环境/方法；它同时是 local 与 test 的唯一输入，不能各写一套“自测计划/测试计划”。计划发生实质变化时升级 `plan-version`，旧 TestRun 随即失效。
+
+```text
+<!-- glab-flow:test-plan:v1
+plan-version: v3
+case: TP-001 | local,test | api,e2e
+asset: TP-001 | scenario
+asset: TP-001 | suite-or-group
+-->
+```
+
+### 开发中→测试中：local 完整业务闭环（门禁强制）
+
+提测前必须完成代码评审、当前 test-plan 的 local Apifox 资产审计，并对所有标记 `local` 的用例在本地环境实际执行。引擎从刚回读的 Issue 评论读取**最新**审计与 local TestRun；缺失、格式错误、计划版本不一致、资源未回读、存在未处置问题、用例未通过或缺少任一要求方法的证据，均不得进入测试中。不得用“单测/构建通过”“P0 冒烟”或自由文本结论代替闭环执行记录。
 
 0. **接口同步 Apifox**：若本次改动新增/修改了接口，**先更新 Apifox 的接口定义再往下走**——确保自测和后续测试用的是最新接口定义，而不是过时的旧版。当前方式：IDEA Apifox 插件手动更新上传（Leader 主动提醒，不靠自觉记忆）；长期方向：后端加 springdoc/scribe 生成 OpenAPI + Apifox CLI `auto-import` 定期自动拉取。
 0.5. **测试上下文注入（配置送到脸上，不靠找）**：自测开始前跑一次，环境/账号/Apifox 项目/环境 ID/数据库/前端构建/测试数据前缀**一次拿全**：
@@ -71,10 +84,22 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
    - `--repos` 从 Issue 影响模块/spec 的「关键文件」取改动仓库；routes 按仓库推导该用的 **Apifox 项目**（如 oa-platform+前端→oa_platform，oa-service→oa_service），不用记。
    - 输出的 `apifox.envId` 直接喂 Apifox CLI（`--project <projectId> --environment <envId>`）；`databases.*` 查 `config.md` 的 databases 得 MCP；`testData.prefix` 已替换 iid。
    - 文件不存在 → 引导用户按 `test-config.example.md` 建一次（每项目一次），**不让自测在无测试配置下裸跑**。字段细节见 `test-config.example.md`。
-1. **自测计划**：本次改动的测试范围——接口测试（后端 API）/ E2E（前端）/ 数据断言（数据·逻辑）/ 手工验证（配置·部署）。按需求选，用例可 Apifox 新建或复用。
-2. **接口测试**（`sub-skills/test-flow-apifox.md`，Apifox CLI）：环境/项目用步骤 0.5 `test-context` 的输出（`apifox.projectId` + `apifox.envId` + `databases.*`）——注意区分**登录入口**与**接口网关**（两者常是不同环境，配错则请求落到前端站返回 HTML 404）。建用例前先跑**契约预检**（Schema 类型/可空性 + 状态码覆盖，见 test-design）；执行前跑**预检**（三段链路健康 + 本地运行版本 commit 校验，源码新/旧 class 会假验证）。执行接口用例确认 API 通 + 数据对。**接口没问题才进 E2E**。
-3. **E2E**（前端需求）：接口通过后验证 UI/交互——**自测阶段优先用 Codex/Claude 内置浏览器**（browser_navigate→webUrl→snapshot→click）对 test-plan 的 UI 用例做冒烟（关键分支点一遍：列表/表单/弹窗三分支），零配置比 Playwright 轻；完整 E2E 留到测试中（`sub-skills/test-flow-e2e.md`）。纯后端需求跳过。
-4. **填结果**：`接口自测结论` = 通过/退回 + 证据（Apifox 执行结果 / E2E 截图）。
+1. **接口/API、E2E、数据、手工验证**：仅执行 test-plan 中对 local 声明的方法。接口和 E2E 均被计划要求时，两者都要完成；纯后端需求没有 e2e 用例时才不执行 E2E。
+2. **执行环境与版本**：先执行 `test-config --env local`，完成三段链路健康检查和本地运行版本校验；API 与 E2E 执行细节分别遵循 `sub-skills/test-flow-apifox.md` / `sub-skills/test-flow-e2e.md`。
+3. **资产盘点并回读**：先查现有场景、套件/场景分组、测试数据和场景实例；复用优先，只有业务步骤/断言确有差异才新建。场景按“业务域/功能能力”命名，套件/分组仅承载稳定的冒烟/模块回归/发布回归入口；环境差异用 Profile、数据集或场景实例，不复制场景。临时数据使用 `TMP-<iid>-` 前缀，需求结束前清理或升级为共享资产。以 `asset-audit` 生成并回读当前环境审计，空场景、空套件/分组、空数据集、重复/孤儿资产或未清理临时数据均停止。
+4. **生成并回读 TestRun**：将每个计划用例的 `passed`、代码版本、`asset-audit: v3/local` 和 API/E2E/数据/手工证据生成 marker，新增到 Issue 后立刻回读；只认可最新 local marker：
+
+   ```text
+   <!-- glab-flow:test-run:v1
+   environment: local
+   plan-version: v3
+   version: service:abc123
+   outcome: passed
+   asset-audit: v3/local
+   cases: TP-001=passed
+   evidence: api=report:101,e2e=note:https://...
+   -->
+   ```
 
 自测前**核实环境可用**（URL 可达 / 数据库 MCP 可连 / 账号有效），不可用则停下来报告缺口，不臆造环境。
 
@@ -87,7 +112,7 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
 
 配置多的需求尤其必要；缺这份清单是提测阶段最常见的返工点。
 
-### 测试中：环境接入（进入节点第一步，test-context 注入）
+### 测试中：test 完整业务闭环（进入节点第一步，test-context 注入）
 
 测试执行前，Leader **必须**先拿全测试上下文——不靠记忆、不翻散落配置：
 
@@ -99,7 +124,8 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
 2. `apifox.envId` 直接作为 Apifox CLI 的 `--environment`；`databases.*` 查 `config.md` 的 databases 得 MCP 名；`credentials` 为本轮测试账号，写进测试报告（见内容体 keys）。
 3. **区分三个入口**（配错则请求落错站）：登录入口 / 接口网关（API base 以 Apifox 环境的 baseUrls 为准，不复制进本地配置）/ 前端入口（`webUrl`，E2E 浏览器用）。
 4. **test-config.md 不存在或缺字段** → 停下引导按 `test-config.example.md` 补（每项目一次），不臆造地址、不用本地环境冒充测试环境。
-5. 测试环境执行前的预检（三段链路健康 / 运行版本）与凭据注入规则见 `sub-skills/test-flow-apifox.md`。
+5. 以同一份当前 test-plan 盘点、回读 test 环境的资产后执行所有标记 `test` 的用例，并新增且回读 `environment: test` 的 AssetAudit 与 TestRun。`测试中→待发布` 只读取最新 test 记录；不得拿 local 结果、旧计划版本或自由文本测试报告替代。
+6. 测试环境执行前的预检（三段链路健康 / 运行版本）与凭据注入规则见 `sub-skills/test-flow-apifox.md`。
 
 ### 测试中→待发布：MR 评审前置（G14）+ 提前产出发布计划
 
@@ -149,12 +175,12 @@ nodeProgress 子步骤与转换 playbook 是两个维度（前者 = 节点内做
 | 已评审.技术方案 design.md | spec-author（+ architect） |
 | 已评审.技术方案评审 | review-preview（技术方案评审口径） |
 | 开发中.技术方案 | spec-author / architect |
-| 开发中.编码实现 | git-ops + tdd-guide |
-| 开发中.自测 | tdd-guide |
+| 开发中.编码实现 | git-ops + codegraph |
+| 开发中.自测 | test-flow-apifox / test-flow-e2e（实现后验证） |
 | 开发中.代码评审 | code-review |
 | 测试中.测试计划 | test-design |
 | 测试中.用例执行 | test-flow-apifox / test-flow-e2e |
-| 测试中.阻塞修复 | git-ops + tdd-guide |
+| 测试中.阻塞修复 | git-ops + code-review + 实现后验证 |
 | 测试中.复测 | test-flow-apifox / test-flow-e2e |
 | 待发布.发布计划就绪 | release-check |
 | 待发布.上线前确认 | Leader（核对 release-check 清单） |
