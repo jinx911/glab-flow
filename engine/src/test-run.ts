@@ -48,13 +48,19 @@ function parsePlanCase(value: string): TestPlanCase | string {
   if (new Set(environments).size !== environments.length || new Set(methods).size !== methods.length) {
     return `case ${parts[0]} 含重复环境或方法`;
   }
-  return { id: parts[0]!, environments, methods: methods as TestMethod[], assets: [] };
+  return { id: parts[0]!, environments, methods: methods as TestMethod[], assets: [], presentations: [], authProfiles: [] };
 }
 
 function parsePlanAsset(value: string): { caseId: string; type: ApifoxAssetType } | string {
   const parts = value.split('|').map((part) => part.trim());
   if (parts.length !== 2 || !ID.test(parts[0] ?? '') || !ASSET_TYPES.has(parts[1] as ApifoxAssetType)) return `asset 格式无效：${value}`;
   return { caseId: parts[0]!, type: parts[1] as ApifoxAssetType };
+}
+
+function parsePlanAuthProfile(value: string): { caseId: string; profile: string } | string {
+  const parts = value.split('|').map((part) => part.trim());
+  if (parts.length !== 2 || !ID.test(parts[0] ?? '') || !ID.test(parts[1] ?? '')) return `auth-profile 格式无效：${value}`;
+  return { caseId: parts[0]!, profile: parts[1]! };
 }
 
 /** Parses the one strict machine manifest inside a human-readable test-plan.md. */
@@ -69,6 +75,8 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
   let version: string | undefined;
   const cases: TestPlanCase[] = [];
   const assets: { caseId: string; type: ApifoxAssetType }[] = [];
+  const presentations: { caseId: string; type: ApifoxAssetType }[] = [];
+  const authProfiles: { caseId: string; profile: string }[] = [];
   for (const rawLine of block.body.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -92,6 +100,18 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
       else assets.push(parsed);
       continue;
     }
+    if (key === 'presentation') {
+      const parsed = parsePlanAsset(value!);
+      if (typeof parsed === 'string') errors.push(parsed.replace('asset', 'presentation'));
+      else presentations.push(parsed);
+      continue;
+    }
+    if (key === 'auth-profile') {
+      const parsed = parsePlanAuthProfile(value!);
+      if (typeof parsed === 'string') errors.push(parsed);
+      else authProfiles.push(parsed);
+      continue;
+    }
     errors.push(`测试计划含未知字段：${key}`);
   }
   if (!nonEmpty(version)) errors.push('测试计划缺 plan-version');
@@ -106,6 +126,26 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
     else if (seenAssets.has(key)) errors.push(`asset 重复：${key}`);
     else testCase.assets.push(asset.type);
     seenAssets.add(key);
+  }
+  const seenPresentations = new Set<string>();
+  for (const presentation of presentations) {
+    const testCase = byId.get(presentation.caseId);
+    const key = `${presentation.caseId}/${presentation.type}`;
+    if (!testCase) errors.push(`presentation 引用了未知 case：${presentation.caseId}`);
+    else if (seenPresentations.has(key)) errors.push(`presentation 重复：${key}`);
+    else if (!testCase.assets.includes(presentation.type)) errors.push(`presentation 必须引用已声明资产：${key}`);
+    else testCase.presentations.push(presentation.type);
+    seenPresentations.add(key);
+  }
+  const seenAuthProfiles = new Set<string>();
+  for (const authProfile of authProfiles) {
+    const testCase = byId.get(authProfile.caseId);
+    const key = `${authProfile.caseId}/${authProfile.profile}`;
+    if (!testCase) errors.push(`auth-profile 引用了未知 case：${authProfile.caseId}`);
+    else if (seenAuthProfiles.has(key)) errors.push(`auth-profile 重复：${key}`);
+    else if (!testCase.assets.includes('scenario')) errors.push(`auth-profile 必须引用 scenario 资产：${authProfile.caseId}`);
+    else testCase.authProfiles.push(authProfile.profile);
+    seenAuthProfiles.add(key);
   }
   for (const testCase of cases) {
     if (testCase.methods.includes('api') && !testCase.assets.includes('scenario')) errors.push(`case ${testCase.id} 的 API 测试必须声明 scenario 资产`);

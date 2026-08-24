@@ -50,6 +50,8 @@ apifox test-suite run <suiteId> --project <pid> \
 - **产物落点**：所有产出按 `.glab-flow/<iid>/` 归位（spec / e2e / fixtures / archive）；工作区根的 `playwright-report/`、`test-results/` 是临时执行位，报告进 Issue 评论后立即清理。
 - **测试计划**：`test-plan.md` 必含「测试环境与数据集」章节（环境矩阵 + 场景↔数据集映射表 + fixture 顺序）——执行时 `-d` 传什么一目了然。
 - **证据门禁**：执行后 `test-report get` 回读 environmentName + stats，禁止只凭 CLI stdout 说通过。
+- **四层环境事实**：测试计划环境、CLI 显式 `-e` 目标、报告 `environmentName`、Apifox 页面列表展示必须分别记录并核对；页面显示 local、报告为 Stage 不能通过资产审计。
+- **共用认证**：每个角色使用 AuthProfile 的登录引导和后置临时 token 提取；业务接口统一引用鉴权变量，账号、密码和 token 值不进入 Apifox 资产、Issue 或报告。
 
 ## Engine CLI (pure: stdin → stdout, no I/O)
 

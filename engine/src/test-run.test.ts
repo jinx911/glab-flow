@@ -99,4 +99,13 @@ describe('test plan and environment execution receipts', () => {
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: localRun.replace('asset-audit: v3/local', 'asset-audit: v3/test') }], 'local')).errors)
       .toContain('local 测试执行记录未关联当前资产审计：应为 v3/local');
   });
+
+  it('parses optional presentation and authentication declarations without changing v1 plans', () => {
+    const governed = parseTestPlan(planText.replace('-->', 'presentation: TP-001 | scenario\nauth-profile: TP-001 | client-user\n-->'));
+    expect(governed.ok).toBe(true);
+    if (!governed.ok) return;
+    expect(governed.plan.cases[0]).toMatchObject({ presentations: ['scenario'], authProfiles: ['client-user'] });
+    expect(parseTestPlan(planText.replace('-->', 'presentation: TP-001 | test-data\n-->')).ok).toBe(false);
+    expect(parseTestPlan(planText.replace('-->', 'auth-profile: TP-001 | client-user\nauth-profile: TP-001 | client-user\n-->')).ok).toBe(false);
+  });
 });

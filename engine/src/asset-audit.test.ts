@@ -36,6 +36,21 @@ asset: TP-002 | scenario | scenario-102 | create
 asset: TP-002 | test-data | data-301 | create
 -->`;
 
+const governedPlanText = planText.replace('-->', 'presentation: TP-001 | scenario\nauth-profile: TP-001 | client-user\n-->');
+
+const governedLocalAudit = `<!-- glab-flow:apifox-asset-audit:v2
+environment: local
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/local;report:255001
+asset: TP-001 | scenario | scenario-101 | reuse
+asset: TP-001 | suite-or-group | group-201 | reuse
+presentation: TP-001 | scenario | local | local | local
+auth-profile: TP-001 | client-user | auth_token
+-->`;
+
 describe('Apifox asset audit receipts', () => {
   it('accepts matching local and test audits for one versioned plan', () => {
     const parsed = parseTestPlan(planText);
@@ -72,5 +87,50 @@ describe('Apifox asset audit receipts', () => {
       ],
     });
     expect(validateApifoxAssetAudit(parsed.plan, 'local', parseLatestApifoxAssetAudit([{ body: rendered }], 'local'))).toEqual({ ok: true, errors: [] });
+  });
+
+  it('requires v2 display and authentication evidence only when the plan declares it', () => {
+    const parsed = parseTestPlan(governedPlanText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(validateApifoxAssetAudit(parsed.plan, 'local', parseLatestApifoxAssetAudit([{ body: localAudit }], 'local')).errors)
+      .toContain('local 测试计划要求 Apifox 资产审计 v2');
+    expect(validateApifoxAssetAudit(parsed.plan, 'local', parseLatestApifoxAssetAudit([{ body: governedLocalAudit }], 'local')))
+      .toEqual({ ok: true, errors: [] });
+  });
+
+  it('blocks mismatched list/report environments and incomplete authentication receipts', () => {
+    const parsed = parseTestPlan(governedPlanText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const displayMismatch = governedLocalAudit.replace('presentation: TP-001 | scenario | local | local | local', 'presentation: TP-001 | scenario | test | local | test');
+    expect(validateApifoxAssetAudit(parsed.plan, 'local', parseLatestApifoxAssetAudit([{ body: displayMismatch }], 'local')).errors)
+      .toContain('local Apifox 页面展示环境不一致：TP-001/scenario（预期 test，页面 local，报告 test）');
+    const missingAuth = governedLocalAudit.replace('auth-profile: TP-001 | client-user | auth_token\n', '');
+    expect(validateApifoxAssetAudit(parsed.plan, 'local', parseLatestApifoxAssetAudit([{ body: missingAuth }], 'local')).errors)
+      .toContain('local Apifox 资产审计缺认证契约：TP-001/client-user');
+    const invalidTokenVariable = governedLocalAudit.replace('auth-profile: TP-001 | client-user | auth_token', 'auth-profile: TP-001 | client-user | bearer.secret');
+    expect(parseLatestApifoxAssetAudit([{ body: invalidTokenVariable }], 'local').kind).toBe('invalid-latest');
+  });
+
+  it('renders and round-trips a v2 preview without credential values', () => {
+    const parsed = parseTestPlan(governedPlanText);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const rendered = renderApifoxAssetAudit({
+      markerVersion: 'v2', environment: 'local', planVersion: 'v3', project: '8731182', branch: 'main', unresolvedFindings: 0,
+      evidence: 'list-get:https://apifox.example/local;report:255001',
+      assets: [
+        { caseId: 'TP-001', type: 'scenario', id: 'scenario-101', action: 'reuse' },
+        { caseId: 'TP-001', type: 'suite-or-group', id: 'group-201', action: 'reuse' },
+      ],
+      presentations: [{ caseId: 'TP-001', type: 'scenario', expectedEnvironment: 'local', displayedEnvironment: 'local', reportEnvironment: 'local' }],
+      authProfiles: [{ caseId: 'TP-001', profile: 'client-user', tokenVariable: 'auth_token' }],
+    });
+    expect(rendered).toContain('glab-flow:apifox-asset-audit:v2');
+    expect(rendered).toContain('auth-profile: TP-001 | client-user | auth_token');
+    expect(rendered).not.toContain('password=');
+    expect(validateApifoxAssetAudit(parsed.plan, 'local', parseLatestApifoxAssetAudit([{ body: rendered }], 'local')))
+      .toEqual({ ok: true, errors: [] });
   });
 });

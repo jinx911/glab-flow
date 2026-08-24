@@ -93,3 +93,18 @@ flowchart TD
 | **发布门** | G11 阻塞发布问题全验证才放行(需求+Bug) · G14 feature→master MR 评审前置(无 CRITICAL/HIGH 残留才放行) |
 
 > 引擎权威来源：`engine/state-machine.yaml`（模型）+ `engine/src/guard.ts`（护栏）。规则与 harness 文档漂移由 `engine/src/contract.ts` 检测。
+
+## 5. 多环境 Apifox 证据链
+
+```text
+TestPlan（逻辑环境）
+  → Apifox CLI -e（目标环境）
+  → Report environmentName（实际运行）
+  → Apifox 列表/详情（用户可见投影）
+  → AssetAudit v2（展示 + AuthProfile）
+  → TestRun（状态门禁）
+```
+
+- 四层任一不一致即停止：例如 Stage 入口的页面列显示 local，或报告环境与计划入口不符。
+- 场景步骤、套件成员与数据集优先复用；跨环境只有配置差异时使用场景实例或环境入口，不复制完整流程。
+- 登录是可复用 AuthProfile：运行时变量注入账号密码，登录后置提取临时 token，业务接口统一引用鉴权变量；401/403 不静默重试。

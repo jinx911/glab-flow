@@ -127,6 +127,23 @@ asset: TP-001 | scenario | scenario-101 | reuse
     expect(result.status).toBe(0);
     expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:apifox-asset-audit:v1') });
   });
+
+  it('renders a v2 presentation and AuthProfile audit without credential values', () => {
+    const governedPlan = plan.replace('-->', 'presentation: TP-001 | scenario\nauth-profile: TP-001 | client-user\n-->');
+    const result = cli('asset-audit', {
+      plan: governedPlan,
+      audit: {
+        markerVersion: 'v2', environment: 'local', planVersion: 'v3', project: '8731182', branch: 'main', unresolvedFindings: 0,
+        evidence: 'list-get:https://apifox.example/local;report:255001',
+        assets: [{ caseId: 'TP-001', type: 'scenario', id: 'scenario-101', action: 'reuse' }],
+        presentations: [{ caseId: 'TP-001', type: 'scenario', expectedEnvironment: 'local', displayedEnvironment: 'local', reportEnvironment: 'local' }],
+        authProfiles: [{ caseId: 'TP-001', profile: 'client-user', tokenVariable: 'auth_token' }],
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:apifox-asset-audit:v2') });
+    expect(JSON.stringify(result.json)).not.toContain('password');
+  });
 });
 
 describe('cli Week Plan contract — legacy direct paths', () => {
