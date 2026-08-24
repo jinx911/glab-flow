@@ -14,6 +14,48 @@ describe('isAffirmative — tight prefix (excludes 是否/是吗)', () => {
 
 const model = loadModel();
 const facts = (labels: string[]): IssueFacts => ({ labels, body: '', state: 'opened', hasJiraSourceLabel: false });
+const TEST_PLAN = `<!-- glab-flow:test-plan:v1
+plan-version: v3
+case: TP-001 | local,test | api,e2e
+asset: TP-001 | scenario
+-->`;
+const LOCAL_RUN = `<!-- glab-flow:test-run:v1
+environment: local
+plan-version: v3
+version: service:abc123
+outcome: passed
+asset-audit: v3/local
+cases: TP-001=passed
+evidence: api=report:101,e2e=note:https://git.example/local
+-->`;
+const TEST_RUN = `<!-- glab-flow:test-run:v1
+environment: test
+plan-version: v3
+version: service:abc123
+outcome: passed
+asset-audit: v3/test
+cases: TP-001=passed
+evidence: api=report:102,e2e=note:https://git.example/test
+-->`;
+const LOCAL_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
+environment: local
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/local
+asset: TP-001 | scenario | scenario-101 | reuse
+-->`;
+const TEST_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
+environment: test
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/test
+asset: TP-001 | scenario | scenario-101 | reuse
+-->`;
+const TEST_NOTES = [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }, { body: TEST_AUDIT }, { body: TEST_RUN }];
 
 describe('G1 required fields', () => {
   it('blocks when a required field is missing', () => {
@@ -178,9 +220,9 @@ describe('G11 bug — blocking issues apply to bug too', () => {
   });
   it('passes bug 测试中->待发布 when blocking issues verified', () => {
     const p: Payload = { type: 'bug', from: '测试中', to: '待发布',
-      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' }, testPlan: TEST_PLAN,
       assigneeUser: '@dev', datesConfirmed: true };
-    const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p);
+    const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p, TEST_NOTES);
     expect(r.ok).toBe(true);
   });
 });
@@ -189,8 +231,8 @@ describe('G11 normalization — accepts affirmative synonyms, rejects the rest',
   const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过' };
   const run = (val: string) => validateTransition(model, facts(['type::story', 'story-status::测试中']), {
     type: 'story', from: '测试中', to: '待发布',
-    fields: { ...baseFields, 阻塞发布问题均已验证通过: val }, assigneeUser: '@dev', datesConfirmed: true,
-  } as Payload);
+    fields: { ...baseFields, 阻塞发布问题均已验证通过: val }, testPlan: TEST_PLAN, assigneeUser: '@dev', datesConfirmed: true,
+  } as Payload, TEST_NOTES);
 
   it.each(['是', '已验证', '已通过', '无阻塞', '通过', 'true', 'yes', ' 是 ', '是(无阻塞)', '是。详细说明…'])('accepts %s', (val) => {
     expect(run(val).ok).toBe(true);

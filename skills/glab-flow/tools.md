@@ -7,7 +7,7 @@ description: glab-flow 运行时工具依赖（非 vendor 的基础设施）。
 
 ## 声明
 
-glab-flow **vendor 了 OA 方法论**——`sub-skills/` 下的 7 个子 skill（spec-author / git-ops / tdd-guide / code-review / test-design / test-flow-apifox / jenkins-deploy）是流程方法论本体，随 skill 一起拷贝，构成 glab-flow 的自包含能力栈。这些子 skill 在运行时会调用一批外部工具，它们是**运行时依赖**而非 vendor 对象：已装即用、未装按需引导安装，**不随 skill 拷贝、不在 skill 仓里维护**。下面列全清单。
+glab-flow **vendor 了 OA 方法论**——`sub-skills/` 下的 8 个子 skill（spec-author / git-ops / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）是流程方法论本体，随 skill 一起拷贝，构成 glab-flow 的自包含能力栈。这些子 skill 在运行时会调用一批外部工具，它们是**运行时依赖**而非 vendor 对象：已装即用、未装按需引导安装，**不随 skill 拷贝、不在 skill 仓里维护**。下面列全清单。
 
 ### 1. `glab` CLI —— GitLab 读写
 
@@ -27,7 +27,7 @@ GitLab Issue 的全部读写（view / update label / note / close / `glab api`�
 
 CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文件都已解析）。读取亚毫秒，索引滞后写入约 1 秒。
 
-- 使用方：`sub-skills/tdd-guide.md`（定位被测符号、查 callers/callees 判断改动影响面、找现有测试惯例——先 codegraph 再写测试）、`sub-skills/code-review.md`（按改动符号查影响面）、`agents/review-preview.md`（凡把现有系统行为作为阻塞/退回依据，先用 codegraph 或源码证据核实）。
+- 使用方：`sub-skills/git-ops.md`（定位改动符号、查 callers/callees 判断影响面）、`sub-skills/code-review.md`（按改动符号查影响面）、`agents/review-preview.md`（凡把现有系统行为作为阻塞/退回依据，先用 codegraph 或源码证据核实）。
 - 工具面：`codegraph_search` / `codegraph_context` / `codegraph_callers` / `codegraph_callees` / `codegraph_impact` / `codegraph_node` / `codegraph_explore` / `codegraph_files`。
 - 未初始化（`.codegraph/` 不存在）→ 提示用户跑 `codegraph init -i` 构建索引，不回退到 grep 暴力扫。
 
@@ -50,6 +50,7 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 - 相关 skill：`apifox-test-case` / `apifox-test-scenario` / `apifox-test-automation` / `apifox-cli` / `apifox-cli-checkup` / `apifox-branch` / `apifox-import-export` / `apifox-workflow-api-lifecycle`。
 - 使用方：`sub-skills/test-flow-apifox.md`（执行 test-design 产出的用例，回传 pass/fail 契约）。
 - glab-flow **不自带 apifox 能力**，只提供执行方法论与结果契约；apifox 未配置 → test-flow-apifox 引导 `apifox-cli-checkup` 体检并配置当前项目。
+- 资产治理：场景、套件/场景分组、测试数据与场景实例由 Leader 通过当前 CLI `list/get` 回读后形成 `apifox-asset-audit`；引擎只校验该审计，不直接读写 Apifox。测试套件是否可用以当前项目 UI/CLI 为准，不硬编码为全项目必备能力。
 
 ### 5. MySQL MCP —— 数据库查验（可选）
 

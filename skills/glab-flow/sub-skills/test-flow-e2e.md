@@ -1,13 +1,13 @@
 ---
 name: glab-flow-test-flow-e2e
-description: 测试中节点的 E2E 测试执行（前端 UI 流），消费 test-plan.md 的 e2e 用例，经 e2e-runner/playwright 执行，证据三段式挂父 Issue 评论。
+description: local/test 环境的 E2E 测试执行（前端 UI 流），消费 test-plan.md 的 e2e 用例，经 e2e-runner/playwright 执行并写入 TestRun。
 ---
 
-> 本文件是 glab-flow 自有子 skill（方法论，单 Leader）。在测试中 由 Leader Read 本文件内联执行，或 spawn `general-purpose` 以其为 prompt。运行时工具依赖见 `../tools.md`。
+> 本文件是 glab-flow 自有子 skill（方法论，单 Leader）。在 local 或 test 执行时由 Leader Read 本文件内联执行。运行时工具依赖见 `../tools.md`。
 
 # Test Flow (E2E)：前端端到端测试执行
 
-「测试中」节点（见 `../nodes.md`）的工作 agent 是 `test-design / test-flow-apifox / test-flow-e2e`。本文件规定 E2E 部分：消费 test-design 产出的 **e2e 类用例**（见同目录 `test-design.md` 的 test-plan.md），经 e2e-runner / playwright 执行，收集结果并挂父 GitLab Issue 评论。
+本文件规定 E2E 部分：消费 test-design 产出的 **e2e 类用例**（见同目录 `test-design.md` 的 test-plan.md），在 local 或 test 环境经 e2e-runner / Playwright 实际执行，并将证据收录到该环境 TestRun。
 
 ## 为什么 E2E 必须有
 
@@ -29,9 +29,9 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 - **对齐 test-plan.md**：执行范围对齐 test-design 的 e2e 用例编号，结果回填到用例编号，便于追溯。
 - **未装 e2e-runner 时降级**：Leader 不报错中止，改用 Playwright（或项目自带 E2E runner）按 test-plan.md 手动执行，结果标注「未用 e2e-runner，Playwright 执行」。降级结果同样须满足下面的证据三段式。
 
-## 双跑与产物落点（强制）
+## 两环境执行与产物落点（强制）
 
-**自测（开发中）与测试环境测试（测试中）都必须包含接口测试 + E2E 两类**——只跑接口不算完成：接口测契约，E2E 测可见性/交互/时序，二者覆盖面不重叠。自测阶段 E2E 至少覆盖主流程（test-plan.md 的 P0 e2e 用例）；测试中阶段覆盖全部 e2e 用例。
+只执行 test-plan 中为当前环境声明的 e2e 用例：local 的全部 local e2e 用例是“开发中→测试中”门禁，test 的全部 test e2e 用例是“测试中→待发布”门禁。接口测契约，E2E 测可见性/交互/时序；两者都被计划要求时不可互相替代。不得只跑 P0 冒烟，也不得为纯后端需求伪造 E2E。
 
 **所有产出按需求目录归位，禁止散落工作区根/全局位置**：
 
@@ -49,7 +49,7 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 
 ## 结果收集（证据三段式）
 
-与 `test-flow-apifox.md` / `tdd-guide.md` 一致，作为「测试验收」门禁输入（见 `../gate.md`）。口头「点了一遍没问题」不被接受。
+与 `test-flow-apifox.md` 一致，执行证据进入该环境的 TestRun，作为 local 或 test 门禁输入（见 `../gate.md`）。口头「点了一遍没问题」不被接受。
 
 1. **命令**：实际执行的 e2e-runner / Playwright 调用（含目标环境 URL、用例范围、浏览器）。
 2. **计数**：`E2E 用例: X passed, Y failed, Z skipped`。
@@ -63,6 +63,6 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 
 ## glab-flow 上下文
 
-- **节点归属**：「测试中」（`../nodes.md`）。nodeProgress 的「用例执行」步骤涵盖 API（test-flow-apifox）+ E2E（本文件）；Leader 用 `progress` 命令标 done。
+- **节点归属**：local 执行在「开发中」收尾，test 执行在「测试中」收尾。每次运行都把 e2e 结果写入对应环境 TestRun；nodeProgress 的「自测/用例执行」步骤涵盖 API（test-flow-apifox）+ E2E（本文件）。
 - **单 Leader**：调度 e2e-runner/Playwright、收集结果、判定阻塞、挂评论，不组建多 agent 团队。
 - **门禁对齐**：E2E 结果是「测试验收」门禁输入；UI 类 AC 的 E2E 未过 → Leader 不推进状态。

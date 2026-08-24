@@ -7,13 +7,14 @@ description: glab-flow 测试配置示例。放到 <workspace.root>/.glab-flow/t
 
 > 边界:**Apifox 能承载的不在这里**——环境 base_url、接口定义、用例、套件、报告都以 Apifox 为准(本文件只存"项目名→ID/环境名→ID"索引)。
 > 本文件承载 Apifox 不知道的:**改动仓库 → 该用哪个 Apifox 项目测**(routes)、数据库 MCP 引用、前端构建策略、测试数据策略、测试账号。
-> 消费方:glab-flow 开发中自测 / 测试中(`pnpm cli test-context`)。test-flow 用 `.claude/project-config.md`,与本文互不相干。
+> 消费方:glab-flow 的 local 与 test TestRun（`pnpm cli test-config`）。二者采用同一份版本化 test-plan，只切换环境 Profile；本配置不授予 Codex shell 或 Apifox 外部 AI 写入权限。
+> 资产治理:本配置只提供环境 Profile；场景/套件或场景分组/测试数据/场景实例的复用和回读由 test-plan 的 `asset:` 声明与 `apifox-asset-audit` 承担，不能用配置文件替代资产审计。
 > 消费命令:`cat <本文件> | pnpm cli test-config --repos <改动仓库,逗号分隔> --env <环境名> [--iid <iid>]` → 完备测试上下文(配置送到脸上,不靠找)。
 
 ```yaml
 # ---- 环境矩阵:每个环境一个 Profile(索引 Apifox 项目+环境,不复制 base_url) ----
 environments:
-  local:                              # 本地 Docker 开发自测(开发中自测用)
+  local:                              # 本地 Docker 完整业务闭环（开发中→测试中门禁）
     apifox: { project: oa_platform, env: local }
     databases:                        # 键 → config.md databases 的引用(连接信息在交付配置)
       platform: local_platform
@@ -31,7 +32,7 @@ environments:
     web_url: "http://tenant.oa.com"   # 前端入口(E2E 浏览器用;API base 以 Apifox 环境为准)
     desc: "本地 Docker;前端必须构建到 oa-platform"
 
-  test:                               # 已部署测试环境(测试中验收用)
+  test:                               # 已部署测试环境完整业务闭环（测试中→待发布门禁）
     apifox: { project: oa_platform, env: test }
     databases: { platform: test_platform }
     test_data: { prefix: "E2E{iid}", cleanup_required: true, prohibited: [本地E2E数据] }
