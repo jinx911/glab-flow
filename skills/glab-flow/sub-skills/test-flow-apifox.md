@@ -38,7 +38,7 @@ apifox test-suite list --project <id>     # 套件非空;local/Stage 各有入�
 apifox test-report list --project <id>    # 报告可从项目级查到,environmentName 正确
 ```
 
-不一致(如页面显示本地但实际跑的 Stage)→ 在报告中**单列说明**,不静默。
+不一致(如页面显示本地但实际跑的 Stage)→ 形成 `presentation` 不匹配，**停止 AssetAudit/TestRun**；只在报告中说明而继续放行是不允许的。
 
 ## 测试报告拆两类(glab-flow 合并评论的测试报告内容体)
 
@@ -69,7 +69,7 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 2. 场景必须回读步骤非空；套件/分组必须回读成员非空；测试数据必须回读实际数据行；场景实例必须对应同一流程的环境/数据/循环配置。
 3. 新需求先检索现有业务域/功能能力资产，复用或更新优先于新建；新建/更新必须按当前 Apifox schema 校验、写入后 `get` 回读。不得自动删除已有资产。
 4. 发现空壳、重复、孤儿、未清理 `TMP-<iid>-` 数据或未能解释的新建资产时停止，处置后重新审计。
-5. 将项目、分支、环境、回读证据、计划资产与未处置问题数喂给 `pnpm cli asset-audit`。输出评论新增到 Issue 后回读；只有最新审计通过，才生成 `asset-audit: <plan-version>/<environment>` 的 TestRun。
+5. 将项目、分支、环境、回读证据、计划资产与未处置问题数喂给 `pnpm cli asset-audit`。计划若含 `presentation:` 或 `auth-profile:`，还必须写入 v2 的页面环境三方比对和非敏感认证回执；输出评论新增到 Issue 后回读。只有最新审计通过，才生成 `asset-audit: <plan-version>/<environment>` 的 TestRun。
 
 审计 marker 例：
 
@@ -85,6 +85,18 @@ asset: TP-001 | scenario | scenario-101 | reuse
 asset: TP-001 | suite-or-group | group-201 | reuse
 -->
 ```
+
+v2 增量（按计划声明逐项出现）：
+
+```text
+<!-- glab-flow:apifox-asset-audit:v2
+...
+presentation: TP-001 | scenario | stage | stage | stage
+auth-profile: TP-001 | client-user | auth_token
+-->
+```
+
+`auth_token` 只是临时变量名，不是 token 值。登录步骤在后置操作中断言登录成功并提取该变量；业务请求统一使用鉴权变量。跨场景运行仅在登录入口位于执行链路开头、命令包含 `--carry-runtime-variables` 时传递；其余独立场景重新登录。
 
 ## 报告上传授权预检（强制，未通过停止）
 

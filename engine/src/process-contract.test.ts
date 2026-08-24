@@ -217,6 +217,20 @@ describe('glab-flow process contracts', () => {
     expect(tools).toMatch(/不硬编码.*必备能力/);
   });
 
+  it('treats visible Apifox environment and reusable authentication as governed evidence', () => {
+    const design = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
+    const apifox = readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md');
+    const flow = readProjectFile('docs/flow.md');
+
+    expect(design).toMatch(/presentation:/);
+    expect(design).toMatch(/auth-profile:/);
+    expect(design).toMatch(/临时.*token|token.*临时/);
+    expect(apifox).toContain('<!-- glab-flow:apifox-asset-audit:v2');
+    expect(apifox).toMatch(/页面显示本地.*Stage[\s\S]{0,100}(停止|阻断)/);
+    expect(apifox).toMatch(/--carry-runtime-variables/);
+    expect(flow).toMatch(/四层.*环境|环境事实/);
+  });
+
   it('treats detailed Apifox report upload as an explicit two-layer authorization gate', () => {
     const apifox = readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md');
 
@@ -301,7 +315,7 @@ describe('glab-flow process contracts', () => {
     const combinedDocs = REUSABLE_DOCS
       .map(readProjectFile)
       .join('\n')
-      .replace(/<!-- glab-flow:(?:artifact-receipt|test-plan|test-run|apifox-asset-audit):v1\r?\n[\s\S]*?-->/g, '');
+      .replace(/<!-- glab-flow:(?:artifact-receipt|test-plan|test-run|apifox-asset-audit):v[12]\r?\n[\s\S]*?-->/g, '');
 
     assertNoPattern(combinedDocs, [
       /issues\/\d+/,

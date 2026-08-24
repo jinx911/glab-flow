@@ -89,3 +89,6 @@ Harness 是唯一的 Milestone writer。glab-flow 的引擎和 Leader 都没有 
 - 护栏 G1–G14 的完整判定与触发条件见 `guards.md`。
 - 各节点的下一节点、必填项、门禁类型、Assignee 角色见 `nodes.md`。
 - run 模式在恢复场景下的取值（state vs config）见 `resume.md`。
+# Apifox v2 资产审计补充
+
+当 `test-plan.md` 声明 `presentation: <case> | <asset-type>` 或 `auth-profile: <case> | <profile>` 时，local/test 的最新审计必须是 `glab-flow:apifox-asset-audit:v2`。v2 逐项记录预期页面环境、实际页面环境、报告环境，以及 profile 与临时 token 变量名；三种环境不一致、缺认证回执、未知声明或任何凭据/token 值均阻断对应的 AssetAudit 与 TestRun。

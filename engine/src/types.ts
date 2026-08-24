@@ -174,6 +174,10 @@ export interface TestPlanCase {
   environments: TestEnvironment[];
   methods: TestMethod[];
   assets: ApifoxAssetType[];
+  /** Assets whose Apifox list/detail projection must be audited by a v2 receipt. */
+  presentations: ApifoxAssetType[];
+  /** Named, non-secret authentication profiles required by this test case. */
+  authProfiles: string[];
 }
 
 /** Parsed machine manifest embedded in the human-readable test-plan.md. */
@@ -211,8 +215,26 @@ export interface ApifoxAssetRecord {
   action: ApifoxAssetAction;
 }
 
+/** One user-visible Apifox projection and its corresponding report environment. */
+export interface ApifoxAssetPresentation {
+  caseId: string;
+  type: ApifoxAssetType;
+  expectedEnvironment: string;
+  displayedEnvironment: string;
+  reportEnvironment: string;
+}
+
+/** Non-secret receipt that a case used the declared login contract and temporary token variable. */
+export interface ApifoxAuthProfileReceipt {
+  caseId: string;
+  profile: string;
+  tokenVariable: string;
+}
+
 /** Parsed immutable Issue comment proving that planned Apifox resources were audited. */
 export interface ApifoxAssetAudit {
+  /** v1 is accepted for historical plans; v2 carries presentation/authentication evidence. */
+  markerVersion?: 'v1' | 'v2';
   environment: TestEnvironment;
   planVersion: string;
   project: string;
@@ -220,6 +242,8 @@ export interface ApifoxAssetAudit {
   unresolvedFindings: number;
   evidence: string;
   assets: ApifoxAssetRecord[];
+  presentations?: ApifoxAssetPresentation[];
+  authProfiles?: ApifoxAuthProfileReceipt[];
 }
 
 export type LatestApifoxAssetAudit =

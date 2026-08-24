@@ -112,6 +112,8 @@ UI 渲染、弹窗文案、按钮显隐分支、交互时序这类验收标准�
 - **环境切换 = 运行时**:同一套件,执行时 `-e <envId> --variables <vars文件>` 切(test-context 的 apifoxTargets[].envId + test-config 的 variables_file);每环境各跑一次各出报告。**base_url 由 `-e` 切、凭据/参数由 vars 文件按环境条目注入**,场景/套件零改动。
 - **参数三轴归位**(判定口诀):随环境轴变(每环境一值)→ apifox-vars.json;随轮次轴变(同环境 N 值,矩阵)→ Apifox 云端数据集 `-d <testDataId>`(开发中可先本地行文件过渡);不变 → 写死在 case。账号和业务参数走同一机制,不按参数种类分。
 - **登录 = 共用契约**:所有项目从 test-config `login.owner` 项目持有的登录接口拿 token(`{{login.token_var}}`),后置提取注入后续步骤;不为每个项目各写一套登录。
+- **AuthProfile = 可审计复用**：每条需认证 case 在计划 marker 中声明 `auth-profile: <case> | <profile>`；登录后置同时断言成功、提取命名**临时** token，后续请求统一引用 `Bearer {{token}}`。账号、密码和 token 值只存在于运行时变量文件；401/403 保留为失败，不能静默重新登录掩盖问题。
+- **页面展示 = 验收数据**：每个环境验收入口在计划 marker 增加 `presentation: <case> | <asset-type>`。执行后必须核对 Apifox 列表/详情中的名称、目录、标签、运行环境，并使之与该入口的报告环境相同；跨环境基础场景不能以页面显示的单一 local 值冒充 Stage 验收。
 - **目录规范（官方分组用法）**：场景目录按「需求 → 功能域 →（环境子目录，仅当执行工具不同）」；套件目录按「需求域 → 用途（local/test/专项矩阵）」。场景/套件**不放根目录**——建了目录必须归位(`folder-id`)，空目录及时删。
 
 ## glab-flow 上下文
