@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="glab-flow：将 GitLab Issue 驱动的需求交付流程变成可验证、可回读、可恢复的确定性闭环。">
+  <title>glab-flow · 让 AI 推进需求，不绕过交付流程</title>
+  <style>
+    :root { --bg:#07111f; --panel:#0c1b2f; --panel-2:#10243d; --line:#254461; --text:#e8f1fb; --muted:#9bb0c8; --cyan:#5ee8e8; --blue:#70a7ff; --amber:#ffc75f; --coral:#ff8f7d; --green:#73dfad; --shadow:0 20px 45px rgba(0,0,0,.28); }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; background:var(--bg); }
+    body { margin:0; color:var(--text); background:radial-gradient(circle at 12% 0%, #153458 0, transparent 31rem),radial-gradient(circle at 90% 8%,#142e4c 0,transparent 28rem),var(--bg); font:16px/1.65 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    a { color:var(--cyan); text-decoration:none; } a:hover { text-decoration:underline; }
+    .wrap { width:min(1160px, calc(100% - 40px)); margin:auto; }
+    nav { display:flex; justify-content:space-between; align-items:center; padding:22px 0; border-bottom:1px solid rgba(155,176,200,.17); }
+    .brand { display:flex; gap:10px; align-items:center; color:#fff; font-weight:800; letter-spacing:.02em; } .mark { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; color:#05101c; background:linear-gradient(135deg,var(--cyan),var(--blue)); font-size:18px; }
+    nav .links { display:flex; gap:20px; font-size:14px; } nav .links a { color:var(--muted); }
+    .hero { display:grid; grid-template-columns:1.1fr .9fr; gap:56px; align-items:center; padding:92px 0 72px; }
+    .eyebrow { color:var(--cyan); letter-spacing:.13em; text-transform:uppercase; font-size:12px; font-weight:750; }
+    h1 { max-width:760px; margin:15px 0 22px; font-size:clamp(40px, 6vw, 72px); letter-spacing:-.055em; line-height:1.04; } h1 em { color:var(--cyan); font-style:normal; } h1 .mobile-break { display:none; }
+    .lead { max-width:620px; color:var(--muted); font-size:19px; }
+    .actions { display:flex; gap:12px; flex-wrap:wrap; margin-top:30px; } .button { display:inline-flex; align-items:center; gap:8px; padding:10px 16px; border-radius:9px; border:1px solid var(--line); color:var(--text); font-weight:700; } .button.primary { color:#062132; border-color:transparent; background:linear-gradient(110deg,var(--cyan),#8ec5ff); } .button:hover { text-decoration:none; transform:translateY(-1px); }
+    .proof { width:100%; min-width:0; max-width:100%; display:grid; gap:12px; padding:22px; border:1px solid var(--line); border-radius:18px; background:linear-gradient(145deg,rgba(20,48,80,.94),rgba(9,23,39,.94)); box-shadow:var(--shadow); } .proof div { min-width:0; display:grid; grid-template-columns:38px minmax(0,1fr); gap:11px; align-items:start; } .proof b { display:block; } .proof span { color:var(--muted); font-size:14px; overflow-wrap:anywhere; } .proof i { display:grid; place-items:center; width:30px; height:30px; border:1px solid #2d6285; border-radius:8px; color:var(--cyan); font-style:normal; }
+    section { min-width:0; padding:72px 0; border-top:1px solid rgba(155,176,200,.14); } h2 { margin:0 0 12px; font-size:clamp(28px,4vw,43px); letter-spacing:-.035em; } .section-intro { max-width:720px; margin:0 0 34px; color:var(--muted); font-size:17px; }
+    .problem-grid,.principles { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; } .card { padding:22px; border:1px solid var(--line); border-radius:14px; background:rgba(12,27,47,.72); } .card h3 { margin:0 0 8px; font-size:17px; } .card p { margin:0; color:var(--muted); font-size:14px; }
+    .flow-shell { min-width:0; max-width:100%; overflow-x:auto; padding:20px; border:1px solid var(--line); border-radius:18px; background:linear-gradient(160deg,#0d2138,#071525); box-shadow:var(--shadow); } .flow-shell svg { display:block; min-width:1040px; width:100%; height:auto; } .flow-caption { display:flex; gap:16px; flex-wrap:wrap; padding:17px 4px 0; color:var(--muted); font-size:13px; } .legend { display:flex; align-items:center; gap:7px; } .dot { width:10px; height:10px; border-radius:50%; background:var(--cyan); } .dot.gate { background:var(--amber); } .dot.change { background:var(--coral); }
+    .chain { display:grid; grid-template-columns:repeat(5,1fr); gap:0; overflow:auto; border:1px solid var(--line); border-radius:14px; background:var(--panel); } .chain div { position:relative; min-width:170px; padding:19px 18px; } .chain div + div { border-left:1px solid var(--line); } .chain div + div::before { content:"→"; position:absolute; left:-9px; top:16px; color:var(--cyan); background:var(--panel); padding:0 1px; } .chain strong { display:block; font-size:14px; } .chain span { color:var(--muted); font-size:12px; }
+    .steps { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; } .step { display:grid; grid-template-columns:38px 1fr; gap:15px; padding:19px; border-left:2px solid var(--cyan); background:rgba(12,27,47,.72); } .step .num { color:var(--cyan); font:800 18px/1 ui-monospace, SFMono-Regular, Menlo, monospace; } .step b { display:block; } .step p { margin:4px 0 0; color:var(--muted); font-size:14px; }
+    .callout { margin-top:26px; padding:20px 22px; border:1px solid rgba(255,143,125,.52); border-radius:13px; background:rgba(110,48,54,.2); } .callout b { color:#ffc2b9; }
+    footer { padding:34px 0 48px; color:var(--muted); font-size:14px; } .footer-row { display:flex; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+    @media (max-width:760px) { body { overflow-x:hidden; } .wrap { width:calc(100vw - 28px); } nav .links { display:none; } .hero { width:100%; min-width:0; grid-template-columns:minmax(0,1fr); gap:28px; padding:58px 0 50px; } .hero > *, .proof p { min-width:0; } h1 { max-width:100%; overflow-wrap:anywhere; } h1 .mobile-break { display:block; } .problem-grid,.principles,.steps { grid-template-columns:minmax(0,1fr); } section { padding:54px 0; } .chain { grid-template-columns:1fr; } .chain div + div { border-left:0; border-top:1px solid var(--line); } .chain div + div::before { left:16px; top:-12px; } }
+    @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } .button { transform:none !important; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav aria-label="主导航"><a class="brand" href="#top"><span class="mark">↗</span> glab-flow</a><div class="links"><a href="#flow">完整流程</a><a href="#guardrails">闭环护栏</a><a href="#start">快速开始</a><a href="https://github.com/jinx911/glab-flow">GitHub ↗</a></div></nav>
+    <main id="top">
+      <section class="hero" aria-labelledby="title">
+        <div><p class="eyebrow">GitLab 原生交付 Harness</p><h1 id="title">让 AI 推进需求，<br class="mobile-break"><em>不绕过</em>交付流程。</h1><p class="lead">glab-flow 将 GitLab Issue 驱动的需求交付做成确定性闭环：人负责判断与确认，纯引擎负责节点、护栏、证据、回退和可恢复的写回计划。</p><div class="actions"><a class="button primary" href="#flow">查看完整流程 ↓</a><a class="button" href="README.md">开发者文档</a></div></div>
+        <aside class="proof" aria-label="项目特性"><div><i>01</i><p><b>GitLab Issue 是事实源</b><span>标签与不可变评论可回读；本地状态仅是恢复缓存。</span></p></div><div><i>02</i><p><b>引擎零副作用</b><span>只计算、校验、渲染和建计划；Leader 才使用已认证的 glab 写回。</span></p></div><div><i>03</i><p><b>一份计划，多环境执行</b><span>local 与 test 使用同一份版本化测试计划，环境只改变配置。</span></p></div><div><i>04</i><p><b>变更必须闭环</b><span>需求、方案或实现改变会使相关证据失效，未关闭影响单不能继续流转。</span></p></div></aside>
+      </section>
+
+      <section aria-labelledby="why"><p class="eyebrow">为什么需要它</p><h2 id="why">AI 最容易遗漏的，恰恰是交付中的连接处。</h2><p class="section-intro">写出代码不等于需求完成。真正容易断裂的是方案是否回写、测试计划是否先于自测、环境证据是否可信，以及实现中发现错误后是否同步影响到所有下游产物。</p><div class="problem-grid"><article class="card"><h3>状态能改，证据却缺失</h3><p>用可计算门禁、明确负责人和回读流程，避免“看起来已推进”。</p></article><article class="card"><h3>本地通过，不等于可提测</h3><p>本地与测试环境都执行同一计划，并校验 Apifox 资产、运行环境与报告事实。</p></article><article class="card"><h3>变更只改代码，规格已过期</h3><p>变更影响单锁住正向推进，直到需求、设计、测试与环境重跑完整闭环。</p></article></div></section>
+
+      <section id="flow" aria-labelledby="flow-title"><p class="eyebrow">交付流程</p><h2 id="flow-title">一条需求，从澄清到验收的完整路线。</h2><p class="section-intro">主线是 Story 状态机；每一个箭头都代表有证据、有负责人、可预览的转换。Bug 进入“已确认缺陷”后复用开发、测试、发布与生产验证闭环。</p>
+        <div class="flow-shell" role="region" aria-label="glab-flow 完整需求推进流程图，可横向滚动查看">
+          <svg viewBox="0 0 1740 540" role="img" aria-labelledby="svg-title svg-desc"><title id="svg-title">glab-flow Story 交付流程与变更闭环</title><desc id="svg-desc">从草稿中开始，经过待评审、已评审、开发中、测试中、待发布、生产验收中，到已完成；变更影响单要求同步相关产物并重跑必要环境后才能继续。</desc><defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#5ee8e8"/></marker><marker id="back" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff8f7d"/></marker></defs>
+            <text x="36" y="42" fill="#9bb0c8" font-size="15" font-family="system-ui">Story 主线 · 每次状态变更均为：取证 → 校验 → 预览 → 确认 → 写回 → 回读</text>
+            <g font-family="system-ui" font-size="15" text-anchor="middle"><path d="M186 125H230M386 125H430M586 125H630M786 125H830M986 125H1030M1186 125H1230M1386 125H1430" stroke="#5ee8e8" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
+              <g transform="translate(30 82)"><rect width="156" height="86" rx="12" fill="#112b43" stroke="#417797"/><text x="78" y="37" fill="#e8f1fb">草稿中</text><text x="78" y="62" fill="#9bb0c8" font-size="12">澄清 · 六清楚</text></g>
+              <g transform="translate(230 82)"><rect width="156" height="86" rx="12" fill="#112b43" stroke="#417797"/><text x="78" y="37" fill="#e8f1fb">待评审</text><text x="78" y="62" fill="#9bb0c8" font-size="12">OCR · 路由 · grilling</text></g>
+              <g transform="translate(430 82)"><rect width="156" height="86" rx="12" fill="#112b43" stroke="#417797"/><text x="78" y="37" fill="#e8f1fb">已评审</text><text x="78" y="62" fill="#9bb0c8" font-size="12">技术方案 · 周排期</text></g>
+              <g transform="translate(630 82)"><rect width="156" height="86" rx="12" fill="#123b4b" stroke="#5ee8e8" stroke-width="2"/><text x="78" y="32" fill="#e8f1fb">开发中</text><text x="78" y="55" fill="#d9fbfb" font-size="12">方案 → 测试计划 → 编码</text><text x="78" y="74" fill="#9bb0c8" font-size="12">本地自测 · 代码评审</text></g>
+              <g transform="translate(830 82)"><rect width="156" height="86" rx="12" fill="#123b4b" stroke="#5ee8e8" stroke-width="2"/><text x="78" y="37" fill="#e8f1fb">测试中</text><text x="78" y="62" fill="#9bb0c8" font-size="12">同一计划 · test 执行</text></g>
+              <g transform="translate(1030 82)"><rect width="156" height="86" rx="12" fill="#493b1e" stroke="#ffc75f" stroke-width="2"/><text x="78" y="37" fill="#fff0cf">待发布</text><text x="78" y="62" fill="#dec99a" font-size="12">MR 评审 · 发布计划</text></g>
+              <g transform="translate(1230 82)"><rect width="156" height="86" rx="12" fill="#493b1e" stroke="#ffc75f" stroke-width="2"/><text x="78" y="37" fill="#fff0cf">生产验收中</text><text x="78" y="62" fill="#dec99a" font-size="12">发布 hard gate</text></g>
+              <g transform="translate(1430 82)"><rect width="156" height="86" rx="12" fill="#173c35" stroke="#73dfad" stroke-width="2"/><text x="78" y="37" fill="#d9fff0">已完成</text><text x="78" y="62" fill="#9ce8c3" font-size="12">验收 · 关闭 Issue</text></g>
+              <path d="M508 168V214H308V168" stroke="#ff8f7d" stroke-width="2" stroke-dasharray="6 6" fill="none" marker-end="url(#back)"/><text x="406" y="208" fill="#ffb7ac" font-size="12">需求评审退回</text>
+              <path d="M908 168V214H708V168" stroke="#ff8f7d" stroke-width="2" stroke-dasharray="6 6" fill="none" marker-end="url(#back)"/><text x="808" y="208" fill="#ffb7ac" font-size="12">整体返工</text>
+            </g>
+            <line x1="32" y1="262" x2="1588" y2="262" stroke="#254461"/>
+            <text x="36" y="296" fill="#ffb7ac" font-size="15" font-family="system-ui">变更闭环旁路 · 发现需求 / 方案 / 实现 / 测试错误时，不允许直接继续主线</text>
+            <g font-family="system-ui" font-size="14" text-anchor="middle"><path d="M285 372H335M590 372H640M965 372H1015M1270 372H1320" stroke="#ff8f7d" stroke-width="3" fill="none" marker-end="url(#back)"/>
+              <g transform="translate(35 332)"><rect width="250" height="80" rx="12" fill="#3c2430" stroke="#a95d66"/><text x="125" y="34" fill="#fff0f0">发现变更或错误</text><text x="125" y="58" fill="#e6a8ad" font-size="12">需求 · 方案 · 实现 · 测试</text></g>
+              <g transform="translate(335 332)"><rect width="255" height="80" rx="12" fill="#3c2430" stroke="#ff8f7d"/><text x="127" y="34" fill="#fff0f0">change-impact</text><text x="127" y="58" fill="#e6a8ad" font-size="12">生成 open 影响单与回退建议</text></g>
+              <g transform="translate(640 332)"><rect width="325" height="80" rx="12" fill="#3c2430" stroke="#a95d66"/><text x="162" y="30" fill="#fff0f0">同步全部受影响产物</text><text x="162" y="53" fill="#e6a8ad" font-size="12">proposal · design · test-plan · Apifox · 排期</text><text x="162" y="70" fill="#e6a8ad" font-size="12">必要时 plan-return</text></g>
+              <g transform="translate(1015 332)"><rect width="255" height="80" rx="12" fill="#3c2430" stroke="#a95d66"/><text x="127" y="34" fill="#fff0f0">按影响环境重跑</text><text x="127" y="58" fill="#e6a8ad" font-size="12">local / test 证据随版本失效</text></g>
+              <g transform="translate(1320 332)"><rect width="250" height="80" rx="12" fill="#173c35" stroke="#73dfad"/><text x="125" y="34" fill="#d9fff0">change-close</text><text x="125" y="58" fill="#9ce8c3" font-size="12">回读 closed 后恢复推进</text></g>
+              <path d="M1445 332V280H710V262" stroke="#73dfad" stroke-width="2" fill="none" marker-end="url(#arrow)"/><text x="1065" y="277" fill="#9ce8c3" font-size="12">关闭前，G16 阻断一切正向状态流转</text>
+            </g>
+            <g transform="translate(1170 456)" font-family="system-ui"><rect width="395" height="48" rx="10" fill="#10243d" stroke="#417797"/><text x="18" y="30" fill="#9bb0c8" font-size="13">周排期：评审通过 / 排期变更 → Week Milestone 同步 → 周一 rollover</text></g>
+          </svg>
+        </div>
+        <div class="flow-caption"><span class="legend"><i class="dot"></i>常规可计算转换</span><span class="legend"><i class="dot gate"></i>人工 hard gate</span><span class="legend"><i class="dot change"></i>变更回退与闭环</span><span>流程图表达 Story 主线；Bug 从“已确认缺陷”进入同一开发、测试、发布与生产验证闭环。</span></div>
+      </section>
+
+      <section id="guardrails" aria-labelledby="guard-title"><p class="eyebrow">用证据，而非乐观判断</p><h2 id="guard-title">把“应该做”变成每次都能验证的护栏。</h2><p class="section-intro">glab-flow 不把 AI 的自然语言判断当作状态机事实。所有关键转换都以结构化输入、不可变 Issue 评论和刚回读的事实为基础。</p><div class="chain" aria-label="多环境测试证据链"><div><strong>TestPlan</strong><span>唯一版本化输入</span></div><div><strong>Apifox 资产审计</strong><span>场景、套件、数据与页面展示</span></div><div><strong>环境 TestRun</strong><span>本地 / 测试环境分别执行</span></div><div><strong>Gate 校验</strong><span>版本、覆盖、证据、阻塞项</span></div><div><strong>Issue 回读</strong><span>GitLab 成为可恢复事实源</span></div></div>
+        <div class="principles" style="margin-top:16px"><article class="card"><h3>评审先把问题问透</h3><p>图片必须 OCR；前端位置须由代码路由验证；关键不确定性进入决策账本。</p></article><article class="card"><h3>测试计划先于编码</h3><p>开发中先设计计划，再编码和本地完整业务闭环；测试环境执行同一计划。</p></article><article class="card"><h3>排期只改 Milestone</h3><p>周排期评论回读后同步 Week Milestone，自动任务不改正文、状态、负责人或历史评论。</p></article></div>
+        <aside class="callout"><b>G16 · 变更闭环：</b>一旦 `change-impact` 写入 open 回执，普通正向流转立即停止。只有关联产物、测试计划版本、Apifox 资产和受影响环境执行证据都已完成，并写入 `change-close` 后，流程才能恢复。</aside>
+      </section>
+
+      <section id="start" aria-labelledby="start-title"><p class="eyebrow">快速开始</p><h2 id="start-title">从 GitLab Issue 开始，不从一段孤立的提示词开始。</h2><div class="steps"><div class="step"><span class="num">01</span><div><b>安装并初始化项目上下文</b><p>将技能链接到 Claude Code / Codex，为目标工作区生成流程与测试配置。</p></div></div><div class="step"><span class="num">02</span><div><b>以 Issue 触发完整流转</b><p>引擎读取标签与评论，计算当前节点、缺口、回写计划和节点内进度。</p></div></div><div class="step"><span class="num">03</span><div><b>在每个门禁处取得证据</b><p>需求评审、技术方案、本地闭环、测试环境、MR 与发布均有独立职责和证据。</p></div></div><div class="step"><span class="num">04</span><div><b>用不可变回执恢复与审计</b><p>写回失败或跨会话时从 GitLab 回读，只重试第一个未完成阶段。</p></div></div></div><div class="actions"><a class="button primary" href="README.md">阅读安装与使用文档</a><a class="button" href="CONTRIBUTING.md">参与贡献</a><a class="button" href="https://github.com/jinx911/glab-flow">查看源代码 ↗</a></div></section>
+    </main>
+    <footer><div class="footer-row"><span><strong>glab-flow</strong> · GitLab 原生交付 Harness</span><span>MIT 许可证 · 2026 · <a href="https://github.com/jinx911/glab-flow">GitHub</a></span></div></footer>
+  </div>
+</body>
+</html>

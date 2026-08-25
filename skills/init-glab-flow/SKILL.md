@@ -5,7 +5,7 @@ description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md
 
 # /init-glab-flow：生成项目级 glab-flow 配置
 
-`/init-glab-flow` 是一次性的环境探测与配置生成命令。它询问少量必要信息，以 `skills/glab-flow/config.example.md` + `skills/glab-flow/test-config.example.md` 为模板，把探测到的值分别填进：
+`/init-glab-flow` 是一次性的环境探测与配置生成命令。开始前必须确认全量安装已通过：在 glab-flow 仓库根运行 `scripts/doctor.sh --workspace <workspace.root>`，有任何 `FAIL` 都先修复，不能带缺口生成配置。通过后它询问少量必要信息，以 `skills/glab-flow/config.example.md` + `skills/glab-flow/test-config.example.md` 为模板，把探测到的值分别填进：
 
 - `<workspace.root>/.glab-flow/config.md` — **交付流程配置**（GitLab/分支/Jenkins/数据库索引）
 - `<workspace.root>/.glab-flow/test-config.md` — **测试配置**（Apifox 项目路由/环境 ID/凭据变量/测试数据策略；接口测试启用时才生成）

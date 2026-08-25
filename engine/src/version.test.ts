@@ -17,7 +17,9 @@ describe('checkRuntimeVersion (issue 22 运行时版本守卫)', () => {
     const r = checkRuntimeVersion(false);
     expect(r.capability).toBe(ENGINE_CAPABILITY_VERSION);
     expect(r.capability).toBeGreaterThanOrEqual(1);
-    expect(r.commit).toMatch(/^[0-9a-f]{7,}$/);
+    // GitHub source ZIP 与 npm/tarball 不含 .git；这是支持的分发方式，
+    // 只是不具备自动比较 origin/master 的能力。
+    expect(r.commit === 'unknown' || /^[0-9a-f]{7,}$/.test(r.commit)).toBe(true);
     expect(Array.isArray(r.notes)).toBe(true);
     expect(r.notes.some((n) => n.includes('capability'))).toBe(true);
   });
