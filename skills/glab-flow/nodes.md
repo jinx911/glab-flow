@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | 分诊 triage::pending | intake | 澄清问题+建议分类 | 团队确认 | type::story+草稿中, Assignee=产品 |
 | 草稿中 | spec-author | 需求草稿(六清楚) | 草稿门槛 | →待评审 |
-| 待评审 | review-preview | 评审意见+问题清单 | 需求评审(二值) | 通过→已评审 / 退回→草稿中 |
+| 待评审 | review-preview | 评审意见+问题清单+图片/OCR/路由/grilling 取证 | 需求评审(二值) | 通过→已评审 / 退回→草稿中 |
 | 已评审 | spec-author/architect | 技术方案 `design.md` → `.glab-flow/<iid>/spec/` | 技术方案评审(只记录)+开发门槛 | 进开发 Assignee=研发 |
 | 开发中 | git-ops+codegraph+code-review | 代码+MR描述+local 执行记录 | 代码评审 + local TestRun | →测试中, Assignee=测试 |
 | 测试中 | test-flow-apifox/test-flow-e2e | test 执行记录;测试问题评论 | test TestRun + 阻塞全验证 | →待发布, Assignee=研发 |
@@ -35,11 +35,11 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 ### Story 周排期契约（Harness 读取）
 
-- **待评审→已评审**：在同一条「状态变更头 + 内容体」合并评论中追加一次完整 `## 周排期` 区块。有效的 `weekPlan` 是需求评审通过的前置条件；`计划覆盖周`由引擎推导，Leader 不手填或推测。
+- **待评审→已评审**：在同一条「状态变更头 + 内容体」合并评论中追加一次完整 `## 周排期` 与 `## 需求评审取证` 区块。有效的 `weekPlan` 和 `reviewEvidence` 是需求评审通过的前置条件；后者逐图证明 OCR/视觉核查，前端需求证明页面地址的路由/组件/分流代码证据，并证明 grilling 五类分支已覆盖且无未决项。`计划覆盖周`由引擎推导，Leader 不手填或推测。
 - **已评审→开发中**：除技术方案与既有计划提测/上线字段外，必须从刚回读的 Issue notes 验证**最新** `## 周排期` 区块。最新区块可为「启用」或「暂停」，但必须完整有效；最新无效或缺失就停止，不能用旧排期回退放行。
-- **排期变更**：不推进节点。用 `week-plan-change` 只新增一条 `## 排期变更` + replacement `## 周排期` 评论，不改标签、Assignee、Issue 正文、历史评论或 Milestone。
+- **排期变更**：不推进节点。用 `week-plan-change` 只新增一条 `## 排期变更` + replacement `## 周排期` 评论，不改标签、Assignee、Issue 正文或历史评论；评论回读成功后，再执行一次 Week Milestone 同步。
 
-Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁移、不关闭 Milestone，且其 `WriteOp` 不含任何 Milestone 操作。
+**初始挂载与 rollover 分工**：Leader 是周内初始挂载的执行者，Harness 周一任务是后续跨周 rollover 的执行者。引擎只在 `plan.postWriteback` 声明 `sync_week_milestone`，没有 GitLab I/O 或 Milestone `WriteOp`。Leader 只能在状态/排期评论已回读后，按最新有效且启用的计划幂等创建目标 Week Milestone 或关联 Issue；标题遵循 Harness 的 `Week YYYY-Www`，其起止日期为目标 ISO 周的周一/周日。不得修改 Issue 状态、Assignee、正文或评论。同步失败只记 `week-milestone-sync` 审计并重试，不回滚已确认的状态或排期。
 
 ### 写回顺序（三阶段串行）
 
@@ -48,8 +48,9 @@ Harness 是唯一的 Milestone writer；glab-flow 不创建、不关联、不迁
 1. **metadata**：标签 add/unlabel + Assignee（`glab issue update`）
 2. **state-comment**：合并评论（`glab issue note`，长正文 `-F <file>`）
 3. **readback**：最终回读 Issue 确认
+4. **week-milestone-sync（条件动作）**：仅 `plan.postWriteback` 存在时执行；以 Asia/Shanghai 业务日期决定目标周，记录成功或失败审计
 
-任一阶段失败立即停止；恢复时先回读对账，仅重试首个未完成阶段。
+前三阶段任一失败立即停止；Milestone 同步失败不撤回前三阶段，恢复时先回读对账，仅重试 `week-milestone-sync`。
 
 ### 多仓库（OA 常态）
 
@@ -135,7 +136,7 @@ asset: TP-001 | suite-or-group
 
 ### 转换副作用 playbook（推进节点 = 完整动作包，不只是改 Issue）
 
-`transition` 输出的 `playbook` 把跨节点的代码侧动作 + Issue 写回打包。引擎按 config 滤除不适用步骤；Issue 写回恒为末步（代码到位 → 才标记节点）。Leader 按序执行，代码侧步骤调对应 sub-skill。
+`transition` 输出的 `playbook` 把跨节点的代码侧动作、Issue 写回和条件性回读后同步打包。引擎按 config 滤除不适用步骤；相位固定为代码到位 → Issue 写回并回读 → Week Milestone 同步（如存在 `postWriteback`）。Leader 按序执行，代码侧步骤调对应 sub-skill。
 
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|

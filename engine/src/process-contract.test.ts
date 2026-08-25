@@ -16,6 +16,7 @@ const REUSABLE_DOCS = [
   'docs/plans/2026-07-29-glab-flow-isolation-infra.md',
   'skills/glab-flow/SKILL.md',
   'skills/glab-flow/gate.md',
+  'skills/glab-flow/guards.md',
   'skills/glab-flow/nodes.md',
   'skills/glab-flow/resume.md',
   'skills/glab-flow/tools.md',
@@ -146,7 +147,7 @@ describe('glab-flow process contracts', () => {
     expect(nodes).not.toMatch(/<!-- glab-flow:artifact-receipt:v1/);
   });
 
-  it('documents the canonical Week Plan protocol while leaving Milestones to Harness', () => {
+  it('documents the canonical Week Plan protocol and Leader initial sync / Harness rollover boundary', () => {
     const skill = readProjectFile('skills/glab-flow/SKILL.md');
     const nodes = readProjectFile('skills/glab-flow/nodes.md');
     const gate = readProjectFile('skills/glab-flow/gate.md');
@@ -167,14 +168,21 @@ describe('glab-flow process contracts', () => {
     expect(gate).toMatch(/最新[\s\S]{0,80}(无效|invalid)[\s\S]{0,120}(停止|停)/);
     expect(resume).toMatch(/最新[\s\S]{0,80}周排期[\s\S]{0,120}(无效|invalid)/);
     expect(resume).toMatch(/不得[\s\S]{0,80}(回退|fallback)[\s\S]{0,80}(旧|更早)/);
-    expect([skill, nodes, gate, resume].join('\n')).toMatch(/Harness[\s\S]{0,80}(唯一|sole)[\s\S]{0,80}(Milestone|里程碑)/i);
+    const docs = [skill, nodes, gate, resume].join('\n');
+    expect(docs).toMatch(/初始挂载/);
+    expect(docs).toMatch(/postWriteback/);
+    expect(docs).toMatch(/周一[\s\S]{0,120}rollover/i);
+    expect(docs).toMatch(/Week YYYY-Www/);
+    expect(docs).toMatch(/milestone_id/);
+    expect(docs).toMatch(/不回滚[\s\S]{0,120}(状态|标签|评论)/);
 
     const engineProduction = listFiles(ENGINE_SRC)
       .filter((filePath) => filePath.endsWith('.ts'))
       .filter((filePath) => !filePath.endsWith('.test.ts'))
       .map(readProjectFile)
       .join('\n');
-    expect(engineProduction).not.toMatch(/\bmilestone\b/i);
+    expect(engineProduction).toMatch(/sync_week_milestone/);
+    expect(engineProduction).not.toMatch(/glab\s+(api|issue)|fetch\(/i);
   });
 
   it('documents notes for legacy CLI Week Plan validation and planning', () => {
@@ -215,6 +223,23 @@ describe('glab-flow process contracts', () => {
     expect(apifox).toMatch(/空壳|重复|孤儿/);
     expect(apifox).toMatch(/当前 CLI.*项目 UI|项目 UI.*当前 CLI/);
     expect(tools).toMatch(/不硬编码.*必备能力/);
+  });
+
+  it('requires OCR, route evidence and resolved grilling before requirement review approval', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const reviewPreview = readProjectFile('agents/review-preview.md');
+    const specAuthor = readProjectFile('skills/glab-flow/sub-skills/spec-author.md');
+    const guards = readProjectFile('skills/glab-flow/guards.md');
+
+    expect(readProjectFile('engine/src/review-evidence.ts')).toMatch(/extractIssueImageSources/);
+    expect(readProjectFile('engine/src/guard.ts')).toMatch(/validateRequirementsReviewEvidence/);
+    expect(skill).toMatch(/OCR[\s\S]{0,100}页面/);
+    expect(nodes).toMatch(/reviewEvidence/);
+    expect(reviewPreview).toMatch(/逐张下载[\s\S]{0,100}OCR/);
+    expect(reviewPreview).toMatch(/不得猜测页面地址/);
+    expect(specAuthor).toMatch(/禁止猜测 URL/);
+    expect(guards).toMatch(/G15/);
   });
 
   it('treats visible Apifox environment and reusable authentication as governed evidence', () => {

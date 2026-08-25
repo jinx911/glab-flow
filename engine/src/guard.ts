@@ -5,6 +5,7 @@ import { STATUS_PREFIX, ROLES } from './constants.js';
 import { parseLatestWeekPlan, validateWeekPlan } from './week-plan.js';
 import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
+import { validateRequirementsReviewEvidence } from './review-evidence.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
@@ -170,12 +171,15 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (t.terminal && !payload.closeIssue) reasons.push('终态需同一次操作关闭 Issue(closeIssue)');
 
   const weekPlanGate = validateWeekPlanTransition(payload, notes);
+  const reviewEvidenceGate = payload.type === 'story' && payload.from === '待评审' && payload.to === '已评审'
+    ? validateRequirementsReviewEvidence(facts.body, notes, payload.reviewEvidence)
+    : ok();
   const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
   const testRunGate = validateTestRunTransition(payload, notes);
-  if (missing.length || reasons.length || !weekPlanGate.ok || !assetAuditGate.ok || !testRunGate.ok) {
+  if (missing.length || reasons.length || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok) {
     return fail(
-      unique([...reasons, ...weekPlanGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons]),
-      unique([...missing, ...weekPlanGate.missing, ...assetAuditGate.missing, ...testRunGate.missing]),
+      unique([...reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons]),
+      unique([...missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing]),
     );
   }
   return ok();

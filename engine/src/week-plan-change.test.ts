@@ -53,7 +53,24 @@ describe('week-plan-change CLI', () => {
           '- 自动 rollover：启用',
         ].join('\n'),
       }],
+      postWriteback: {
+        action: 'sync_week_milestone',
+        trigger: 'week-plan-change',
+        plan: {
+          startDate: '2026-08-24',
+          endDate: '2026-09-06',
+          autoRollover: true,
+          coverage: 'W35 ～ W36',
+        },
+      },
     });
+  });
+
+  it('does not request a Milestone sync for a paused replacement plan', () => {
+    const { json, status } = weekPlanChange({ ...input, weekPlan: { ...input.weekPlan, autoRollover: false } });
+    expect(status).toBe(0);
+    expect(json).toMatchObject({ issueIid: 321, ops: [expect.anything()] });
+    expect(json).not.toHaveProperty('postWriteback');
   });
 
   it('rejects every missing or blank change fact', () => {

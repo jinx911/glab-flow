@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
 import { runTransition } from './transition.js';
 import { renderStatusChange } from './render.js';
-import type { TransitionInput } from './types.js';
+import type { RequirementsReviewEvidence, TransitionInput } from './types.js';
 
 const model = loadModel();
 const TEST_PLAN = `<!-- glab-flow:test-plan:v1
@@ -79,6 +79,11 @@ const REVIEW_FIELDS = {
 };
 
 const VALID_WEEK_PLAN = { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true };
+const VALID_REVIEW_EVIDENCE: RequirementsReviewEvidence = {
+  images: [],
+  frontend: { applicable: false, routes: [] },
+  grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
+};
 const PAUSED_WEEK_PLAN_NOTE = `## 周排期
 
 - 计划开始：2026-08-17
@@ -245,7 +250,7 @@ describe('transition — plan + preview + shouldConfirm', () => {
 describe('transition — Story Week Plan gates', () => {
   const reviewInput = (over: Partial<TransitionInput> = {}) => baseInput({
     labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
-    fields: REVIEW_FIELDS, gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
+    fields: REVIEW_FIELDS, gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true, reviewEvidence: VALID_REVIEW_EVIDENCE,
     ...over,
   });
   const developmentInput = (over: Partial<TransitionInput> = {}) => baseInput({
@@ -285,6 +290,31 @@ describe('transition — Story Week Plan gates', () => {
 - 自动 rollover：启用`);
   });
 
+  it('emits a post-readback Week Milestone sync for an approved Story', () => {
+    const r = runTransition(model, reviewInput({ weekPlan: VALID_WEEK_PLAN }));
+    expect(r.plan?.postWriteback).toEqual({
+      action: 'sync_week_milestone',
+      trigger: 'review-approved',
+      plan: { ...VALID_WEEK_PLAN, coverage: 'W34 ～ W36' },
+    });
+    expect(r.playbook.map((step) => step.action)).toEqual(['issue_writeback', 'sync_week_milestone']);
+    expect(r.playbook.map((step) => step.phase)).toEqual(['issue-writeback', 'post-readback']);
+    expect(r.preview).toContain('回读后动作');
+  });
+
+  it('replays Issue #175: W35–W36 is synchronized immediately after review, not left for Monday rollover', () => {
+    const r = runTransition(model, reviewInput({
+      iid: 175,
+      weekPlan: { startDate: '2026-08-24', endDate: '2026-08-31', autoRollover: true },
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.plan?.postWriteback).toMatchObject({
+      action: 'sync_week_milestone',
+      trigger: 'review-approved',
+      plan: { coverage: 'W35 ～ W36' },
+    });
+  });
+
   it('rejects development entry when no latest Week Plan is present while retaining planned dates', () => {
     const r = runTransition(model, developmentInput());
     expect(r.validate.ok).toBe(false);
@@ -314,6 +344,17 @@ describe('transition — Story Week Plan gates', () => {
     expect(r.next).toBe('开发中');
     expect(r.validate.ok).toBe(true);
     expect(r.plan).toBeDefined();
+    expect(r.plan?.postWriteback).toBeUndefined();
+  });
+
+  it('synchronizes a Bug entering development when its latest enabled Week Plan has been read back', () => {
+    const r = runTransition(model, baseInput({
+      type: 'bug', labels: ['type::bug', 'status::已确认缺陷'], body: TABLE_BODY,
+      notes: [{ body: `## 周排期\n\n- 计划开始：2026-08-24\n- 计划完成：2026-08-31\n- 计划覆盖周：W35 ～ W36\n- 自动 rollover：启用` }],
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.plan?.postWriteback).toMatchObject({ trigger: 'bug-development-start', plan: { coverage: 'W35 ～ W36' } });
+    expect(r.playbook.at(-1)).toMatchObject({ action: 'sync_week_milestone', phase: 'post-readback' });
   });
 });
 
@@ -439,7 +480,7 @@ describe('transition — prefill from render-normalized comments (semantic slot 
       labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
       notes: [{ body: rendered }],
       gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
-      weekPlan: VALID_WEEK_PLAN,
+      weekPlan: VALID_WEEK_PLAN, reviewEvidence: VALID_REVIEW_EVIDENCE,
     }));
     expect(r.payload?.fields.评审日期).toBe('2026-08-01');
     expect(r.payload?.fields.产品确认人).toBe('@pm');

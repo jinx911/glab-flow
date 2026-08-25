@@ -7,6 +7,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
 const TSX = join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
 const CLI = join(REPO_ROOT, 'engine', 'src', 'cli.ts');
+const VALID_REVIEW_EVIDENCE = {
+  images: [], frontend: { applicable: false, routes: [] },
+  grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
+};
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
 function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit', stdin: object): { json: unknown; status: number | null; stderr: string } {
@@ -24,6 +28,7 @@ describe('cli validate — body passthrough (G6b reachable, ⑩)', () => {
     type: 'story', from: '待评审', to: '已评审',
     fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
     weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
+    reviewEvidence: VALID_REVIEW_EVIDENCE,
     gateOutcome: '通过', reviewType: '需求评审', assigneeUser: assignee, datesConfirmed: true,
   });
   const TABLE_BODY = '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n';
@@ -150,6 +155,7 @@ describe('cli Week Plan contract — legacy direct paths', () => {
   const reviewPayload = {
     type: 'story' as const, from: '待评审', to: '已评审',
     fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
+    reviewEvidence: VALID_REVIEW_EVIDENCE,
     gateOutcome: '通过' as const, reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true,
   };
   const developmentPayload = {
@@ -172,7 +178,7 @@ describe('cli Week Plan contract — legacy direct paths', () => {
       type: 'story', labels: ['type::story', 'story-status::待评审'], payload: reviewPayload,
     });
     expect(status).toBe(0);
-    expect(json).toMatchObject({ ok: false, missing: ['weekPlan'] });
+    expect(json).toMatchObject({ ok: false, missing: expect.arrayContaining(['weekPlan']) });
   });
 
   it('plan refuses invalid review input instead of returning WritePlan', () => {
@@ -180,7 +186,7 @@ describe('cli Week Plan contract — legacy direct paths', () => {
       payload: { ...reviewPayload, weekPlan: { startDate: '2026-08-17', endDate: '2026-08-16', autoRollover: true } },
     });
     expect(status).toBe(1);
-    expect(json).toMatchObject({ ok: false, missing: ['weekPlan'] });
+    expect(json).toMatchObject({ ok: false, missing: expect.arrayContaining(['weekPlan']) });
     expect(json).not.toHaveProperty('ops');
   });
 
