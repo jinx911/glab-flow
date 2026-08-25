@@ -52,6 +52,16 @@ async function main() {
       const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[]; body?: string; testPlan?: string };
       const payload = input.payload;
       if (input.testPlan !== undefined) payload.testPlan = input.testPlan;
+      // Development entry is the one transition that requires the Issue-scoped,
+      // immutable mode selection. This legacy command has no state input, so it
+      // must not be able to mint a WritePlan that bypasses transition's guard.
+      if (payload.from === '已评审' && payload.to === '开发中') {
+        console.log(JSON.stringify({
+          error: 'plan: 已评审→开发中必须使用 transition，并传入由 run-mode-select 持久化的 runModeSelection',
+        }));
+        process.exitCode = 1;
+        break;
+      }
       const statusLabel = payload.type === 'story' ? `story-status::${payload.from}` : `status::${payload.from}`;
       const result = validateTransition(model, toFacts({
         iid: 0,

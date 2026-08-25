@@ -322,16 +322,25 @@ describe('cli Week Plan contract — legacy direct paths', () => {
     ]) });
   });
 
-  it('validate and plan reject Story development entry with no latest Week Plan', () => {
+  it('validate rejects Story development entry with no latest Week Plan, while plan rejects the unsafe legacy path', () => {
     const input = { type: 'story', labels: ['type::story', 'story-status::已评审'], payload: developmentPayload };
     expect(cli('validate', input)).toMatchObject({ status: 0, json: { ok: false, missing: ['latestWeekPlan'] } });
-    expect(cli('plan', { payload: developmentPayload })).toMatchObject({ status: 1, json: { ok: false, missing: ['latestWeekPlan'] } });
+    expect(cli('plan', { payload: developmentPayload })).toMatchObject({
+      status: 1,
+      json: { error: expect.stringContaining('transition') },
+    });
   });
 
-  it('plan accepts a paused latest Week Plan for Story development entry', () => {
+  it('plan rejects a valid Story development entry because only transition accepts persisted runModeSelection', () => {
     const { json, status } = cli('plan', { payload: developmentPayload, notes: [{ body: PAUSED_WEEK_PLAN_NOTE }] });
-    expect(status).toBe(0);
-    expect(json).toHaveProperty('ops');
+    expect(status).toBe(1);
+    expect(json).toMatchObject({
+      error: expect.stringContaining('transition'),
+    });
+    expect(json).toMatchObject({
+      error: expect.stringContaining('runModeSelection'),
+    });
+    expect(json).not.toHaveProperty('ops');
   });
 
   it.each([

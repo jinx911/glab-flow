@@ -68,7 +68,7 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
 
 4. **对账串行写回阶段**。先从父 Issue 重新拉取 notes（有受影响 MR 时也逐个拉取 MR notes）。再检查 `writebackAudit`：metadata（标签 + Assignee）、state-comment（合并评论）、readback 三个阶段中，哪个是**首个未完成阶段**。任一阶段曾失败或状态不明，先记录回读结果，只重试这个首个未完成阶段；已回读成功的评论不得重复发送。三阶段均已回读而 `week-milestone-sync` 未成功时，只重试这一独立同步，绝不重发评论或回滚状态。
 
-5. **从当前节点继续 SKILL.md 编排循环**。节点定了之后，按 `SKILL.md` 的"Leader 每轮编排"走：查 `nodes.md` 契约 → 判断证据是否齐 → `validate` → `plan`/`plan-return` → 门禁预览确认（见 `gate.md`）→ glab 应用。若恢复到「已评审 → 开发中」且 state 没有 `runModeSelection`，先问一次半自动/自动，运行 `run-mode-select` 落盘、重读并将选择传给 `transition`；其它节点缺选择只按旧 state 默认兼容，不能补选来改变正在运行的模式。恢复只是把 Leader 重新放到正确的节点上，后续动作与首次进入完全相同。
+5. **从当前节点继续 SKILL.md 编排循环**。节点定了之后，按 `SKILL.md` 的“Leader 每轮编排”走：查 `nodes.md` 契约 → 判断证据是否齐 → `validate` → 生成计划/预览 → 门禁确认（见 `gate.md`）→ glab 应用。若恢复到「已评审 → 开发中」且 state 没有 `runModeSelection`，先问一次半自动/自动，运行 `run-mode-select` 落盘并重读；随后**只能**将该选择传给 `transition`，由 `transition` 生成计划与预览，不能调用 legacy `plan` 绕过 Issue 级持久化选择。其它正向节点才可按需用 `plan`，退回用 `plan-return`；其它节点缺选择只按旧 state 默认兼容，不能补选来改变正在运行的模式。恢复只是把 Leader 重新放到正确的节点上，后续动作与首次进入完全相同。
 
 若只是日期或安排发生变化，不从恢复流程伪造一次状态流转。走独立的 `week-plan-change`：它只新增一条 `## 排期变更` + replacement `## 周排期` 评论，保留状态、Assignee、Issue 正文和历史评论。启用计划的评论回读后，由 `postWriteback.sync_week_milestone` 触发 Leader 幂等同步；引擎本身仍不会生成 GitLab Milestone API 或 `WriteOp`。
 
