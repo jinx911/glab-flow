@@ -34,10 +34,6 @@ node_is_supported() {
   command -v node >/dev/null 2>&1 && [[ "$(node -p 'Number(process.versions.node.split(".")[0])')" -ge 20 ]]
 }
 
-run_system() {
-  if [[ "${EUID:-$(id -u)}" -eq 0 ]]; then "$@"; else command -v sudo >/dev/null 2>&1 || die "当前系统需要 sudo 才能安装系统依赖。"; sudo "$@"; fi
-}
-
 install_macos() {
   if ! command -v brew >/dev/null 2>&1; then
     command -v curl >/dev/null 2>&1 || die "缺少 curl，无法获取 Homebrew。"
@@ -48,18 +44,6 @@ install_macos() {
   fi
   info "通过 Homebrew 安装 Git、Node、glab 和 ripgrep…"
   brew install git node glab ripgrep
-}
-
-install_debian() {
-  command -v apt-get >/dev/null 2>&1 || die "Linux 仅自动支持 Debian/Ubuntu（apt-get）。"
-  info "通过 apt 安装 Git、Node、glab、ripgrep 和基础下载工具…"
-  run_system apt-get update
-  run_system apt-get install -y ca-certificates curl git glab nodejs npm ripgrep
-  if ! node_is_supported; then
-    info "系统 Node.js 低于 v20，切换到 NodeSource Node.js 22 LTS 源…"
-    curl -fsSL https://deb.nodesource.com/setup_22.x | run_system bash -
-    run_system apt-get install -y nodejs
-  fi
 }
 
 safe_link() {
@@ -84,12 +68,8 @@ done
 [[ -d "$WORKSPACE" ]] || die "工作区不存在: $WORKSPACE"
 WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 
-case "$(uname -s)" in
-  Darwin) PLATFORM="macOS/Homebrew" ;;
-  Linux) PLATFORM="Debian/Ubuntu apt" ;;
-  MINGW*|MSYS*|CYGWIN*) die "Windows 请在 PowerShell 执行 .\\install.ps1 -Workspace <path>。" ;;
-  *) die "不支持的系统: $(uname -s)" ;;
-esac
+[[ "$(uname -s)" == "Darwin" ]] || die "glab-flow 当前仅支持 macOS（Homebrew）。"
+PLATFORM="macOS/Homebrew"
 cat <<EOF
 [glab-flow] 完整安装计划（${PLATFORM}）
   1. 安装/更新 Git、Node.js 20+、pnpm、glab、Apifox CLI、CodeGraph、ripgrep、Playwright Chromium
@@ -99,7 +79,7 @@ cat <<EOF
 EOF
 confirm "这会安装全局软件并修改你的 Agent 配置，继续吗？"
 
-case "$(uname -s)" in Darwin) install_macos ;; Linux) install_debian ;; esac
+install_macos
 node_is_supported || die "需要 Node.js >=20，当前版本为 $(node --version 2>/dev/null || echo missing)。"
 if ! git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   INSTALL_ROOT="${GLAB_FLOW_INSTALL_DIR:-${HOME}/.local/share/glab-flow}"

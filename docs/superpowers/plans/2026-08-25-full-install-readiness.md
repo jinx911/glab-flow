@@ -6,7 +6,7 @@
 
 **架构：** 安装器保持为轻量、幂等的 Bash 入口；新增专职的 `scripts/doctor.sh`，输出机器可读的检查结果，并在依赖安装后由安装器复用。仓库只校验凭据和项目访问能力，绝不收集或存储凭据。
 
-**技术栈：** Bash、Homebrew/apt/winget 适配层、Node/pnpm、GitLab CLI、Apifox CLI、CodeGraph、Playwright、TypeScript/Vitest。
+**技术栈：** Bash、Homebrew、Node/pnpm、GitLab CLI、Apifox CLI、CodeGraph、Playwright、TypeScript/Vitest。
 
 ---
 

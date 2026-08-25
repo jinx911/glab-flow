@@ -14,7 +14,7 @@ glab-flow **内置了交付方法论**——`sub-skills/` 下的 8 个子 skill�
 GitLab Issue 的全部读写（view / update label / note / close / `glab api`）由 Leader 直接调用 `glab` 完成详见 `SKILL.md`「GitLab 读写」一节。glab 已由环境认证（`glab auth login`），**无需 token、不在环境变量里配 token**。
 
 - 使用方：Leader（每轮编排读状态/应用写回）、`sub-skills/git-ops.md`、`sub-skills/spec-author.md`（读 Issue / 写评论）。
-- 未安装或未授权 → 先运行仓库的 `./install.sh --workspace <业务工作区>`（Windows 为 `install.ps1`）。全量安装会安装 `glab`、执行 `glab auth login`，并由 `doctor` 验证；flow 不在无认证下裸跑。
+- 未安装或未授权 → 先运行仓库的 `./install.sh --workspace <业务工作区>`（当前仅支持 macOS）。全量安装会安装 `glab`、执行 `glab auth login`，并由 `doctor` 验证；flow 不在无认证下裸跑。
 
 **glab / git 写操作要点**：
 

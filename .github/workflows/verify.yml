@@ -7,12 +7,8 @@ on:
 
 jobs:
   verify:
-    name: ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, windows-latest]
+    name: macos-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -27,11 +23,4 @@ jobs:
       - name: Typecheck, test and build
         run: pnpm typecheck && pnpm test --run && pnpm build
       - name: Validate macOS shell scripts
-        if: runner.os == 'macOS'
         run: bash -n install.sh uninstall.sh scripts/doctor.sh
-      - name: Validate Windows PowerShell scripts
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          [scriptblock]::Create((Get-Content install.ps1 -Raw)) | Out-Null
-          [scriptblock]::Create((Get-Content scripts/doctor.ps1 -Raw)) | Out-Null

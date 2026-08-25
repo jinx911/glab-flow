@@ -61,7 +61,7 @@ const STALE_WRITEBACK_PATTERNS = [
 ];
 
 function readProjectFile(filePath: string): string {
-  // Git 的 Windows checkout 可能使用 CRLF；文档契约只关心内容而非换行格式。
+  // Git checkout 可能使用 CRLF；文档契约只关心内容而非换行格式。
   return readFileSync(join(PROJECT_ROOT, filePath), 'utf8').replace(/\r\n/g, '\n');
 }
 
@@ -70,7 +70,8 @@ function listFiles(dirPath: string): string[] {
 
   return readdirSync(absoluteDir, { withFileTypes: true }).flatMap((entry) => {
     const absolutePath = join(absoluteDir, entry.name);
-    const relativePath = relative(PROJECT_ROOT, absolutePath);
+    // 流程契约中的路径约定统一为 POSIX 形式，避免路径分隔符导致豁免名单和断言失效。
+    const relativePath = relative(PROJECT_ROOT, absolutePath).replace(/\\\\/g, '/');
 
     if (entry.isDirectory()) {
       return listFiles(relativePath);

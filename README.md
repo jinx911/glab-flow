@@ -17,7 +17,7 @@ glab-flow 是由人主导的 Claude Code / Codex 技能包，依据项目级 Git
 
 glab-flow 不支持“只装一部分先跑”的模式。安装成功必须同时具备 Git、Node.js 20+、pnpm 10.33.0、GitLab CLI、Apifox CLI、CodeGraph、ripgrep、Playwright Chromium、Claude Code/Codex 技能链接，以及 GitLab/Apifox 授权和目标业务工作区的 CodeGraph 索引。
 
-支持 macOS（Homebrew）、Ubuntu/Debian（apt）和 Windows（winget）。安装器会展示将执行的全局安装操作；传 `--yes` 才会跳过确认。它不会读取、打印或保存 GitLab/Apifox Token。
+当前仅支持 macOS（Homebrew）。安装器会展示将执行的全局安装操作；传 `--yes` 才会跳过确认。它不会读取、打印或保存 GitLab/Apifox Token。
 
 ```bash
 # 推荐：从 Git 仓库克隆开始。<business-workspace> 是被 glab-flow 推进需求的业务仓库，
@@ -26,9 +26,6 @@ git clone https://github.com/jinx911/glab-flow.git
 cd glab-flow
 ./install.sh --workspace /absolute/path/to/business-workspace
 
-# Windows PowerShell
-# 请先启用 Windows 开发者模式，或以管理员身份打开 PowerShell（安装器需要创建技能符号链接）。
-.\install.ps1 -Workspace C:\path\to\business-workspace
 ```
 
 首次只有 GitHub 源码 ZIP 也可以执行 `install.sh`：脚本会先安装 Git，再把自身迁移到 `~/.local/share/glab-flow` 的官方 Git checkout，确保后续版本守卫和更新可用。
@@ -37,7 +34,6 @@ cd glab-flow
 
 ```bash
 scripts/doctor.sh --workspace /absolute/path/to/business-workspace
-# Windows: .\scripts\doctor.ps1 -Workspace C:\path\to\business-workspace
 ```
 
 之后在 Claude Code 或 Codex 新开会话执行：
