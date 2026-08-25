@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { initState, markProgressDone, normalizeRunState, recordWritebackAudit, resetProgress, addLastAction, MAX_LAST_ACTIONS } from './state.js';
+import { effectiveRunMode, initState, markProgressDone, normalizeRunState, recordWritebackAudit, resetProgress, addLastAction, MAX_LAST_ACTIONS, selectRunMode } from './state.js';
 
 describe('initState', () => {
   it('builds initial state with defaults', () => {
@@ -59,6 +59,33 @@ describe('progress tracking', () => {
     const atDev = resetProgress(base, '开发中', 't1');
     const again = resetProgress(atDev, '开发中', 't2');
     expect(again).toBe(atDev);
+  });
+});
+
+describe('Issue-level run mode selection', () => {
+  const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
+  const selection = { mode: 'full-auto' as const, selectedAt: 't1', selectedBy: '@owner' };
+
+  it('keeps legacy state compatible and uses runMode as the effective default', () => {
+    const legacy = { ...base } as Partial<typeof base>;
+    delete legacy.runModeSelection;
+    const normalized = normalizeRunState(legacy as typeof base);
+    expect(normalized.runModeSelection).toBeUndefined();
+    expect(effectiveRunMode(normalized)).toBe('semi-auto');
+  });
+
+  it('persists a selection and makes it effective', () => {
+    const selected = selectRunMode(base, selection);
+    expect(selected.runModeSelection).toEqual(selection);
+    expect(effectiveRunMode(selected)).toBe('full-auto');
+  });
+
+  it('is idempotent for the exact same selection and rejects changes', () => {
+    const selected = selectRunMode(base, selection);
+    expect(selectRunMode(selected, selection)).toBe(selected);
+    expect(() => selectRunMode(selected, { ...selection, selectedBy: '@other' })).toThrow('runModeSelection is immutable');
+    expect(() => selectRunMode(selected, { ...selection, selectedAt: 't2' })).toThrow('runModeSelection is immutable');
+    expect(() => selectRunMode(selected, { ...selection, mode: 'semi-auto' })).toThrow('runModeSelection is immutable');
   });
 });
 

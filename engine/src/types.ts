@@ -213,6 +213,12 @@ export type LatestWeekPlan =
 
 export type RunMode = 'semi-auto' | 'full-auto';
 
+export interface RunModeSelection {
+  mode: RunMode;
+  selectedAt: string;
+  selectedBy: string;
+}
+
 export interface MissingItem {
   field: string;
   hint: string;

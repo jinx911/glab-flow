@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { progressCommand, stateWritebackCommand } from './cli-commands.js';
+import { progressCommand, runModeSelectCommand, stateWritebackCommand } from './cli-commands.js';
+import type { RunModeSelectCommandInput } from './cli-commands.js';
 import { initState } from './state.js';
 
 const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
@@ -31,5 +32,20 @@ describe('CLI state command handlers', () => {
     expect(resumed).toMatchObject({ progress: { node: '开发中', done: [] }, writebackAudit: [] });
     expect(progressCommand({ state: legacy as typeof base, now: 't1' })).toMatchObject({ writebackAudit: [] });
     expect(stateWritebackCommand({ state: legacy as typeof base, audit: { target: 'issue', stage: 'metadata', status: 'succeeded', detail: 'read back' }, now: 't1' }).writebackAudit).toHaveLength(1);
+  });
+});
+
+describe('run-mode-select command handler', () => {
+  it('trims and persists the first selection', () => {
+    const output = runModeSelectCommand({ state: base, mode: 'full-auto', selectedBy: '  @owner  ', now: '  t1  ' });
+    expect(output.runModeSelection).toEqual({ mode: 'full-auto', selectedAt: 't1', selectedBy: '@owner' });
+  });
+
+  it.each([
+    ['invalid mode', { mode: 'manual' as never, selectedBy: '@owner', now: 't1' }],
+    ['empty selectedBy', { mode: 'semi-auto', selectedBy: '   ', now: 't1' }],
+    ['empty now', { mode: 'semi-auto', selectedBy: '@owner', now: '   ' }],
+  ])('rejects %s', (_label, input) => {
+    expect(() => runModeSelectCommand({ state: base, ...input } as RunModeSelectCommandInput)).toThrow('run-mode-select:');
   });
 });

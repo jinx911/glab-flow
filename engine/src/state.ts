@@ -1,5 +1,4 @@
-import type { IssueType } from './types.js';
-import type { RunMode } from './config.js';
+import type { IssueType, RunMode, RunModeSelection } from './types.js';
 
 export type WritebackAuditTarget = 'issue' | `mr:${string}!${number}`;
 export type WritebackAuditStage = 'metadata' | 'state-comment' | 'readback' | 'week-milestone-sync';
@@ -24,6 +23,7 @@ export interface RunState {
   docVersion: number;
   specDir: string;
   runMode: RunMode;
+  runModeSelection?: RunModeSelection;
   lastActions: string[];
   spawnedAgents: string[];
   lessonsCaptured: number;
@@ -52,6 +52,22 @@ export function normalizeRunState(state: RunState): RunState {
   const writebackAudit = Array.isArray(state.writebackAudit) ? state.writebackAudit : [];
   if (writebackAudit === state.writebackAudit) return state;
   return { ...state, writebackAudit };
+}
+
+/** The Issue-level selection takes precedence over the legacy config/state mode. */
+export function effectiveRunMode(state: RunState): RunMode {
+  return state.runModeSelection?.mode ?? state.runMode;
+}
+
+/** Persist the first Issue-level mode choice and reject any later re-selection. */
+export function selectRunMode(state: RunState, selection: RunModeSelection): RunState {
+  const normalized = normalizeRunState(state);
+  const existing = normalized.runModeSelection;
+  if (!existing) return { ...normalized, runModeSelection: selection };
+  if (existing.mode === selection.mode && existing.selectedAt === selection.selectedAt && existing.selectedBy === selection.selectedBy) {
+    return normalized;
+  }
+  throw new Error('runModeSelection is immutable');
 }
 
 export function initState(input: InitStateInput): RunState {
