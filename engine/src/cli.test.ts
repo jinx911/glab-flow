@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
-const TSX = join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
+const TSX = join(REPO_ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
 const CLI = join(REPO_ROOT, 'engine', 'src', 'cli.ts');
 const VALID_REVIEW_EVIDENCE = {
   images: [], frontend: { applicable: false, routes: [] },
