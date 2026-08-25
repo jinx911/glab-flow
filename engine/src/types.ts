@@ -287,6 +287,8 @@ export interface TransitionInput {
   humanConfirmed?: boolean;
   closeIssue?: boolean;
   runMode?: RunMode;
+  /** Persisted, Issue-level choice made with run-mode-select before entering development. */
+  runModeSelection?: RunModeSelection;
   config?: { roles?: Record<string, string>; deployBranch?: string; jenkins?: boolean };
 }
 
@@ -308,6 +310,8 @@ export interface TransitionOutput {
   /** 当前节点的内部子步骤 checklist（进度可见，层 2）。 */
   nodeProgress: string[];
   preview: string;
+  /** True only when 已评审 → 开发中 lacks the persisted Issue-level mode selection. */
+  modeSelectionRequired: boolean;
   shouldConfirm: boolean;
   applied: false;
 }

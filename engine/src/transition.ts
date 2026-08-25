@@ -138,7 +138,7 @@ const FIELD_TO_SLOT: ReadonlyMap<string, string> = (() => {
   return m;
 })();
 
-function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, modeSelectionRequired: boolean, runModeSelection: TransitionInput['runModeSelection'], playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
   const code = playbook.filter((s) => s.phase === 'pre-writeback');
@@ -156,7 +156,12 @@ function previewText(from: string, to: string, payload: Payload, validateOk: boo
   if (postReadback.length) {
     lines.push(`回读后动作（不得与状态写回并行）：\n${postReadback.map((s, i) => `  ${i + 1}. ${s.desc}`).join('\n')}`);
   }
-  lines.push(`run 模式：${runMode} → ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
+  const modeAudit = runModeSelection
+    ? `已持久化选择：${runModeSelection.selectedBy} 于 ${runModeSelection.selectedAt} 用 run-mode-select 写入 Issue state`
+    : modeSelectionRequired
+      ? '开发入口尚未持久化选择；裸 runMode 不可作为自动写回授权，须先运行 run-mode-select'
+      : '兼容模式：来自本次 runMode 输入或 semi-auto 默认值';
+  lines.push(`run 模式：${runMode}（${modeAudit}）→ ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
   return lines.join('\n');
 }
 
@@ -177,7 +182,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (dirtyReason) {
     return {
       node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
-      validate: { ok: false, missing: [], reasons: [dirtyReason] },      preview: dirtyReason, shouldConfirm: true, applied: false,
+      validate: { ok: false, missing: [], reasons: [dirtyReason] },      preview: dirtyReason, modeSelectionRequired: false, shouldConfirm: true, applied: false,
     };
   }
 
@@ -189,7 +194,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     const msg = `无可用转换：from=${current} to=${target ?? '(未指定且无默认下一节点)'}——检查 to 节点名或当前标签`;
     return {
       node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
-      validate: { ok: false, missing: [], reasons: [msg] },      preview: msg, shouldConfirm: true, applied: false,
+      validate: { ok: false, missing: [], reasons: [msg] },      preview: msg, modeSelectionRequired: false, shouldConfirm: true, applied: false,
     };
   }
 
@@ -271,16 +276,23 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (validate.missing.some((field) => field.startsWith('reviewEvidence'))) {
     missing.push({ field: 'reviewEvidence', hint: '补齐图片 OCR/视觉摘要、页面地址的路由代码证据和 grilling 决策账本；页面地址无法确认或存在未决问题时，先在同一批评审问题中向产品确认' });
   }
-  const runMode = input.runMode ?? 'semi-auto';
-  const plan = validate.ok
+  const modeSelectionRequired = current === '已评审' && tr.to === '开发中' && !input.runModeSelection;
+  if (modeSelectionRequired) {
+    missing.push({
+      field: 'runModeSelection',
+      hint: '在进入开发中前选择 semi-auto 或 full-auto，并用 run-mode-select 写入 Issue state',
+    });
+  }
+  const runMode = input.runModeSelection?.mode ?? input.runMode ?? 'semi-auto';
+  const plan = validate.ok && !modeSelectionRequired
     ? buildForwardPlan(
       weekMilestoneSync && payload.type === 'bug' ? { ...payload, weekPlan: weekMilestoneSync.plan } : payload,
       input.iid,
     )
     : undefined;
   const nodeProgress = progressStepsFor(model, current);
-  const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);
+  const shouldConfirm = runMode !== 'full-auto' || !!tr.hardGate || !validate.ok || modeSelectionRequired;
+  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, modeSelectionRequired, input.runModeSelection, playbook, nodeProgress);
 
   return {
     node: current,
@@ -296,6 +308,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     playbook,
     nodeProgress,
     preview,
+    modeSelectionRequired,
     shouldConfirm,
     applied: false,
   };

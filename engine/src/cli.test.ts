@@ -13,7 +13,7 @@ const VALID_REVIEW_EVIDENCE = {
 };
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit' | 'run-mode-select' | 'automation-decision', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'plan' | 'transition' | 'test-run' | 'asset-audit' | 'run-mode-select' | 'automation-decision', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
@@ -65,6 +65,49 @@ describe('cli run-mode-select', () => {
     const result = cli('run-mode-select', input);
     expect(result.status).toBe(1);
     expect(result.json).toEqual(expect.objectContaining({ error: expect.any(String) }));
+  });
+});
+
+describe('cli transition — persisted development-entry mode selection', () => {
+  const body = '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n';
+  const pausedWeekPlan = `## 周排期
+
+- 计划开始：2026-08-17
+- 计划完成：2026-09-06
+- 计划覆盖周：W34 ～ W36
+- 自动 rollover：暂停`;
+  const input = {
+    type: 'story', iid: 42, labels: ['type::story', 'story-status::已评审'], body, notes: [{ body: pausedWeekPlan }], state: 'opened',
+    fields: {
+      技术方案评审通过记录或免评审结论: '通过', 实际开始日期: '2026-08-07', 研发Assignee: '@dev',
+      计划提测时间: '2026-08-08', 计划上线时间: '2026-08-09',
+    },
+    datesConfirmed: true,
+  };
+
+  it('blocks an otherwise valid development transition without the persisted selection', () => {
+    const result = cli('transition', { ...input, runMode: 'full-auto' });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      validate: { ok: true }, modeSelectionRequired: true, shouldConfirm: true,
+      missing: [expect.objectContaining({ field: 'runModeSelection' })],
+      preview: expect.stringContaining('run-mode-select'),
+    });
+    expect(result.json).not.toHaveProperty('plan');
+  });
+
+  it('allows an auditable persisted full-auto selection to skip confirmation', () => {
+    const result = cli('transition', {
+      ...input,
+      runMode: 'semi-auto',
+      runModeSelection: { mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' },
+    });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      validate: { ok: true }, modeSelectionRequired: false, shouldConfirm: false,
+      plan: { ops: expect.any(Array) },
+      preview: expect.stringContaining('已持久化选择：@owner 于 2026-08-17T09:00:00Z'),
+    });
   });
 });
 

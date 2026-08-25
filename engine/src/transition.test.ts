@@ -230,6 +230,7 @@ describe('transition — plan + preview + shouldConfirm', () => {
   it('full-auto skips confirm when ok and not hardGate', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true, runMode: 'full-auto' }));
     expect(r.validate.ok).toBe(true);
+    expect(r.modeSelectionRequired).toBe(false);
     expect(r.shouldConfirm).toBe(false);
   });
   it('full-auto still confirms hardGate (待发布→生产验收中)', () => {
@@ -332,9 +333,51 @@ describe('transition — Story Week Plan gates', () => {
   });
 
   it('accepts a valid paused latest Week Plan for development entry', () => {
-    const r = runTransition(model, developmentInput({ notes: [{ body: PAUSED_WEEK_PLAN_NOTE }] }));
+    const r = runTransition(model, developmentInput({
+      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
+      runModeSelection: { mode: 'semi-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' },
+    }));
     expect(r.validate.ok).toBe(true);
     expect(r.plan).toBeDefined();
+  });
+
+  it('requires a persisted mode selection before an otherwise valid development entry can write', () => {
+    const r = runTransition(model, developmentInput({ notes: [{ body: PAUSED_WEEK_PLAN_NOTE }] }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.modeSelectionRequired).toBe(true);
+    expect(r.shouldConfirm).toBe(true);
+    expect(r.plan).toBeUndefined();
+    expect(r.payload).toBeDefined();
+    expect(r.comment).toBeDefined();
+    expect(r.missing).toContainEqual({
+      field: 'runModeSelection',
+      hint: '在进入开发中前选择 semi-auto 或 full-auto，并用 run-mode-select 写入 Issue state',
+    });
+    expect(r.preview).toContain('开发入口尚未持久化选择');
+  });
+
+  it('uses a persisted full-auto selection over a bare runMode at development entry', () => {
+    const r = runTransition(model, developmentInput({
+      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
+      runMode: 'semi-auto',
+      runModeSelection: { mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' },
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.modeSelectionRequired).toBe(false);
+    expect(r.shouldConfirm).toBe(false);
+    expect(r.plan).toBeDefined();
+    expect(r.preview).toContain('已持久化选择：@owner 于 2026-08-17T09:00:00Z');
+  });
+
+  it('does not let a bare full-auto runMode bypass the development-entry selection', () => {
+    const r = runTransition(model, developmentInput({
+      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
+      runMode: 'full-auto',
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.modeSelectionRequired).toBe(true);
+    expect(r.shouldConfirm).toBe(true);
+    expect(r.plan).toBeUndefined();
   });
 
   it('keeps Bug transitions compatible without a Week Plan', () => {
