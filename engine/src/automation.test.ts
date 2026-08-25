@@ -43,4 +43,12 @@ describe('decideAutomation', () => {
   it('rejects unknown runtime event kinds', () => {
     expect(() => decideAutomation({ kind: 'unknown' } as never, 0)).toThrow(/unknown/);
   });
+
+  it.each([
+    [{ kind: 'missing_evidence', detail: 'receipt absent', autoRecoverable: 'false' }, /autoRecoverable.*boolean/],
+    [{ kind: 'transient_failure' }, /transient_failure.*detail.*string/],
+    [{ kind: 'missing_evidence', detail: 'receipt absent' }, /autoRecoverable.*boolean/],
+  ] as const)('rejects malformed event %j', (event, message) => {
+    expect(() => decideAutomation(event as never, 0)).toThrow(message);
+  });
 });

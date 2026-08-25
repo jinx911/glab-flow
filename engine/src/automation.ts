@@ -6,19 +6,37 @@ function validateAttempt(attempt: number): void {
   }
 }
 
+function validateEvent(event: unknown): asserts event is AutomationEvent {
+  if (!event || typeof event !== 'object' || typeof (event as { kind?: unknown }).kind !== 'string') {
+    throw new Error('automation event must be an object with a known kind');
+  }
+
+  const candidate = event as { kind: string; detail?: unknown; autoRecoverable?: unknown };
+  if (candidate.kind === 'completed') return;
+
+  const kinds = ['transient_failure', 'test_failed', 'git_conflict', 'missing_evidence', 'material_change', 'permission_denied', 'hard_gate'];
+  if (!kinds.includes(candidate.kind)) {
+    throw new Error(`automation event kind is unknown: ${candidate.kind}`);
+  }
+  if (typeof candidate.detail !== 'string') {
+    throw new Error(`automation event ${candidate.kind} requires detail to be a string`);
+  }
+  if (candidate.kind === 'missing_evidence' && typeof candidate.autoRecoverable !== 'boolean') {
+    throw new Error('automation event missing_evidence requires autoRecoverable to be a boolean');
+  }
+}
+
 /** Purely maps an observed automation event to the next deterministic action. */
 export function decideAutomation(event: AutomationEvent, attempt: number): AutomationDecision {
   validateAttempt(attempt);
 
-  if (!event || typeof event !== 'object' || typeof (event as { kind?: unknown }).kind !== 'string') {
-    throw new Error('automation event must be an object with a known kind');
-  }
+  validateEvent(event);
 
   switch (event.kind) {
     case 'completed':
       return { action: 'continue', reason: 'Automation completed successfully.' };
     case 'missing_evidence':
-      if (event.autoRecoverable) {
+      if (event.autoRecoverable === true) {
         return { action: 'repair', reason: `Repair missing evidence: ${event.detail}` };
       }
       return {

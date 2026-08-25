@@ -31,6 +31,9 @@ describe('cli automation-decision', () => {
   it.each([
     { event: { kind: 'unknown', detail: 'x' }, attempt: 0 },
     { event: { kind: 'completed' }, attempt: -1 },
+    { event: { kind: 'missing_evidence', detail: 'receipt absent', autoRecoverable: 'false' }, attempt: 0 },
+    { event: { kind: 'transient_failure' }, attempt: 0 },
+    { event: { kind: 'missing_evidence', detail: 'receipt absent' }, attempt: 0 },
   ])('returns a JSON error and non-zero status for invalid input', (input) => {
     const result = cli('automation-decision', input);
     expect(result.status).toBe(1);
