@@ -109,6 +109,20 @@ describe('cli transition — persisted development-entry mode selection', () => 
       preview: expect.stringContaining('已持久化选择：@owner 于 2026-08-17T09:00:00Z'),
     });
   });
+
+  it.each([
+    ['empty selectedAt', { mode: 'full-auto', selectedAt: '  ', selectedBy: '@owner' }],
+    ['empty selectedBy', { mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '  ' }],
+    ['invalid mode', { mode: 'manual', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' }],
+  ])('treats a %s pseudo-selection as absent even with bare full-auto', (_label, runModeSelection) => {
+    const result = cli('transition', { ...input, runMode: 'full-auto', runModeSelection });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      validate: { ok: true }, modeSelectionRequired: true, shouldConfirm: true,
+      missing: [expect.objectContaining({ field: 'runModeSelection' })],
+    });
+    expect(result.json).not.toHaveProperty('plan');
+  });
 });
 
 describe('cli validate — body passthrough (G6b reachable, ⑩)', () => {

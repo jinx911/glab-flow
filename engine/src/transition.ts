@@ -138,6 +138,17 @@ const FIELD_TO_SLOT: ReadonlyMap<string, string> = (() => {
   return m;
 })();
 
+/** JSON CLI input is untrusted: only a complete persisted selection authorizes development-entry automation. */
+function isValidRunModeSelection(value: unknown): value is NonNullable<TransitionInput['runModeSelection']> {
+  if (!value || typeof value !== 'object') return false;
+  const selection = value as { mode?: unknown; selectedAt?: unknown; selectedBy?: unknown };
+  return (selection.mode === 'semi-auto' || selection.mode === 'full-auto')
+    && typeof selection.selectedAt === 'string'
+    && selection.selectedAt.trim().length > 0
+    && typeof selection.selectedBy === 'string'
+    && selection.selectedBy.trim().length > 0;
+}
+
 function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, modeSelectionRequired: boolean, runModeSelection: TransitionInput['runModeSelection'], playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
@@ -276,14 +287,15 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (validate.missing.some((field) => field.startsWith('reviewEvidence'))) {
     missing.push({ field: 'reviewEvidence', hint: '补齐图片 OCR/视觉摘要、页面地址的路由代码证据和 grilling 决策账本；页面地址无法确认或存在未决问题时，先在同一批评审问题中向产品确认' });
   }
-  const modeSelectionRequired = current === '已评审' && tr.to === '开发中' && !input.runModeSelection;
+  const runModeSelection = isValidRunModeSelection(input.runModeSelection) ? input.runModeSelection : undefined;
+  const modeSelectionRequired = current === '已评审' && tr.to === '开发中' && !runModeSelection;
   if (modeSelectionRequired) {
     missing.push({
       field: 'runModeSelection',
       hint: '在进入开发中前选择 semi-auto 或 full-auto，并用 run-mode-select 写入 Issue state',
     });
   }
-  const runMode = input.runModeSelection?.mode ?? input.runMode ?? 'semi-auto';
+  const runMode = runModeSelection?.mode ?? input.runMode ?? 'semi-auto';
   const plan = validate.ok && !modeSelectionRequired
     ? buildForwardPlan(
       weekMilestoneSync && payload.type === 'bug' ? { ...payload, weekPlan: weekMilestoneSync.plan } : payload,
@@ -292,7 +304,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     : undefined;
   const nodeProgress = progressStepsFor(model, current);
   const shouldConfirm = runMode !== 'full-auto' || !!tr.hardGate || !validate.ok || modeSelectionRequired;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, modeSelectionRequired, input.runModeSelection, playbook, nodeProgress);
+  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, modeSelectionRequired, runModeSelection, playbook, nodeProgress);
 
   return {
     node: current,
