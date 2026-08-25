@@ -10,31 +10,17 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 **配置来源**：job 名 / 分支参数名 / 默认参数来自 glab-flow 配置（见 `../config.md`）：
 - `jenkins.job_name` —— 单仓目标构建作业名
 - `jenkins.jobs` —— 多仓作业映射（键=仓库名，值=`{ job_name, branch_param?, env_param?, default_params? }`）；配了之后按当前操作仓库选 job + 参数模板
-- `jenkins.branch_param` —— 分支参数名，默认 `oa_branch`
+- `jenkins.branch_param` —— 分支参数名，默认 `branch`
 - `jenkins.default_params` —— 默认构建参数键值表
 
 `jenkins.job_name` 与 `jenkins.jobs` 都空 → 不启用 Jenkins 能力（发布节点跳过构建触发）。
 
-## Job 参数映射（参考）
-
-已知 oa 项目族的 job 与参数（实际 job 以配置 `jenkins.job_name` 为准）：
-
-| Job | 环境 (默认 stage) | 分支 (默认 test) | 额外参数 |
-|-----|---------|---------|---------|
-| oa-platform-php | test_version (kn/stage/u1) | platform_branch, module_branch, capital_branch | force_package, isForce, rmNodeModules |
-| oa-service | test_version (kn/stage/u1) | oa_branch | — |
-| oa-gateway | test_version (kn/stage/u1) | oa_branch | — |
-| oa-frontend | DEPLOY_ENV (kn/u1/stage) | GIT_BRANCH | RUN_LINT=true |
-| oa-integration | environment (kn/stage/u1/kn2) | integration, message, calendar, common, approval, employees, recruitment | — |
-| oa-go | test_version (attendance/clock/user/employee/delivery) | branch | — |
-| oa-web-app-v2 | test_version (kn/kn2/stage/u1) | default_branch | — |
-
 ## 参数默认值
 
-| 参数类型 | 默认值 | 说明 |
+| 参数类型 | 处理方式 | 说明 |
 |---------|-------|------|
-| 环境类 (test_version / DEPLOY_ENV) | **stage** | 用户未指定时 |
-| 分支类 | **test** | 用户未指定时；分支参数名取 `jenkins.branch_param` |
+| 环境类 | 使用 Jenkins Job 或配置的默认值 | 用户未指定时不得自行假设 |
+| 分支类 | 使用 Jenkins Job 或配置的默认值 | 分支参数名取 `jenkins.branch_param` |
 | Boolean | 字符串 `"true"` / `"false"` | ⚠️ MCP 工具不接受布尔值 |
 | Password / registry_* | 跳过 | 使用 Jenkins 默认值 |
 
@@ -54,7 +40,7 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 ### 1. 确定 Job
 
 - 编排器/用户指定 job 名 → 直接使用
-- 否则若 config 有 `jenkins.jobs` → 按当前操作仓库取对应 job（多仓常态，OA 跨 oa-service/oa-frontend 等）
+- 否则若 config 有 `jenkins.jobs` → 按当前操作仓库取对应 job
 - 否则读 glab-flow config `jenkins.job_name` → 用之
 - 都无 → AskUserQuestion multiSelect 让用户选择（支持多项目）
 - 用户说"部署 N 个项目" → 按上下文推断
@@ -74,11 +60,6 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 **Boolean 参数**：
 - 使用默认值，在确认清单中展示
 
-**force_package vs isForce（仅 oa-platform-php）**：
-- `force_package`：**指定模块强制打包**，填模块名（如 `oa-app-workflow`），多个用英文逗号分隔。用于只重新打包指定模块的前端/后端，不影响其他模块。
-- `isForce`：**全局强制打包**，布尔值。重新打包所有模块，耗时较长。
-- **互斥原则**：用户指定了 `force_package` 时，`isForce` 保持默认 `false`；用户说"全部强制打包"时才设 `isForce=true`。
-
 **Password 参数**：跳过。
 
 **多项目共享**：环境和分支参数只询问一次，共享给所有项目。
@@ -90,11 +71,11 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 ```
 📋 部署清单
 
-[1] oa-platform-php
-    test_version = stage, platform_branch = test, module_branch = test, capital_branch = test
+[1] sample-service
+    DEPLOY_ENV = test, branch = release/123
 
-[2] oa-frontend
-    DEPLOY_ENV = stage, GIT_BRANCH = test, RUN_LINT = true
+[2] sample-frontend
+    DEPLOY_ENV = test, GIT_BRANCH = release/123, RUN_LINT = true
 
 确认部署？
 ```
@@ -118,8 +99,8 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 
 ```
 📊 构建结果
-[1] oa-platform-php  → ✅ SUCCESS  #<build-number>  (3m20s)
-[2] oa-frontend      → ✅ SUCCESS  #<build-number>  (2m45s)
+[1] sample-service   → ✅ SUCCESS  #<build-number>  (3m20s)
+[2] sample-frontend  → ✅ SUCCESS  #<build-number>  (2m45s)
 ```
 
 失败 → 提示查看对应 job/build 的日志。

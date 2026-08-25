@@ -17,7 +17,7 @@ description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md
 `$ARGUMENTS` = workspace root（业务工作区根目录的绝对路径），可选。
 
 - 给了 → 直接用作 `<workspace.root>`。
-- 没给 → Leader 用 `AskUserQuestion` 问用户一个工作区根目录（提示："请提供业务工作区根目录的绝对路径（例如 `/Users/eliojin/IdeaProjects/oa`），glab-flow 会在这里建 `.glab-flow/` 基础设施目录。"），拿到后继续。
+- 没给 → Leader 用 `AskUserQuestion` 问用户一个工作区根目录（提示："请提供业务工作区根目录的绝对路径（例如 `/path/to/business-workspace`），glab-flow 会在这里建 `.glab-flow/` 基础设施目录。"），拿到后继续。
 
 ## 探测步骤（Leader 执行）
 
@@ -25,7 +25,7 @@ description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md
 
 1. **确定 `workspace.root`**。取 `$ARGUMENTS` 或上一步问到的路径。Leader 执行 `mkdir -p <root>/.glab-flow` 建好基础设施目录（这是 glab-flow 自己的工作目录，不是业务代码仓的 `docs/`，不污染代码仓）。最终配置会写到 `<root>/.glab-flow/config.md`，state 文件 `<root>/.glab-flow/<iid>-state.json`，spec 文档 `<root>/.glab-flow/<iid>/spec/`。
 
-2. **探测 GitLab host**。Leader 跑 `glab auth status` 确认 glab 已登录；默认 host 取 `git.kuainiujinke.com`（公司主实例）。`AskUserQuestion` 让用户确认或改成自建实例域名（例如私有化部署的 GitLab）。host 必须是裸域名，不带 `https://`、不带末尾 `/`。
+2. **探测 GitLab host**。Leader 跑 `glab auth status` 列出已登录的 host；若只有一个则请用户确认，多个则让用户选择，未登录则先完成登录。host 必须是裸域名，不带 `https://`、不带末尾 `/`。
 
 3. **探测项目**。`AskUserQuestion` 问用户给 `project_id`（数字 ID）或 `project_path`（`namespace/name` 全路径）。不确定时 Leader 可辅助查询：`glab api --hostname <host> "projects?search=<关键字>&per_page=20"` 列出候选项目的 `id` 与 `path_with_namespace`，让用户从列表里挑。最终在配置里写用户确认的那一个。
 
@@ -36,7 +36,7 @@ description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md
 
 5. **可选项**（一次性逐项问，用户说"跳过"就不配）：
    - `deploy_branch`：是否要自动部署到某分支（如 `test`）？是 → 填分支名；否 → 不配（发布节点跳过合并）。
-   - `jenkins`：是否配 Jenkins 构建？是 → 收 `job_name`（必填）、`branch_param`（默认 `oa_branch`）、`default_params`（键值表，可空）。
+   - `jenkins`：是否配 Jenkins 构建？是 → 收 `job_name`（必填）、`branch_param`（默认 `branch`）、`default_params`（键值表，可空）。
    - `databases`：是否声明逻辑数据目标？是 → 收 `<name>: { mcp, desc }` 对；不收连接串、密码或 Token。测试租户只记录 `websites.uuid` 解析规则，DMS 的 RDS/镜像选择留到执行时由用户确认。
 
 6. **测试配置**（要做接口/E2E 测试才生成，跳过则整个 test-config.md 不建）：

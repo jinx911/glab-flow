@@ -9,7 +9,7 @@ glab-flow 是 GitLab-native、自包含的流程引擎：引擎只做确定性�
 
 ## 权威来源
 
-规则权威来自 `oa-ai-native-harness` 的 `docs/issue-state-machine.md` 与 `AGENTS.md`；glab-flow 的 `state-machine.yaml`、护栏和节点文档只是可执行投影。运行时状态权威是 GitLab Issue 的 labels/comments；本地 state 与 lessons 都是派生缓存或经验材料。
+业务规则权威来自目标项目已确认的状态机与团队交付规范；glab-flow 的 `state-machine.yaml`、护栏和节点文档是其可执行投影。运行时状态权威是 GitLab Issue 的 labels/comments；本地 state 与 lessons 都是派生缓存或经验材料。
 
 ## 输入
 
@@ -255,7 +255,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 <workspace.root>/.glab-flow/<iid>/spec/
 ```
 
-路径来自配置（`workspace.root`，见 `config.md`）；`<iid>` 为 GitLab Issue iid。**禁止**写进代码仓（oa-service / oa-platform 等）的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一存储树见 `nodes.md`。
+路径来自配置（`workspace.root`，见 `config.md`）；`<iid>` 为 GitLab Issue iid。**禁止**写进业务代码仓的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一存储树见 `nodes.md`。
 
 ## 相关文件
 

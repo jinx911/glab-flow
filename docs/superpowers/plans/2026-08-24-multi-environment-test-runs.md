@@ -71,7 +71,7 @@
   <!-- glab-flow:test-run:v1
   environment: local
   plan-version: v3
-  version: oa-service:abc123
+  version: sample-service:abc123
   outcome: passed
   cases: TP-001=passed
   evidence: api=report:123,e2e=note:https://example.test/1

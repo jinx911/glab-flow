@@ -62,14 +62,14 @@
 
 - 环境：local
 - 计划版本：v3
-- 被测版本：oa-service:abc123; oa-platform:def456
+- 被测版本：sample-service:abc123; sample-web:def456
 - 结论：通过
 - 用例统计：6 passed, 0 failed, 0 skipped
 
 <!-- glab-flow:test-run:v1
 environment: local
 plan-version: v3
-version: oa-service:abc123; oa-platform:def456
+version: sample-service:abc123; sample-web:def456
 outcome: passed
 cases: TP-001=passed,TP-002=passed
 evidence: apifox-report=12345,e2e=issue-note-url,data=assertion-summary

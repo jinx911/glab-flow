@@ -155,7 +155,7 @@ export function parseConfig(markdown: string): GlabConfig {
       ? {
           jenkins: {
             ...(raw.jenkins.job_name ? { jobName: raw.jenkins.job_name } : {}),
-            branchParam: raw.jenkins.branch_param ?? 'oa_branch',
+            branchParam: raw.jenkins.branch_param ?? 'branch',
             defaultParams: raw.jenkins.default_params ?? {},
             ...(raw.jenkins.jobs
               ? {

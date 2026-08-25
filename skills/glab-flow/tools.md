@@ -7,14 +7,14 @@ description: glab-flow 运行时工具依赖（非 vendor 的基础设施）。
 
 ## 声明
 
-glab-flow **vendor 了 OA 方法论**——`sub-skills/` 下的 8 个子 skill（spec-author / git-ops / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）是流程方法论本体，随 skill 一起拷贝，构成 glab-flow 的自包含能力栈。这些子 skill 在运行时会调用一批外部工具，它们是**运行时依赖**而非 vendor 对象：已装即用、未装按需引导安装，**不随 skill 拷贝、不在 skill 仓里维护**。下面列全清单。
+glab-flow **内置了交付方法论**——`sub-skills/` 下的 8 个子 skill（spec-author / git-ops / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）是流程方法论本体，随 skill 一起拷贝，构成 glab-flow 的自包含能力栈。这些子 skill 在运行时会调用一批外部工具，它们是**运行时依赖**而非 vendor 对象：已装即用、未装按需引导安装，**不随 skill 拷贝、不在 skill 仓里维护**。下面列全清单。
 
 ### 1. `glab` CLI —— GitLab 读写
 
 GitLab Issue 的全部读写（view / update label / note / close / `glab api`）由 Leader 直接调用 `glab` 完成详见 `SKILL.md`「GitLab 读写」一节。glab 已由环境认证（`glab auth login`），**无需 token、不在环境变量里配 token**。
 
 - 使用方：Leader（每轮编排读状态/应用写回）、`sub-skills/git-ops.md`、`sub-skills/spec-author.md`（读 Issue / 写评论）。
-- 未安装或未授权 → 先运行仓库的 `./install.sh --workspace <业务工作区>`（Windows 为 `install.ps1`）。全量安装会安装 `glab`、执行 `glab auth login`，并由 `doctor` 验证；flow 不在无认证下裸跑。
+- 未安装或未授权 → 先运行仓库的 `./install.sh --workspace <业务工作区>`（当前仅支持 macOS）。全量安装会安装 `glab`、执行 `glab auth login`，并由 `doctor` 验证；flow 不在无认证下裸跑。
 
 **glab / git 写操作要点**：
 

@@ -2,7 +2,7 @@
 
 > 让 AI 推进需求，不绕过交付流程。先看 [项目介绍页](index.html) 了解完整流程、变更闭环与多环境证据链。
 
-glab-flow 是由人主导的 Claude Code / Codex 技能包，依据 `oa-ai-native-harness` 的 GitLab Issue 状态机推进 OA 需求：从分诊到发布、验收，以**确定性护栏**约束流程，复用子技能生成内容，并以“预览—确认”方式写回 GitLab。
+glab-flow 是由人主导的 Claude Code / Codex 技能包，依据项目级 GitLab Issue 状态机推进需求：从分诊到发布、验收，以**确定性护栏**约束流程，复用子技能生成内容，并以“预览—确认”方式写回 GitLab。
 
 它是自包含、GitLab 原生的技能包，内置配置、状态缓存和随仓库维护的子技能。
 
@@ -17,7 +17,7 @@ glab-flow 是由人主导的 Claude Code / Codex 技能包，依据 `oa-ai-nativ
 
 glab-flow 不支持“只装一部分先跑”的模式。安装成功必须同时具备 Git、Node.js 20+、pnpm 10.33.0、GitLab CLI、Apifox CLI、CodeGraph、ripgrep、Playwright Chromium、Claude Code/Codex 技能链接，以及 GitLab/Apifox 授权和目标业务工作区的 CodeGraph 索引。
 
-支持 macOS（Homebrew）、Ubuntu/Debian（apt）和 Windows（winget）。安装器会展示将执行的全局安装操作；传 `--yes` 才会跳过确认。它不会读取、打印或保存 GitLab/Apifox Token。
+当前仅支持 macOS（Homebrew）。安装器会展示将执行的全局安装操作；传 `--yes` 才会跳过确认。它不会读取、打印或保存 GitLab/Apifox Token。
 
 ```bash
 # 推荐：从 Git 仓库克隆开始。<business-workspace> 是被 glab-flow 推进需求的业务仓库，
@@ -26,9 +26,6 @@ git clone https://github.com/jinx911/glab-flow.git
 cd glab-flow
 ./install.sh --workspace /absolute/path/to/business-workspace
 
-# Windows PowerShell
-# 请先启用 Windows 开发者模式，或以管理员身份打开 PowerShell（安装器需要创建技能符号链接）。
-.\install.ps1 -Workspace C:\path\to\business-workspace
 ```
 
 首次只有 GitHub 源码 ZIP 也可以执行 `install.sh`：脚本会先安装 Git，再把自身迁移到 `~/.local/share/glab-flow` 的官方 Git checkout，确保后续版本守卫和更新可用。
@@ -37,7 +34,6 @@ cd glab-flow
 
 ```bash
 scripts/doctor.sh --workspace /absolute/path/to/business-workspace
-# Windows: .\scripts\doctor.ps1 -Workspace C:\path\to\business-workspace
 ```
 
 之后在 Claude Code 或 Codex 新开会话执行：
@@ -140,4 +136,4 @@ glab-flow 是独立、自包含、GitLab 原生的技能包。它不依赖外部
 
 ## 规则权威
 
-状态机和 AI 护栏是 `oa-ai-native-harness` 中 `docs/issue-state-machine.md` 与 `AGENTS.md` 的可执行投影。它们仍是唯一事实源；`engine/src/contract.ts` 通过不变量校验模型，以发现漂移。
+目标项目的状态机规则与团队交付规范是业务规则权威。glab-flow 将已确认的规则配置为 `engine/state-machine.yaml`、项目配置和技能文档中的可执行护栏；`engine/src/contract.ts` 通过不变量校验模型，以发现规则实现漂移。

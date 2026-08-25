@@ -15,48 +15,48 @@ description: glab-flow 测试配置示例。放到 <workspace.root>/.glab-flow/t
 # ---- 环境矩阵:每个环境一个 Profile(索引 Apifox 项目+环境,不复制 base_url) ----
 environments:
   local:                              # 本地 Docker 完整业务闭环（开发中→测试中门禁）
-    apifox: { project: oa_platform, env: local }
+    apifox: { project: sample_web, env: local }
     databases:                        # 键 → config.md databases 的引用(连接信息在交付配置)
       platform: local_platform
-      tenant: local_tenant_kn
+      tenant: local_tenant
     frontend:                         # 本地前端构建(仅本地环境;测试环境由 CI 构建禁止本地 build)
       build: "pnpm build:backend"
-      workdir: "/Users/<you>/IdeaProjects/oa/oa-frontend-intergration"
-      output: "/Users/<you>/IdeaProjects/oa/oa-platform/public/frontend"
+      workdir: "/path/to/business-workspace/frontend"
+      output: "/path/to/business-workspace/public/frontend"
     test_data: { prefix: "E2E{iid}L", cleanup_required: true, prohibited: [非本需求前缀数据] }  # L/T 后缀隔离环境数据
     credentials:
-      account: "you@kn.group"
+      account: "developer@example.test"
       password: "<本地密码>"
       vars: { account: local_client_email, password: local_client_password }  # 场景 {{变量名}} 映射,执行时按名注入
-    login: { owner: oa_platform, endpoint: "/client/v1/login", token_var: x_client_token }  # 共用登录契约:所有项目从此拿 token
-    web_url: "http://tenant.oa.com"   # 前端入口(E2E 浏览器用;API base 以 Apifox 环境为准)
-    desc: "本地 Docker;前端必须构建到 oa-platform"
+    login: { owner: sample_web, endpoint: "/api/login", token_var: access_token }  # 共用登录契约:所有项目从此拿 token
+    web_url: "http://app.local.test"   # 前端入口(E2E 浏览器用;API base 以 Apifox 环境为准)
+    desc: "本地 Docker；前端必须构建到业务应用目录"
 
   test:                               # 已部署测试环境完整业务闭环（测试中→待发布门禁）
-    apifox: { project: oa_platform, env: test }
+    apifox: { project: sample_web, env: test }
     databases: { platform: test_platform }
     test_data: { prefix: "E2E{iid}", cleanup_required: true, prohibited: [本地E2E数据] }
-    credentials: { account: "qa@kn.group", password: "<测试密码>" }
-    web_url: "https://stage-oa.kuainiu.io"
-    desc: "Stage 测试环境;由 CI/Jenkins 构建部署,禁止本地 build"
+    credentials: { account: "qa@example.test", password: "<测试密码>" }
+    web_url: "https://app.test.example"
+    desc: "测试环境；由 CI/Jenkins 构建部署，禁止本地 build"
 
 # ---- Apifox 项目索引:名字 → ID(启动时可用 CLI 校验,漂移即改这里) ----
 apifox_projects:
-  oa_platform:                        # 平台/PHP 模块/前端集成 的接口测试项目
-    project_id: "8731182"
+  sample_web:                         # Web 应用/前端集成的接口测试项目
+    project_id: "<项目 ID>"
     branch: "main"
-    envs: { local: "48389105", test: "48357135" }   # 环境名 → Apifox 环境 ID
-  oa_service:                         # Java 后端(oa-service/oa-gateway)的接口测试项目
-    project_id: "8372255"
+    envs: { local: "<本地环境 ID>", test: "<测试环境 ID>" }   # 环境名 → Apifox 环境 ID
+  sample_service:                     # 后端服务的接口测试项目
+    project_id: "<项目 ID>"
     branch: "main"
-    envs: { local: "46095111", test: "46538004" }
+    envs: { local: "<本地环境 ID>", test: "<测试环境 ID>" }
 
 # ---- 仓库 → Apifox 项目路由:改了哪些仓,就用哪个项目测(核心索引) ----
 routes:
-  - repos: [oa-platform, oa-frontend-intergration]   # 平台/模块/前端改动
-    apifox: oa_platform
-  - repos: [oa-service, oa-gateway]                  # Java 后端改动
-    apifox: oa_service
+  - repos: [web-app, frontend]                       # Web 应用/前端改动
+    apifox: sample_web
+  - repos: [service-api, gateway]                    # 后端服务改动
+    apifox: sample_service
 ```
 
 ## 字段说明
@@ -77,20 +77,20 @@ routes:
 ## 输出示例
 
 ```bash
-cat .glab-flow/test-config.md | pnpm cli test-config --repos oa-platform,oa-frontend-intergration --env local --iid 172
+cat .glab-flow/test-config.md | pnpm cli test-config --repos web-app,frontend --env local --iid 172
 ```
 ```json
 {
   "env": "local",
-  "apifox": { "project": "oa_platform", "projectId": "8731182", "branch": "main", "envName": "local", "envId": "48389105" },
-  "apifoxTargets": [ { "project": "oa_platform", "projectId": "8731182", "envId": "48389105" } ],  // 跨平台+Java 需求含多个,逐项目跑
-  "login": { "owner": "oa_platform", "endpoint": "/client/v1/login", "tokenVar": "x_client_token" },
-  "databases": { "platform": "local_platform", "tenant": "local_tenant_kn" },
+  "apifox": { "project": "sample_web", "projectId": "<项目 ID>", "branch": "main", "envName": "local", "envId": "<本地环境 ID>" },
+  "apifoxTargets": [ { "project": "sample_web", "projectId": "<项目 ID>", "envId": "<本地环境 ID>" } ],  // 多项目需求含多个，逐项目跑
+  "login": { "owner": "sample_web", "endpoint": "/api/login", "tokenVar": "access_token" },
+  "databases": { "platform": "local_platform", "tenant": "local_tenant" },
   "frontend": { "build": "pnpm build:backend", "workdir": "...", "output": "..." },
   "testData": { "prefix": "E2E172", "cleanupRequired": true },
-  "credentials": { "account": "you@kn.group", "password": "..." },
-  "webUrl": "http://tenant.oa.com",
-  "resolution": { "repos": ["oa-platform", "oa-frontend-intergration"], "matchedRoutes": ["oa_platform"], "unmatchedRepos": [] },
+  "credentials": { "account": "developer@example.test", "password": "..." },
+  "webUrl": "http://app.local.test",
+  "resolution": { "repos": ["web-app", "frontend"], "matchedRoutes": ["sample_web"], "unmatchedRepos": [] },
   "warnings": []
 }
 ```

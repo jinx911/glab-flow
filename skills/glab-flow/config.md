@@ -27,14 +27,14 @@ stdin 是整份 markdown 文件内容，stdout 是 `GlabConfig` JSON。解析器
 
 **可选键**（不配则取默认或跳过对应能力）：
 
-- `gitlab.harness_clone` —— harness 仓库的本地克隆路径（如 `/Users/.../oa-ai-native-harness`）。配了之后 Leader 可在该目录直接跑 `glab issue ...`，glab 自动从 remote 推断 host/project；不配则用 `glab api --hostname <host> "<path>"` 显式调用。
+- `gitlab.harness_clone` —— 目标 GitLab 项目的本地克隆路径（如 `/path/to/project`）。配了之后 Leader 可在该目录直接跑 `glab issue ...`，glab 自动从 remote 推断 host/project；不配则用 `glab api --hostname <host> "<path>"` 显式调用。
 - `branch_naming.format` —— 分支命名模板，默认 `"{type}/{iid}"`。
 - `branch_naming.type_map` —— Issue 类型到分支前缀的映射，默认 `{ story: feat, bug: fix }`。
 - `run_mode` —— `semi-auto`（默认）或 `full-auto`；决定门禁预览是展示后 AskUserQuestion 还是护栏 ok 即自动应用（hard_gate 两模式都强制人工，见 `gate.md`）。
 - `deploy_branch` —— 自动部署目标分支（如 `"test"`）；不配则发布节点跳过合并这一步。
 - `roles` —— 角色 → 默认 `@用户` 映射（如 `{ 产品: "@a", 研发: "@b", 测试: "@c" }`）。Issue 正文无「交付协同」表时，引擎按目标节点 `assigneeRole` 从此兜底，免去每个节点反复反问。
-- `jenkins.job_name` / `jenkins.branch_param` / `jenkins.default_params` —— 单仓 Jenkins 构建参数；`branch_param` 默认 `"oa_branch"`。
-- `jenkins.jobs` —— 多仓 Jenkins 作业映射，每项 `{ job_name, branch_param?, env_param?, default_params? }`，键为仓库名（如 `oa-service`、`oa-frontend`）。配了之后 jenkins-deploy 按当前操作仓库选 job + 参数模板；与单 `job_name` 可共存。
+- `jenkins.job_name` / `jenkins.branch_param` / `jenkins.default_params` —— 单仓 Jenkins 构建参数；`branch_param` 默认 `"branch"`。
+- `jenkins.jobs` —— 多仓 Jenkins 作业映射，每项 `{ job_name, branch_param?, env_param?, default_params? }`，键为仓库名（如 `service-api`、`frontend`）。配了之后 jenkins-deploy 按当前操作仓库选 job + 参数模板；与单 `job_name` 可共存。
 - `databases` —— 命名的**逻辑**数据目标映射，每项 `{ mcp, desc? }`。它描述本地 Docker 或 DMS 的路由意图，不保存连接串、密码或 Token。测试 DMS 仍须在执行时按 DMS 规则选择 RDS 或镜像，并由 `websites.uuid` 解析租户。
 - `test_environments` —— 仅维护 `local` 与 `test` 两个环境 Profile。每项 `{ url, runtime?, login?, data?, frontend?, desc? }`：`login.credential_ref` 指向安全凭据存储，`data` 声明平台/默认租户/可选租户和测试数据清理约束，`frontend.build` 声明是否需要本地构建。**禁止** `account`、`password`、Cookie、Token 等明文敏感字段。
 - `apifox.projects` —— Apifox 项目映射。每项必须有 `{ project_id, branch?, environments }`；`branch` 默认 `main`，`environments.local` 与 `environments.test` 分别指向两套环境。`apifox.routes` 把接口前缀及相关代码仓映射到正确项目；前端改动调用 PHP API 时也以路由为准，不得按前端仓名误选 Java 项目。
@@ -84,7 +84,7 @@ Leader 启动 glab-flow 时按下面的顺序找第一份存在的配置文件�
 | `deploy_branch` | 可选 | `deployBranch` | 自动部署分支；不配则发布节点跳过合并 |
 | `roles` | 可选 | `roles` | 角色→默认 `@用户` 映射；无交付协同表时兜底 |
 | `jenkins.job_name` | 可选 | `jenkins.jobName` | 单仓 Jenkins 构建作业名 |
-| `jenkins.branch_param` | 可选 | `jenkins.branchParam` | 分支参数名，默认 `"oa_branch"` |
+| `jenkins.branch_param` | 可选 | `jenkins.branchParam` | 分支参数名，默认 `"branch"` |
 | `jenkins.default_params` | 可选 | `jenkins.defaultParams` | 默认构建参数键值表 |
 | `jenkins.jobs.<repo>.job_name` | 可选 | `jenkins.jobs.<repo>.jobName` | 多仓作业映射，键为仓库名 |
 | `jenkins.jobs.<repo>.branch_param` | 可选 | `jenkins.jobs.<repo>.branchParam` | 该仓库的分支参数名 |
@@ -106,4 +106,4 @@ Leader 启动 glab-flow 时按下面的顺序找第一份存在的配置文件�
 
 \* `project_id` 与 `project_path` 至少给一个；都给以 `project_id` 为准；都不给 → 解析器抛 `missing required fields`。
 
-`jenkins.*` 启用条件：`job_name` 或 `jobs` 任一存在即启用 Jenkins 能力（`default_params` 缺省为空表，`branch_param` 缺省 `"oa_branch"`）；两者皆空则不启用。`roles` / `databases` / `test_environments` 都是命名映射，按需列出每项；整个键缺省则该能力不可用。
+`jenkins.*` 启用条件：`job_name` 或 `jobs` 任一存在即启用 Jenkins 能力（`default_params` 缺省为空表，`branch_param` 缺省 `"branch"`）；两者皆空则不启用。`roles` / `databases` / `test_environments` 都是命名映射，按需列出每项；整个键缺省则该能力不可用。

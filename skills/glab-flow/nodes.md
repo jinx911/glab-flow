@@ -1,6 +1,6 @@
 # 节点契约（引擎权威来源 = engine/state-machine.yaml；本表是 Leader 速查）
 
-**工作产物落点**：所有 issue 文档（需求草稿 / 技术方案 `design.md` / 测试计划 / 回滚等）→ `<workspace.root>/.glab-flow/<iid>/spec/`（路径来自 config，见 `config.md`；`<iid>` 为 GitLab Issue iid）。**禁止**写进代码仓（oa-service / oa-platform 等）的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一存储树见 spec §7。
+**工作产物落点**：所有 issue 文档（需求草稿 / 技术方案 `design.md` / 测试计划 / 回滚等）→ `<workspace.root>/.glab-flow/<iid>/spec/`（路径来自 config，见 `config.md`；`<iid>` 为 GitLab Issue iid）。**禁止**写进业务代码仓的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一存储树见 spec §7。
 
 | 节点 | 工作agent | 产出 | 门禁 | 流转写回 |
 |---|---|---|---|---|
@@ -53,12 +53,12 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 前三阶段任一失败立即停止；Milestone 同步失败不撤回前三阶段，恢复时先回读对账，仅重试 `week-milestone-sync`。
 
-### 多仓库（OA 常态）
+### 多仓库协作
 
 一个 Issue 跨前端/PHP/Java 等多仓时，状态机仍单线推进（节点不按仓库分支），多仓维度在配置与产物层处理：
 
 - **Jenkins**：config 用 `jenkins.jobs` 按仓映射 job + 参数（见 `config.md`）；`jenkins-deploy` 按当前操作仓库选模板。
-- **待发布「生产版本」**：多仓时填**各仓部署版本**（分号分隔，如 `oa-service:v1.2; oa-frontend:v3.4`），不再是单一版本号。
+- **待发布「生产版本」**：多仓时填**各仓部署版本**（分号分隔，如 `service-api:v1.2; frontend:v3.4`），不再是单一版本号。
 - **MR**：每仓一条 feature 分支 + 一条 MR；`git-ops` 按仓操作。
 
 ### 已评审后：测试计划（唯一版本化输入）
@@ -83,7 +83,7 @@ asset: TP-001 | suite-or-group
    ```bash
    cat <workspace.root>/.glab-flow/test-config.md | cd "$ENGINE_ROOT" && pnpm cli test-config --repos <本次改动仓库,逗号分隔> --env local --iid <iid>
    ```
-   - `--repos` 从 Issue 影响模块/spec 的「关键文件」取改动仓库；routes 按仓库推导该用的 **Apifox 项目**（如 oa-platform+前端→oa_platform，oa-service→oa_service），不用记。
+   - `--repos` 从 Issue 影响模块/spec 的「关键文件」取改动仓库；routes 按仓库推导该用的 **Apifox 项目**（如 web-app+frontend→sample_web，service-api→sample_service），不用记。
    - 输出的 `apifox.envId` 直接喂 Apifox CLI（`--project <projectId> --environment <envId>`）；`databases.*` 查 `config.md` 的 databases 得 MCP；`testData.prefix` 已替换 iid。
    - 文件不存在 → 引导用户按 `test-config.example.md` 建一次（每项目一次），**不让自测在无测试配置下裸跑**。字段细节见 `test-config.example.md`。
 1. **接口/API、E2E、数据、手工验证**：仅执行 test-plan 中对 local 声明的方法。接口和 E2E 均被计划要求时，两者都要完成；纯后端需求没有 e2e 用例时才不执行 E2E。
@@ -122,7 +122,7 @@ asset: TP-001 | suite-or-group
    ```bash
    cat <workspace.root>/.glab-flow/test-config.md | cd "$ENGINE_ROOT" && pnpm cli test-config --repos <改动仓库> --env <候选环境> --iid <iid>
    ```
-   把 `test-config.md` 里 `environments` 的候选环境列成表让用户选（AskUserQuestion：本地 local / 测试 test / …），选中环境跑上面命令（或每个候选都跑、展示对比）。输出即完备上下文：**Apifox 项目+环境 ID**（routes 按改动仓库推导，不用记该用 oa_platform 还是 oa_service）、账号、数据库 MCP 引用、前端构建、测试数据前缀。
+   把 `test-config.md` 里 `environments` 的候选环境列成表让用户选（AskUserQuestion：本地 local / 测试 test / …），选中环境跑上面命令（或每个候选都跑、展示对比）。输出即完备上下文：**Apifox 项目+环境 ID**（routes 按改动仓库推导，无需记忆具体项目）、账号、数据库 MCP 引用、前端构建、测试数据前缀。
 2. `apifox.envId` 直接作为 Apifox CLI 的 `--environment`；`databases.*` 查 `config.md` 的 databases 得 MCP 名；`credentials` 为本轮测试账号，写进测试报告（见内容体 keys）。
 3. **区分三个入口**（配错则请求落错站）：登录入口 / 接口网关（API base 以 Apifox 环境的 baseUrls 为准，不复制进本地配置）/ 前端入口（`webUrl`，E2E 浏览器用）。
 4. **test-config.md 不存在或缺字段** → 停下引导按 `test-config.example.md` 补（每项目一次），不臆造地址、不用本地环境冒充测试环境。

@@ -6,10 +6,10 @@ const VALID = [
   '',
   '```yaml',
   'gitlab:',
-  '  host: git.kuainiujinke.com',
-  '  project_id: "3915"',
+  '  host: gitlab.example.test',
+  '  project_id: "100"',
   'workspace:',
-  '  root: /tmp/oa',
+  '  root: /tmp/workspace',
   '```',
   '',
 ].join('\n');
@@ -17,9 +17,9 @@ const VALID = [
 describe('parseConfig', () => {
   it('parses required fields and applies defaults', () => {
     const c = parseConfig(VALID);
-    expect(c.gitlab.host).toBe('git.kuainiujinke.com');
-    expect(c.gitlab.projectId).toBe('3915');
-    expect(c.workspace.root).toBe('/tmp/oa');
+    expect(c.gitlab.host).toBe('gitlab.example.test');
+    expect(c.gitlab.projectId).toBe('100');
+    expect(c.workspace.root).toBe('/tmp/workspace');
     expect(c.runMode).toBe('semi-auto');
     expect(c.branchNaming.format).toBe('{type}/{iid}');
     expect(c.branchNaming.typeMap).toEqual({ story: 'feat', bug: 'fix' });
@@ -35,18 +35,18 @@ describe('parseConfig', () => {
   });
 
   it('maps full-auto, deploy_branch, jenkins with defaults', () => {
-    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\nrun_mode: full-auto\ndeploy_branch: test\njenkins: { job_name: oa-service }\n```';
+    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\nrun_mode: full-auto\ndeploy_branch: test\njenkins: { job_name: sample-service }\n```';
     const c = parseConfig(md);
     expect(c.runMode).toBe('full-auto');
     expect(c.deployBranch).toBe('test');
-    expect(c.jenkins?.jobName).toBe('oa-service');
-    expect(c.jenkins?.branchParam).toBe('oa_branch');
+    expect(c.jenkins?.jobName).toBe('sample-service');
+    expect(c.jenkins?.branchParam).toBe('branch');
     expect(c.jenkins?.defaultParams).toEqual({});
   });
 
   it('accepts project_path as fallback for project_id', () => {
-    const c = parseConfig('```yaml\ngitlab: { host: h, project_path: "oa/oa" }\nworkspace: { root: /r }\n```');
-    expect(c.gitlab.projectId).toBe('oa/oa');
+    const c = parseConfig('```yaml\ngitlab: { host: h, project_path: "group/project" }\nworkspace: { root: /r }\n```');
+    expect(c.gitlab.projectId).toBe('group/project');
   });
 
   it('throws a clean error when yaml block parses to null (empty or `null`)', () => {
@@ -68,12 +68,12 @@ describe('parseConfig', () => {
       '  main: { mcp: mcp__db__q, desc: 主库 }',
       'test_environments:',
       '  local:',
-      '    url: http://tenant.oa.com',
+      '    url: http://app.local.test',
       '    runtime: local-docker',
-      '    login: { credential_ref: oa_local_hr_admin, role: "HR 管理员" }',
+      '    login: { credential_ref: local_admin, role: "管理员" }',
       '    data:',
       '      platform: { database_ref: local_platform }',
-      '      default_tenant: { website: tenant.oa.com, database_ref: local_tenant }',
+      '      default_tenant: { website: app.local.test, database_ref: local_tenant }',
       '    frontend:',
       '      build:',
       '        required: true',
@@ -85,12 +85,12 @@ describe('parseConfig', () => {
     const c = parseConfig(md);
     expect(c.databases?.main).toEqual({ mcp: 'mcp__db__q', desc: '主库' });
     expect(c.testEnvironments?.local).toEqual({
-      url: 'http://tenant.oa.com',
+      url: 'http://app.local.test',
       runtime: 'local-docker',
-      login: { credentialRef: 'oa_local_hr_admin', role: 'HR 管理员' },
+      login: { credentialRef: 'local_admin', role: '管理员' },
       data: {
         platform: { databaseRef: 'local_platform' },
-        defaultTenant: { website: 'tenant.oa.com', databaseRef: 'local_tenant' },
+        defaultTenant: { website: 'app.local.test', databaseRef: 'local_tenant' },
       },
       frontend: {
         build: {
@@ -115,21 +115,21 @@ describe('parseConfig', () => {
       'workspace: { root: /r }',
       'apifox:',
       '  projects:',
-      '    oa_platform:',
-      '      project_id: "8731182"',
+      '    sample_web:',
+      '      project_id: "10001"',
       '      branch: main',
       '      environments:',
-      '        local: { name: "本地 tenant", base_url: "http://tenant.oa.com" }',
-      '        test: { id: "48357135", name: "Test", base_url: "https://test.example.com" }',
+      '        local: { name: "本地环境", base_url: "http://app.local.test" }',
+      '        test: { id: "20002", name: "Test", base_url: "https://test.example.com" }',
       '```',
     ].join('\n');
 
-    expect(parseConfig(md).apifox?.projects.oa_platform).toEqual({
-      projectId: '8731182',
+    expect(parseConfig(md).apifox?.projects.sample_web).toEqual({
+      projectId: '10001',
       branch: 'main',
       environments: {
-        local: { name: '本地 tenant', baseUrl: 'http://tenant.oa.com' },
-        test: { id: '48357135', name: 'Test', baseUrl: 'https://test.example.com' },
+        local: { name: '本地环境', baseUrl: 'http://app.local.test' },
+        test: { id: '20002', name: 'Test', baseUrl: 'https://test.example.com' },
       },
     });
   });
@@ -156,17 +156,17 @@ describe('parseConfig', () => {
       'gitlab: { host: h, project_id: "1" }',
       'workspace: { root: /r }',
       'jenkins:',
-      '  job_name: oa-service',
+      '  job_name: sample-service',
       '  jobs:',
-      '    oa-service: { job_name: oa-service, branch_param: oa_branch }',
-      '    oa-frontend: { job_name: oa-frontend, branch_param: GIT_BRANCH, env_param: DEPLOY_ENV, default_params: { RUN_LINT: "true" } }',
+      '    sample-service: { job_name: sample-service, branch_param: branch }',
+      '    sample-frontend: { job_name: sample-frontend, branch_param: GIT_BRANCH, env_param: DEPLOY_ENV, default_params: { RUN_LINT: "true" } }',
       '```',
     ].join('\n');
     const c = parseConfig(md);
-    expect(c.jenkins?.jobName).toBe('oa-service');
-    expect(c.jenkins?.branchParam).toBe('oa_branch');
-    expect(c.jenkins?.jobs?.['oa-frontend']).toEqual({
-      jobName: 'oa-frontend',
+    expect(c.jenkins?.jobName).toBe('sample-service');
+    expect(c.jenkins?.branchParam).toBe('branch');
+    expect(c.jenkins?.jobs?.['sample-frontend']).toEqual({
+      jobName: 'sample-frontend',
       branchParam: 'GIT_BRANCH',
       envParam: 'DEPLOY_ENV',
       defaultParams: { RUN_LINT: 'true' },
@@ -174,11 +174,11 @@ describe('parseConfig', () => {
   });
 
   it('enables jenkins on jobs-only config (no single job_name)', () => {
-    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\njenkins:\n  jobs:\n    oa-service: { job_name: oa-service }\n```';
+    const md = '```yaml\ngitlab: { host: h, project_id: "1" }\nworkspace: { root: /r }\njenkins:\n  jobs:\n    sample-service: { job_name: sample-service }\n```';
     const c = parseConfig(md);
     expect(c.jenkins?.jobName).toBeUndefined();
-    expect(c.jenkins?.jobs?.['oa-service']?.jobName).toBe('oa-service');
-    expect(c.jenkins?.branchParam).toBe('oa_branch');
+    expect(c.jenkins?.jobs?.['sample-service']?.jobName).toBe('sample-service');
+    expect(c.jenkins?.branchParam).toBe('branch');
   });
 
   it('does not enable jenkins when neither job_name nor jobs present', () => {
