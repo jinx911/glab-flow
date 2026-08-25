@@ -1,6 +1,6 @@
 # Week Milestone 初始挂载 Implementation Plan
 
-> **For agentic workers:** 本计划按用户长期约束采用“先实施、后定向验证”，不使用 TDD。
+> **For agentic workers:** 本计划按用户长期约束采用“先实施、后定向验证”，不使用测试先行仪式。
 
 **Goal:** 让周内已评审需求和排期变更在 Issue 回读后立即、可恢复地同步 Week Milestone。
 
