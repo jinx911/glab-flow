@@ -46,7 +46,7 @@ glab-flow 是配置驱动的——`host`/`project_id`/`workspace.root` 等参数
    cd "$ENGINE_ROOT" && cat <config.md 路径> | pnpm cli config
    ```
 
-   stdout 是 `GlabConfig` JSON，从中派生后续编排所需的全部项目参数：`gitlab.host` / `gitlab.projectId` / `workspace.root` / `runMode`（以及可选项 `harnessClone` / `deployBranch` / `jenkins` / `databases` / `testEnvironments`）。
+   stdout 是 `GlabConfig` JSON，从中派生后续编排所需的全部项目参数：`gitlab.host` / `gitlab.projectId` / `workspace.root`（以及可选项 `harnessClone` / `deployBranch` / `jenkins` / `databases` / `testEnvironments`）。`runMode` 仅为旧 state 或尚未进入开发前的兼容默认值，不能替代本 Issue 的已持久化选择。
 
 3. 解析失败 → 把错误贴给用户，引导重跑 `/init-glab-flow`。配置文件不存在（查找链都没命中）→ 用 `AskUserQuestion` 引导运行 `/init-glab-flow <workspace.root>` 生成项目级配置后再继续——**不让 flow 在无配置下裸跑**。
 
@@ -89,6 +89,8 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `version` | 运行时版本守卫（issue 22）：`--fetched` 表示 Skill 已先 `git fetch origin`；输出 `{commit, upToDate, remoteCommit, capability, notes}`；落后即阻断 |
 | `test-config` | 测试上下文注入：stdin = `.glab-flow/test-config.md` 全文；`--repos a,b --env local [--iid N]` → routes 推 Apifox 项目 + 环境 ID + 账号/数据库/前端构建/测试数据，一次拿全（开发中自测步骤 0.5 / 测试中第一步用；模板见 `test-config.example.md`） |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
+| `run-mode-select` | **开发入口模式选择**：stdin `{state,mode,selectedBy,now}` → 写入不可变 `runModeSelection`；只允许首次选择 `semi-auto` 或 `full-auto` |
+| `automation-decision` | **自动化决策**：stdin `{event,attempt}` → `continue` / 一次 `retry` / `repair` / 统一 `pause` 决定；Leader 只按返回决定行动 |
 | `state-writeback` | 追加串行写回阶段的成功/失败审计；用于恢复时定位首个未完成阶段 |
 | `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |
 
@@ -132,11 +134,12 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
    - `validate`（G1–G15，`reasons` 自带补救动作）
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm`
-3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。Leader 按序：
+3. **开发入口选择、执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。Leader 按序：
+   - **仅一次的模式选择**：当且仅当当前转换是「已评审 → 开发中」且 state 没有 `runModeSelection`，先问用户选择半自动（`semi-auto`）或自动（`full-auto`），以 `pnpm cli run-mode-select` 将 `{ mode, selectedBy, selectedAt }` 落盘，**立刻重读 state**，把完整 `runModeSelection` 传回下一次 `transition`。选择一经落盘不可改；此时不能以裸 `runMode` 或配置值跳过选择。非开发入口的旧 state 没有选择时，才兼容采用 state/config 的 `runMode` 默认值。
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
    - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
    - **post-readback `sync_week_milestone`（仅 `plan.postWriteback` 存在）**：状态或排期评论回读成功后，Leader 用最新有效、启用的 `## 周排期` 和 Asia/Shanghai 业务日期决定目标 Week：未开始取计划开始日期所在周，执行中取当天所在周，已结束跳过。目标不存在则创建，存在则关联当前 Issue；必须幂等，且只调整 Milestone。失败写入 `week-milestone-sync` 审计并重试，不撤回已确认的标签、Assignee、正文或评论。Harness 周一任务只接手已初始挂载的 Issue 做后续 rollover，不能替代此步骤。
-   - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
+   - `shouldConfirm=false`（持久化 `full-auto`、`validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口 / 未选择模式）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
    - 任何标签/Assignee、合并评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
    - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
    - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
@@ -168,9 +171,15 @@ Story 的 `已评审 → 开发中` 在既有「计划提测时间 / 计划上�
 
 排期变化不走状态流转：Leader 调用 `pnpm cli week-plan-change`，提供完整 replacement `weekPlan` 与变更日期、原排期、原因、影响、后续动作、负责人。它只产生一条含 `## 排期变更` 和 replacement `## 周排期` 的评论；按普通预览→确认→写入→回读执行，**不**改标签、Assignee、Issue 正文或既有评论。若计划为启用，引擎同时产生 `postWriteback.sync_week_milestone`，Leader 按上述规则即时重新同步。
 
-### 批量推进（可选）
+### 自动模式连续编排与失败处理
 
-full-auto 下可连续推进多个节点：Leader 端循环 `transition →（shouldConfirm? 确认 : 直放）→ 执行 plan → 重新拉取 → 再 transition`，遇 `!validate.ok`（缺口）/ hard_gate / 终态即停。引擎只提供 `transition` 原语，循环在 Leader（保纯计算）。
+已在开发入口持久化选择 `full-auto` 时，Leader 允许连续执行：**技术方案/技术方案评审 → 测试计划 → 编码 → local API + E2E → commit/push + feature MR → 合并到测试分支 → Jenkins 测试构建（唯一参数）→ test API + E2E → GitLab 写回并回读**。每个子步骤完成立即调用 `progress` 落盘；每次外部动作都记录动作、输入摘要、证据链接/版本和结果到 state 审计，Issue 写回仍逐阶段用 `state-writeback` 记 `metadata` / `state-comment` / `readback`。流程循环是 `transition → 执行动作 → 回读 → 下一 transition`，绝不以缓存跳过回读。
+
+外部动作或验证异常必须先调用 `automation-decision`，不得凭经验自行继续：临时失败仅允许 `attempt=0` 的一次重试；可恢复的证据缺失按 `repair` 自动修复后**重验**。测试失败、Git/语义冲突、不可自动补齐的人工证据、实质变更、权限拒绝和 hard_gate 都得到 `pause`，不得自动越过。Leader 在每次暂停都写统一暂停回执：`action`、`code`、`reason`、`requiredInput`、`currentStep`、`evidence`、`attemptedRecovery`、`resumeCommand`；回执与 state 审计落盘后才等待人工输入。
+
+Jenkins 仅用于测试构建。参数必须从配置、MR/目标分支和已回读版本**唯一推导**；无法唯一推导 job、branch、`test_version`、`DEPLOY_ENV`、`force_package` 等任何参数即 `pause`，展示候选和所需输入，不能猜测或复用旧值。生产部署、生产验收和关闭恒为人工动作，即使运行在 `full-auto` 也不能自动执行。
+
+引擎只提供 `transition` 和 `automation-decision` 等纯计算原语，循环在 Leader；遇 `!validate.ok`、暂停、hard_gate 或终态即停。
 
 ### 状态缓存
 

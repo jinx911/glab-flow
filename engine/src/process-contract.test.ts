@@ -336,6 +336,44 @@ describe('glab-flow process contracts', () => {
     expect(skill).toMatch(/Jenkins[\s\S]{0,40}部署参数/);
   });
 
+  it('documents locked development-entry automation and its pause red lines', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const gate = readProjectFile('skills/glab-flow/gate.md');
+    const resume = readProjectFile('skills/glab-flow/resume.md');
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const init = readProjectFile('skills/init-glab-flow/SKILL.md');
+    const config = readProjectFile('skills/glab-flow/config.md');
+    const example = readProjectFile('skills/glab-flow/config.example.md');
+    const readme = readProjectFile('README.md');
+    const docs = [skill, gate, resume, nodes, init, config, example, readme].join('\n');
+
+    expect(docs).toMatch(/已评审\s*→\s*开发中/);
+    expect(docs).toMatch(/run-mode-select/);
+    expect(docs).toMatch(/runModeSelection/);
+    expect(docs).toMatch(/不可变|不可改|锁定/);
+    expect(docs).toMatch(/重读[\s\S]{0,80}transition/);
+    expect(config).toMatch(/兼容默认/);
+    expect(init).toMatch(/不能授权自动写回/);
+
+    expect(docs).toMatch(/技术方案[\s\S]{0,180}测试计划[\s\S]{0,180}编码/);
+    expect(docs).toMatch(/local API \+ E2E/);
+    expect(docs).toMatch(/test API \+ E2E/);
+    expect(docs).toMatch(/commit\/push[\s\S]{0,80}MR/);
+    expect(docs).toMatch(/测试分支合并/);
+    expect(docs).toMatch(/Jenkins[\s\S]{0,80}唯一推导/);
+    expect(docs).toMatch(/progress[\s\S]{0,80}(审计|audit)/i);
+    expect(docs).toMatch(/GitLab 写回并回读/);
+
+    expect(docs).toMatch(/automation-decision/);
+    expect(docs).toMatch(/一次重试/);
+    expect(docs).toMatch(/自动修复[\s\S]{0,80}(重验|重新验证)/);
+    expect(docs).toMatch(/测试失败[\s\S]{0,160}(语义冲突|Git\/语义冲突)[\s\S]{0,180}hard_gate/);
+    expect(gate).toMatch(/action:\s*pause[\s\S]{0,500}resumeCommand/);
+    expect(docs).toMatch(/material_change[\s\S]{0,120}change-impact/);
+    expect(docs).toMatch(/change-close[\s\S]{0,120}(恢复|继续)/);
+    expect(docs).toMatch(/生产部署[\s\S]{0,120}(恒为人工|始终人工)/);
+  });
+
   it('documents the learning-to-versioned-docs cleanup lifecycle', () => {
     const learn = readProjectFile('skills/glab-flow/learn.md');
     const skill = readProjectFile('skills/glab-flow/SKILL.md');
