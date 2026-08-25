@@ -148,6 +148,12 @@ asset: TP-001 | suite-or-group
 
 ⚠️ release-check 是**发布计划**，在「测试中→待发布」产生；「发布」只**执行**该计划。**生产部署当前手动触发**（你在平台点击，完成后把生产版本号告诉 Leader）；`config.jenkins` 只管**测试环境**（提测的 `trigger_jenkins`），**生产 `deploy` 不挂 Jenkins 条件**——部署确认后必定推进 Issue。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
 
+### 自动模式完整交付链
+
+在「已评审 → 开发中」已执行一次 `run-mode-select` 且持久化为 `full-auto` 后，Leader 连续执行这条链：技术方案/技术方案评审 → 测试计划 → 编码实现 → local API + E2E → commit/push + feature MR → 测试分支合并 → Jenkins 测试构建 → test API + E2E → GitLab 写回并回读。每一步完成都以 `progress` 记录、以动作审计保留证据；Jenkins 参数必须唯一推导，否则暂停。生产部署、产品/生产验收、终态关闭始终人工，不能包含在自动链内。
+
+链路中每个失败先走 `automation-decision`：临时失败只重试一次，可恢复证据自动修复且重新验证；测试失败、Git/语义冲突、人工证据、实质变更、权限问题或 hard_gate 均暂停。实质变更先 `change-impact` 暂停，按影响同步 proposal/design/test-plan/代码/Apifox/排期或发布材料，测试计划递增版本并重测，`change-close` 回读关闭后才恢复。
+
 ### 节点内部子步骤 checklist（层 2 进度可见）
 
 节点不是黑盒——`pnpm cli node` / `transition` 输出当前节点的子步骤（`progressSteps` / `nodeProgress`），Leader 据此展示「节点内做到哪了」，避免「推进到开发中后状态卡住、不知道进度」。开发中固定为「技术方案 → 测试计划 → 编码实现 → 本地自测 → 代码评审」；测试中固定为「用例执行 → 阻塞修复 → 复测」。引擎只声明 checklist（数据），子步骤执行仍由 Leader 调对应 sub-skill；done 步骤保存在 state 的 `progress` 中（引擎不驱动子步骤执行）。

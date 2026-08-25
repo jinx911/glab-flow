@@ -9,15 +9,17 @@ import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
 import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
-import type { ApifoxAssetAudit, Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
+import type { ApifoxAssetAudit, Payload, RunMode, TransitionInput, WeekPlanChangeInput } from './types.js';
 import type { ChangeCloseInput, ChangeImpactInput } from './types.js';
 import { buildChangeClosePlan, buildChangeImpactPlan, validateChangeClose, validateChangeImpactInput } from './change-impact.js';
-import { progressCommand, stateWritebackCommand } from './cli-commands.js';
+import { progressCommand, runModeSelectCommand, stateWritebackCommand } from './cli-commands.js';
 import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import type { TestRun } from './types.js';
+import { decideAutomation } from './automation.js';
+import type { AutomationEvent } from './types.js';
 
 const model = loadModel();
 
@@ -50,6 +52,16 @@ async function main() {
       const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[]; body?: string; testPlan?: string };
       const payload = input.payload;
       if (input.testPlan !== undefined) payload.testPlan = input.testPlan;
+      // Development entry is the one transition that requires the Issue-scoped,
+      // immutable mode selection. This legacy command has no state input, so it
+      // must not be able to mint a WritePlan that bypasses transition's guard.
+      if (payload.from === '已评审' && payload.to === '开发中') {
+        console.log(JSON.stringify({
+          error: 'plan: 已评审→开发中必须使用 transition，并传入由 run-mode-select 持久化的 runModeSelection',
+        }));
+        process.exitCode = 1;
+        break;
+      }
       const statusLabel = payload.type === 'story' ? `story-status::${payload.from}` : `status::${payload.from}`;
       const result = validateTransition(model, toFacts({
         iid: 0,
@@ -209,8 +221,28 @@ async function main() {
       console.log(JSON.stringify(stateWritebackCommand(input)));
       break;
     }
+    case 'run-mode-select': {
+      try {
+        const input = JSON.parse(readStdin()) as { state: RunState; mode: RunMode; selectedBy: string; now: string };
+        console.log(JSON.stringify(runModeSelectCommand(input)));
+      } catch (e) {
+        console.log(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+        process.exitCode = 1;
+      }
+      break;
+    }
+    case 'automation-decision': {
+      try {
+        const input = JSON.parse(readStdin()) as { event: AutomationEvent; attempt: number };
+        console.log(JSON.stringify(decideAutomation(input.event, input.attempt)));
+      } catch (e) {
+        console.log(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+        process.exitCode = 1;
+      }
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress | run-mode-select | automation-decision');
       process.exit(1);
   }
 }

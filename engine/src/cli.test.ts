@@ -13,13 +13,135 @@ const VALID_REVIEW_EVIDENCE = {
 };
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'plan' | 'transition' | 'test-run' | 'asset-audit' | 'run-mode-select' | 'automation-decision', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
   });
   return { json: r.stdout ? JSON.parse(r.stdout) : null, status: r.status, stderr: r.stderr ?? '' };
 }
+
+describe('cli automation-decision', () => {
+  it('prints a decision as JSON', () => {
+    const result = cli('automation-decision', { event: { kind: 'transient_failure', detail: 'timeout' }, attempt: 0 });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ action: 'retry', remainingRetries: 0, reason: expect.stringContaining('timeout') });
+  });
+
+  it.each([
+    { event: { kind: 'unknown', detail: 'x' }, attempt: 0 },
+    { event: { kind: 'completed' }, attempt: -1 },
+    { event: { kind: 'missing_evidence', detail: 'receipt absent', autoRecoverable: 'false' }, attempt: 0 },
+    { event: { kind: 'transient_failure' }, attempt: 0 },
+    { event: { kind: 'missing_evidence', detail: 'receipt absent' }, attempt: 0 },
+  ])('returns a JSON error and non-zero status for invalid input', (input) => {
+    const result = cli('automation-decision', input);
+    expect(result.status).toBe(1);
+    expect(result.json).toEqual(expect.objectContaining({ error: expect.any(String) }));
+  });
+
+  it.each([
+    ['transient retry exhausted', { kind: 'transient_failure', detail: 'network reset' }, 1, 'transient_failure_exhausted'],
+    ['test failure', { kind: 'test_failed', detail: 'TP-001 failed' }, 0, 'test_failed'],
+    ['Git conflict', { kind: 'git_conflict', detail: 'main diverged' }, 0, 'git_conflict'],
+    ['missing human evidence', { kind: 'missing_evidence', detail: 'approval absent', autoRecoverable: false }, 0, 'missing_human_evidence'],
+    ['material change', { kind: 'material_change', detail: 'API changed' }, 0, 'material_change'],
+    ['permission denied', { kind: 'permission_denied', detail: 'protected branch' }, 0, 'permission_denied'],
+    ['hard gate', { kind: 'hard_gate', detail: 'release approval' }, 0, 'hard_gate'],
+  ] as const)('prints every pause field for %s', (_label, event, attempt, code) => {
+    const result = cli('automation-decision', { event, attempt });
+
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      action: 'pause', code, reason: expect.stringContaining(event.detail), requiredInput: expect.any(String),
+    });
+    expect((result.json as { requiredInput: string }).requiredInput.trim().length).toBeGreaterThan(10);
+  });
+});
+
+describe('cli run-mode-select', () => {
+  const state = {
+    iid: '1', type: 'story', project: { host: 'h', id: '1' }, cachedNode: '', cachedNodeAt: 't0',
+    docVersion: 1, specDir: '/r/.glab-flow/1/spec', runMode: 'semi-auto', lastActions: [], spawnedAgents: [],
+    lessonsCaptured: 0, writebackAudit: [], progress: { node: '', done: [] }, updatedAt: 't0',
+  };
+
+  it('returns status 0 and the selected state for a valid selection', () => {
+    const result = cli('run-mode-select', { state, mode: 'full-auto', selectedBy: '  @owner ', now: ' t1 ' });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ runModeSelection: { mode: 'full-auto', selectedAt: 't1', selectedBy: '@owner' } });
+  });
+
+  it.each([
+    ['empty selectedBy', { state, mode: 'full-auto', selectedBy: '   ', now: 't1' }],
+    ['invalid mode', { state, mode: 'manual', selectedBy: '@owner', now: 't1' }],
+    ['different second selection', {
+      state: { ...state, runModeSelection: { mode: 'full-auto', selectedAt: 't1', selectedBy: '@owner' } },
+      mode: 'semi-auto', selectedBy: '@owner', now: 't1',
+    }],
+  ])('returns status 1 and a JSON error for %s', (_label, input) => {
+    const result = cli('run-mode-select', input);
+    expect(result.status).toBe(1);
+    expect(result.json).toEqual(expect.objectContaining({ error: expect.any(String) }));
+  });
+});
+
+describe('cli transition — persisted development-entry mode selection', () => {
+  const body = '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n';
+  const pausedWeekPlan = `## 周排期
+
+- 计划开始：2026-08-17
+- 计划完成：2026-09-06
+- 计划覆盖周：W34 ～ W36
+- 自动 rollover：暂停`;
+  const input = {
+    type: 'story', iid: 42, labels: ['type::story', 'story-status::已评审'], body, notes: [{ body: pausedWeekPlan }], state: 'opened',
+    fields: {
+      技术方案评审通过记录或免评审结论: '通过', 实际开始日期: '2026-08-07', 研发Assignee: '@dev',
+      计划提测时间: '2026-08-08', 计划上线时间: '2026-08-09',
+    },
+    datesConfirmed: true,
+  };
+
+  it('blocks an otherwise valid development transition without the persisted selection', () => {
+    const result = cli('transition', { ...input, runMode: 'full-auto' });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      validate: { ok: true }, modeSelectionRequired: true, shouldConfirm: true,
+      missing: [expect.objectContaining({ field: 'runModeSelection' })],
+      preview: expect.stringContaining('run-mode-select'),
+    });
+    expect(result.json).not.toHaveProperty('plan');
+  });
+
+  it('allows an auditable persisted full-auto selection to skip confirmation', () => {
+    const result = cli('transition', {
+      ...input,
+      runMode: 'semi-auto',
+      runModeSelection: { mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' },
+    });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      validate: { ok: true }, modeSelectionRequired: false, shouldConfirm: false,
+      plan: { ops: expect.any(Array) },
+      preview: expect.stringContaining('已持久化选择：@owner 于 2026-08-17T09:00:00Z'),
+    });
+  });
+
+  it.each([
+    ['empty selectedAt', { mode: 'full-auto', selectedAt: '  ', selectedBy: '@owner' }],
+    ['empty selectedBy', { mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '  ' }],
+    ['invalid mode', { mode: 'manual', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' }],
+  ])('treats a %s pseudo-selection as absent even with bare full-auto', (_label, runModeSelection) => {
+    const result = cli('transition', { ...input, runMode: 'full-auto', runModeSelection });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      validate: { ok: true }, modeSelectionRequired: true, shouldConfirm: true,
+      missing: [expect.objectContaining({ field: 'runModeSelection' })],
+    });
+    expect(result.json).not.toHaveProperty('plan');
+  });
+});
 
 describe('cli validate — body passthrough (G6b reachable, ⑩)', () => {
   // 待评审→已评审：requiredFields 齐 + gateOutcome 通过 + reviewType 需求评审 + 日期已确认；
@@ -200,16 +322,25 @@ describe('cli Week Plan contract — legacy direct paths', () => {
     ]) });
   });
 
-  it('validate and plan reject Story development entry with no latest Week Plan', () => {
+  it('validate rejects Story development entry with no latest Week Plan, while plan rejects the unsafe legacy path', () => {
     const input = { type: 'story', labels: ['type::story', 'story-status::已评审'], payload: developmentPayload };
     expect(cli('validate', input)).toMatchObject({ status: 0, json: { ok: false, missing: ['latestWeekPlan'] } });
-    expect(cli('plan', { payload: developmentPayload })).toMatchObject({ status: 1, json: { ok: false, missing: ['latestWeekPlan'] } });
+    expect(cli('plan', { payload: developmentPayload })).toMatchObject({
+      status: 1,
+      json: { error: expect.stringContaining('transition') },
+    });
   });
 
-  it('plan accepts a paused latest Week Plan for Story development entry', () => {
+  it('plan rejects a valid Story development entry because only transition accepts persisted runModeSelection', () => {
     const { json, status } = cli('plan', { payload: developmentPayload, notes: [{ body: PAUSED_WEEK_PLAN_NOTE }] });
-    expect(status).toBe(0);
-    expect(json).toHaveProperty('ops');
+    expect(status).toBe(1);
+    expect(json).toMatchObject({
+      error: expect.stringContaining('transition'),
+    });
+    expect(json).toMatchObject({
+      error: expect.stringContaining('runModeSelection'),
+    });
+    expect(json).not.toHaveProperty('ops');
   });
 
   it.each([

@@ -213,6 +213,40 @@ export type LatestWeekPlan =
 
 export type RunMode = 'semi-auto' | 'full-auto';
 
+export type AutomationEvent =
+  | { kind: 'completed' }
+  | { kind: 'transient_failure'; detail: string }
+  | { kind: 'test_failed'; detail: string }
+  | { kind: 'git_conflict'; detail: string }
+  | { kind: 'missing_evidence'; detail: string; autoRecoverable: boolean }
+  | { kind: 'material_change'; detail: string }
+  | { kind: 'permission_denied'; detail: string }
+  | { kind: 'hard_gate'; detail: string };
+
+export type AutomationDecision =
+  | { action: 'continue'; reason: string }
+  | { action: 'retry'; remainingRetries: number; reason: string }
+  | { action: 'repair'; reason: string }
+  | {
+      action: 'pause';
+      code:
+        | 'transient_failure_exhausted'
+        | 'test_failed'
+        | 'git_conflict'
+        | 'missing_human_evidence'
+        | 'material_change'
+        | 'permission_denied'
+        | 'hard_gate';
+      reason: string;
+      requiredInput: string;
+    };
+
+export interface RunModeSelection {
+  mode: RunMode;
+  selectedAt: string;
+  selectedBy: string;
+}
+
 export interface MissingItem {
   field: string;
   hint: string;
@@ -253,6 +287,8 @@ export interface TransitionInput {
   humanConfirmed?: boolean;
   closeIssue?: boolean;
   runMode?: RunMode;
+  /** Persisted, Issue-level choice made with run-mode-select before entering development. */
+  runModeSelection?: RunModeSelection;
   config?: { roles?: Record<string, string>; deployBranch?: string; jenkins?: boolean };
 }
 
@@ -274,6 +310,8 @@ export interface TransitionOutput {
   /** 当前节点的内部子步骤 checklist（进度可见，层 2）。 */
   nodeProgress: string[];
   preview: string;
+  /** True only when 已评审 → 开发中 lacks the persisted Issue-level mode selection. */
+  modeSelectionRequired: boolean;
   shouldConfirm: boolean;
   applied: false;
 }

@@ -1,6 +1,6 @@
 ---
 name: glab-flow-gate
-description: 每节点门禁仪式（取证→校验→计划→预览→确认→应用）+ semi/full-auto。
+description: 每节点门禁仪式（取证→校验→计划→预览→确认→应用）+ 半自动/自动模式与暂停协议。
 ---
 
 # glab-flow 节点门禁仪式
@@ -43,7 +43,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
    门禁**二值**（G2）——通过走 `transition`/`plan`，退回走 `plan-return`，没有"附带条件通过"；`hard_gate`（待发布 / 生产验收中 / 已完成）必须 `humanConfirmed`（G3），无论 run 模式如何都要人工拍板，这是不可关闭的红线。
 
-4. **变更闭环**（G16）。实施中发现需求、技术方案或既有实现错误，Leader 先回读 Issue notes 和当前 `test-plan.md`，以 `change-impact` 预览并确认新增 open 影响单。按其 `requiredArtifacts` 更新所有关联产物；需要返回评审/开发节点时用 `plan-return`，排期变化另走 `week-plan-change`。全部完成、测试计划版本递增及受影响环境重测后，使用刚回读的 notes 调 `change-close` 写 closed 回执。open 单存在时不允许调用普通 `transition` 继续推进。
+4. **变更闭环**（G16）。实施中发现需求、技术方案或既有实现错误，先将 `material_change` 交给 `automation-decision`，得到 `pause` 后 Leader 回读 Issue notes 和当前 `test-plan.md`，以 `change-impact` 预览并确认新增 open 影响单。按其 `requiredArtifacts` 同步 proposal/design/test-plan、Apifox 资产、代码、排期或发布材料；测试计划受影响必须递增 `plan-version` 并重测受影响环境；需要返回评审/开发节点时用 `plan-return`，排期变化另走 `week-plan-change`。全部完成后，用刚回读的 notes 调 `change-close` 写 closed 回执，才可恢复普通 `transition`。open 单存在时不允许正向推进。
 
 ### 脏状态（`transition.dirty=true` 直接识别）
 
@@ -54,9 +54,11 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 
 两种都不写回 GitLab、不更新 `cachedNode`。用户在 GitLab UI 修好后重跑 `transition` 会重新识别。
 
-## run 模式（表）
+## run 模式（开发入口一次选择、全程锁定）
 
-`run_mode` 来自配置（`config.md` 的 `run_mode` 键）或 state 文件（`RunState.runMode`）。两模式只影响第 5 步"确认/应用"那一跳，前面 1–4 步（取证/校验/计划/预览）完全一致。
+模式不是项目级开关。**仅在「已评审 → 开发中」且 state 缺少 `runModeSelection` 时**，Leader 才问一次用户选半自动（`semi-auto`）或自动（`full-auto`）。调用 `pnpm cli run-mode-select` 落盘后，必须立刻重读 state，并把 `{ mode, selectedBy, selectedAt }` 连同下一次 `transition` 输入传入。`runModeSelection` 是本 Issue 的不可变审计记录；第二次选择或变更模式必须拒绝。只有不经过开发入口的旧 state 才可由 `RunState.runMode` 或 config 的 `run_mode` 取兼容默认值。
+
+前 1–4 步（取证/校验/计划/预览）完全一致；有持久化选择后，两模式只影响第 5 步“确认/应用”。开发入口缺少选择时，`transition.modeSelectionRequired=true`：不得建写回计划，裸 `runMode=full-auto` 不构成自动写回授权。
 
 | run 模式 | 门禁预览 | 自动应用范围 | hard_gate（待发布/验收/关闭） |
 |---|---|---|---|
@@ -64,6 +66,29 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 | `full-auto` | 仍展示 diff（可审计），但不阻塞 | 护栏 `ok:true` 即自动应用 glab 命令 | **强制人工**（G3，不可关） |
 
 **hard_gate 是红线**：待发布、生产验收中、已完成这三个节点带 `hard_gate` 标记（见 `nodes.md`），无论 semi 还是 full-auto，都必须 `humanConfirmed`（G3）才能流转——full-auto 在这里也要停下问人。原因：发布与验收的代价不可逆（生产流量、用户可见、关闭即归档），不能由护栏单独放行。这一条不接受配置覆盖。
+
+### 自动模式执行序列、progress 与 audit
+
+持久化 `full-auto` 的连续路径固定为：技术方案/评审 → 测试计划 → 编码 → local API + E2E → commit/push + feature MR → 测试分支合并 → 参数唯一的 Jenkins 测试构建 → test API + E2E → GitLab 写回并回读。每一步成功都调用 `progress` 标记节点子步骤，并在 state 追加动作审计；Issue 写回继续逐阶段调用 `state-writeback`。Jenkins 的 job、分支、`test_version`、`DEPLOY_ENV`、`force_package` 等参数若不能唯一推导，立即暂停，不能使用猜测、历史值或“自动模式”作为授权。
+
+### 自动化异常与统一暂停回执
+
+每个异常先输入 `pnpm cli automation-decision`。`transient_failure` 只允许 `attempt=0` 时一次重试；`missing_evidence` 且 `autoRecoverable=true` 返回 `repair`，Leader 修复后必须重验原证据。测试失败、Git/语义冲突、需要人工的证据、`material_change`、权限拒绝和 `hard_gate` 返回 `pause`，不做自动绕过。
+
+Leader 对每一个 `pause` 产出同一格式的暂停回执并落盘：
+
+```text
+action: pause
+code: <automation-decision.code>
+reason: <automation-decision.reason>
+requiredInput: <automation-decision.requiredInput>
+currentStep: <节点/子步骤>
+evidence: <已回读证据或失败日志链接>
+attemptedRecovery: <none | retry once | repair + re-verify>
+resumeCommand: <重试或继续所需的精确命令>
+```
+
+暂停回执写入 state 审计后才等待输入；恢复前重读相关 GitLab/外部系统事实。生产部署、生产验收与关闭始终是人工确认，即使模式为 `full-auto` 也不例外。
 
 ## 证据不足时
 

@@ -48,7 +48,7 @@ scripts/doctor.sh --workspace /absolute/path/to/business-workspace
 
 | 文件 | 职责 |
 |---|---|
-| `.glab-flow/config.md` | **交付流程**：GitLab host/projectId、分支命名、run_mode、Jenkins、数据库索引 |
+| `.glab-flow/config.md` | **交付流程**：GitLab host/projectId、分支命名、兼容默认 run_mode、Jenkins、数据库索引 |
 | `.glab-flow/test-config.md` | **测试配置**：Apifox 项目路由（改动仓库→项目）、环境 ID 索引、凭据变量名、测试数据策略、共用登录契约 |
 | `.glab-flow/apifox-vars.json` | **环境参数值**（CLI `--variables` 消费）：凭据/前缀按环境条目存，`-e` 切环境自动跟随 |
 
@@ -93,6 +93,8 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
   config            (stdin = config markdown 文件内容)                      # -> GlabConfig JSON（Leader: cat <config.md> | pnpm cli config）
   test-config       (--repos a,b --env local [--iid N]; stdin = test-config.md)  # -> TestContext JSON（apifoxTargets/envId/凭据变量/数据库,配置送到脸上）
   state-init        (stdin {iid,type,host,projectId,workspaceRoot,runMode?,now?})  # -> RunState JSON（Leader 写到 .glab-flow/*-state.json）
+  run-mode-select   (stdin {state,mode,selectedBy,now}) # -> 不可变的 Issue 级 runModeSelection
+  automation-decision (stdin {event,attempt}) # -> continue/retry/repair/pause 的确定性决定
 ```
 
 全部 GitLab 读写均由 Leader 通过已登录的 `glab` CLI 完成，无需在命令或环境变量中配置 Token。
@@ -100,6 +102,12 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
 ## 变更闭环
 
 需求、技术方案、实现或测试中发现错误时，先用 `change-impact` 写入不可变的 open 影响单；它会推导必须同步的 proposal、design、测试计划、Apifox 资产、环境重测、排期或发布材料。open 单存在时 G16 阻断正向状态流转。完成所有受影响项后，以刚回读的 Issue notes 调 `change-close`；若测试计划被影响，`plan-version` 必须递增，旧 local/test 证据会自动失效。
+
+## 自动模式协议
+
+进入开发前，且仅在「已评审 → 开发中」state 尚无选择时，Leader 询问半自动或自动；调用 `run-mode-select` 落盘后立即重读，并将不可变 `runModeSelection` 传给 `transition`。配置的 `run_mode` 只用于旧 state 兼容，不能单独授权自动写回。
+
+已锁定 `full-auto` 时，连续路径是：技术方案/测试计划 → 编码 → local API + E2E → commit/push + feature MR → 测试分支合并 → 参数唯一的 Jenkins 测试构建 → test API + E2E → GitLab 写回并回读。每一步都有 `progress` 与审计。所有异常先经 `automation-decision`：临时失败只重试一次；可恢复证据修复后重验；测试失败、语义冲突、人工证据、实质变更、权限和 hard_gate 暂停，并写含 `action/code/reason/requiredInput/currentStep/evidence/attemptedRecovery/resumeCommand` 的统一暂停回执。Jenkins 参数不能唯一推导即暂停；生产部署、验收和关闭恒人工。
 
 ## 测试、类型检查与构建
 
