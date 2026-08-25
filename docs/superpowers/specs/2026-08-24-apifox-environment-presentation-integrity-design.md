@@ -2,7 +2,7 @@
 
 ## 目标
 
-glab-flow 的 local、test（OA 中为 Stage）和未来 production 使用同一份版本化测试计划。除真实运行外，Apifox 页面中用户可见的场景、套件和数据集也必须准确表达环境与用途；登录能力必须可复用，不能让每个接口重复处理账号、token 和鉴权头。
+glab-flow 的 local、test 和未来 production 使用同一份版本化测试计划。除真实运行外，Apifox 页面中用户可见的场景、套件和数据集也必须准确表达环境与用途；登录能力必须可复用，不能让每个接口重复处理账号、token 和鉴权头。
 
 ## 四层环境事实
 
@@ -13,7 +13,7 @@ glab-flow 的 local、test（OA 中为 Stage）和未来 production 使用同一
 | 实际执行环境 | 测试报告的 `environmentName`、报告 ID 与统计 | TestRun 的运行证据 |
 | 页面展示环境 | Apifox 列表/详情中的环境、名称、目录、标签与结果 | 防止用户被 UI 误导 |
 
-OA Platform #172 已证明四层必须分开：Stage 场景请求实际指向 `stage-oa`，且 Stage 报告的 `environmentName` 为 `Stage`，但列表仍可显示本地。场景 `get` 也没有可作为事实源的稳定默认环境字段。因此列表不能替代报告，却必须经过独立审计。
+一次多环境场景实践已证明四层必须分开：测试场景请求实际指向测试环境，报告的 `environmentName` 也为测试环境，但列表仍可能显示本地。场景 `get` 也没有可作为事实源的稳定默认环境字段。因此列表不能替代报告，却必须经过独立审计。
 
 ## 环境入口与资产复用
 
@@ -21,7 +21,7 @@ OA Platform #172 已证明四层必须分开：Stage 场景请求实际指向 `s
 - 单环境入口的名称、目录、标签、页面运行环境、显式运行参数和报告环境必须一致。
 - 同一流程只有环境、数据集或循环配置不同时，优先使用 Apifox 场景实例；不能复制整套步骤。
 - 若 UI 无法准确表达一个“多环境”入口，则建立 local/test 的环境实例或轻量包装入口，引用共享基础场景。共享基线必须标记 `baseline`/`template`，不得充当环境验收入口。
-- 环境专属入口可带 `local` / `stage` 名称以消除歧义；基础资产仍使用业务语义名称。
+- 环境专属入口可带 `local` / `test` 名称以消除歧义；基础资产仍使用业务语义名称。
 
 ## AuthProfile 共用认证契约
 
@@ -74,7 +74,7 @@ TestPlan → 盘点/回读资产 → 受控写入 → CLI 回读
 ## 验收
 
 1. v1 历史审计保持可解析；v2 严格校验展示环境和认证契约。
-2. Stage 页面显示 local、报告环境不符、遗漏 AuthProfile 或记录持久 token 都被拒绝。
+2. test 页面显示 local、报告环境不符、遗漏 AuthProfile 或记录持久 token 都被拒绝。
 3. API case 仍必须有 scenario 资产；公共 API 可以不声明 AuthProfile。
 4. CLI 只预览评论，不产生 Apifox/GitLab I/O。
 5. 活跃流程文档明确同一计划、多环境、临时 token、`--carry-runtime-variables`、认证失败不静默重试和页面审计顺序。

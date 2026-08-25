@@ -3,10 +3,10 @@ import { initState, markProgressDone, normalizeRunState, recordWritebackAudit, r
 
 describe('initState', () => {
   it('builds initial state with defaults', () => {
-    const s = initState({ iid: '123', type: 'story', host: 'git.kuainiujinke.com', projectId: '3915', workspaceRoot: '/tmp/oa', now: '2026-07-29T00:00:00Z' });
+    const s = initState({ iid: '123', type: 'story', host: 'gitlab.example.test', projectId: '100', workspaceRoot: '/tmp/workspace', now: '2026-07-29T00:00:00Z' });
     expect(s.iid).toBe('123');
     expect(s.type).toBe('story');
-    expect(s.project).toEqual({ host: 'git.kuainiujinke.com', id: '3915' });
+    expect(s.project).toEqual({ host: 'gitlab.example.test', id: '100' });
     expect(s.cachedNode).toBe('');
     expect(s.docVersion).toBe(1);
     expect(s.lessonsCaptured).toBe(0);
@@ -14,7 +14,7 @@ describe('initState', () => {
     expect(s.spawnedAgents).toEqual([]);
     expect(s.progress).toEqual({ node: '', done: [] });
     expect(s.writebackAudit).toEqual([]);
-    expect(s.specDir).toBe('/tmp/oa/.glab-flow/123/spec');
+    expect(s.specDir).toBe('/tmp/workspace/.glab-flow/123/spec');
     expect(s.runMode).toBe('semi-auto');
     expect(s.cachedNodeAt).toBe('2026-07-29T00:00:00Z');
     expect(s.updatedAt).toBe('2026-07-29T00:00:00Z');

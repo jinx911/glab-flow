@@ -1,5 +1,5 @@
-# glab-flow state machine — executable projection of oa-ai-native-harness
-# docs/issue-state-machine.md. Drift checked by engine/src/contract.ts.
+# glab-flow state machine — executable project delivery contract.
+# Drift checked by engine/src/contract.ts.
 story:
   states: [草稿中, 待评审, 已评审, 开发中, 测试中, 待发布, 生产验收中, 已完成]
   transitions:

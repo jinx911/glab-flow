@@ -7,7 +7,7 @@ description: glab-flow 运行时工具依赖（非 vendor 的基础设施）。
 
 ## 声明
 
-glab-flow **vendor 了 OA 方法论**——`sub-skills/` 下的 8 个子 skill（spec-author / git-ops / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）是流程方法论本体，随 skill 一起拷贝，构成 glab-flow 的自包含能力栈。这些子 skill 在运行时会调用一批外部工具，它们是**运行时依赖**而非 vendor 对象：已装即用、未装按需引导安装，**不随 skill 拷贝、不在 skill 仓里维护**。下面列全清单。
+glab-flow **内置了交付方法论**——`sub-skills/` 下的 8 个子 skill（spec-author / git-ops / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）是流程方法论本体，随 skill 一起拷贝，构成 glab-flow 的自包含能力栈。这些子 skill 在运行时会调用一批外部工具，它们是**运行时依赖**而非 vendor 对象：已装即用、未装按需引导安装，**不随 skill 拷贝、不在 skill 仓里维护**。下面列全清单。
 
 ### 1. `glab` CLI —— GitLab 读写
 

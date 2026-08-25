@@ -109,12 +109,12 @@ stash pop 冲突 → 停止，提示用户手动处理。
 2. 展示推送清单（**等用户确认**）：
    ```
    📋 推送清单
-   [1] oa-platform   branch: feat/42   commits: 3 (↑待推送)
+   [1] sample-service   branch: feat/42   commits: 3 (↑待推送)
    ```
 3. 无上游 → `git push -u origin {branch}`；有上游 → `git push`。
 
 ### 合并分支（按目标分流）
-- **→ test（常规）**：选仓库+开发分支 → 清单确认 → 先 `checkout test && git fetch origin && git reset --hard origin/test`（对齐远程，治本地 test 脏/领先远程杂提交）→ `merge {branch}`。⚠️ OA 仓 husky 钩子会卡 merge commit（静默失败），用 `git merge --no-commit` + `git commit --no-verify`（或 `git merge --no-verify` 若版本支持）绕过 merge commit 的钩子；**只绕 merge commit，不绕代码质量检查意图**。冲突立即停止。→ 询问是否推 test。
+- **→ test（常规）**：选仓库与开发分支 → 清单确认 → 先 `checkout test && git fetch origin`，确认本地分支状态后再 `merge {branch}`。冲突立即停止并请求处理；不得为了绕过项目钩子或质量检查而使用 `--no-verify`。→ 询问是否推送 test。
 - **→ pre（须先同步主分支）**：开发分支先 `merge origin/main`（冲突停止）→ 清单确认（标"已同步主分支"）→ `checkout pre → pull → merge {dev}` → 询问是否推 pre。
 - **→ master/main（二次确认）**：清单 + 输入 "yes" 确认 → 执行。
 - **禁止方向**：检测 `test→*` / `pre→*` → 拦截 + 警告（"test/pre 只读，改动请在开发分支重实现"）。

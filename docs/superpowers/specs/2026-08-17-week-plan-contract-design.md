@@ -4,7 +4,7 @@
 
 ## Goal
 
-Make glab-flow emit and validate the exact machine-readable `## 周排期` comment consumed by OA AI Native Harness, then emit a pure post-readback intent for the Leader to perform the initial Week Milestone association.
+Make glab-flow emit and validate the exact machine-readable `## 周排期` comment consumed by the configured project harness, then emit a pure post-readback intent for the Leader to perform the initial Week Milestone association.
 
 ## Context
 

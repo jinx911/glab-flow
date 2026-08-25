@@ -2,7 +2,7 @@
 
 > 让 AI 推进需求，不绕过交付流程。先看 [项目介绍页](index.html) 了解完整流程、变更闭环与多环境证据链。
 
-glab-flow 是由人主导的 Claude Code / Codex 技能包，依据 `oa-ai-native-harness` 的 GitLab Issue 状态机推进 OA 需求：从分诊到发布、验收，以**确定性护栏**约束流程，复用子技能生成内容，并以“预览—确认”方式写回 GitLab。
+glab-flow 是由人主导的 Claude Code / Codex 技能包，依据项目级 GitLab Issue 状态机推进需求：从分诊到发布、验收，以**确定性护栏**约束流程，复用子技能生成内容，并以“预览—确认”方式写回 GitLab。
 
 它是自包含、GitLab 原生的技能包，内置配置、状态缓存和随仓库维护的子技能。
 
@@ -140,4 +140,4 @@ glab-flow 是独立、自包含、GitLab 原生的技能包。它不依赖外部
 
 ## 规则权威
 
-状态机和 AI 护栏是 `oa-ai-native-harness` 中 `docs/issue-state-machine.md` 与 `AGENTS.md` 的可执行投影。它们仍是唯一事实源；`engine/src/contract.ts` 通过不变量校验模型，以发现漂移。
+目标项目的状态机规则与团队交付规范是业务规则权威。glab-flow 将已确认的规则配置为 `engine/state-machine.yaml`、项目配置和技能文档中的可执行护栏；`engine/src/contract.ts` 通过不变量校验模型，以发现规则实现漂移。

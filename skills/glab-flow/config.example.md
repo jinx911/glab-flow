@@ -10,12 +10,12 @@ description: glab-flow 项目配置示例。由 /init-glab-flow 生成 .glab-flo
 
 ```yaml
 gitlab:
-  host: "git.kuainiujinke.com"            # 必填；glab api --hostname 用
-  project_id: "3915"                      # 必填；或用 project_path: "oa/oa"
-  # harness_clone: "/Users/.../oa-ai-native-harness"  # 可选；glab remote 自动识别用
+  host: "gitlab.example.com"              # 必填；glab api --hostname 用
+  project_id: "<项目 ID>"                  # 必填；或用 project_path: "group/project"
+  # harness_clone: "/path/to/project"     # 可选；glab remote 自动识别用
 
 workspace:
-  root: "/Users/eliojin/IdeaProjects/oa"  # 必填；.glab-flow/ 落点
+  root: "/path/to/business-workspace"     # 必填；.glab-flow/ 落点
 
 branch_naming:
   format: "{type}/{iid}"
@@ -33,14 +33,14 @@ run_mode: "semi-auto"                     # semi-auto（默认）| full-auto
 #   测试: "@qa"
 
 # jenkins:                                # 单仓：只给 job_name
-#   job_name: "oa-service"
-#   branch_param: "oa_branch"            # 默认 oa_branch
-#   default_params: { deploy_type: "api", test_version: "kn" }
+#   job_name: "sample-service"
+#   branch_param: "branch"               # 默认 branch
+#   default_params: { deploy_env: "test" }
 
 # jenkins:                                # 多仓：按仓库映射 job + 参数（与单 job_name 二选一或共存）
 #   jobs:
-#     oa-service: { job_name: oa-service, branch_param: oa_branch }
-#     oa-frontend: { job_name: oa-frontend, branch_param: GIT_BRANCH, env_param: DEPLOY_ENV, default_params: { RUN_LINT: "true" } }
+#     service-api: { job_name: sample-service, branch_param: branch }
+#     frontend: { job_name: sample-frontend, branch_param: GIT_BRANCH, env_param: DEPLOY_ENV, default_params: { RUN_LINT: "true" } }
 
 # databases:                              # 逻辑数据目标；不放连接串、密码或 DMS 凭据
 #   local_platform: { mcp: "mcp__platform-local__mysql_query", desc: "本地 Docker 平台库" }
@@ -49,14 +49,14 @@ run_mode: "semi-auto"                     # semi-auto（默认）| full-auto
 
 # test_environments:                      # 只维护 local/test 两个运行 Profile
 #   local:
-#     url: "http://tenant.oa.com"
+#     url: "http://app.local.test"
 #     runtime: "local-docker"
 #     login: { credential_ref: "local_hr_admin", role: "HR 管理员" }
 #     data:
 #       platform: { database_ref: "local_platform" }
-#       default_tenant: { website: "tenant.oa.com", database_ref: "local_tenant" }
+#       default_tenant: { website: "app.local.test", database_ref: "local_tenant" }
 #       tenants:
-#         default: { website: "tenant.oa.com", database_ref: "local_tenant" }
+#         default: { website: "app.local.test", database_ref: "local_tenant" }
 #       test_data: { prefix: "E2E<issue>", cleanup_required: true, prohibited: ["既有业务数据"] }
 #     frontend:
 #       build: { required: true, command: "pnpm build:backend", workdir: "/workspace/frontend", output_dir: "/workspace/platform/public/frontend" }
@@ -73,21 +73,21 @@ run_mode: "semi-auto"                     # semi-auto（默认）| full-auto
 
 # apifox:                                 # 按仓库选择 Apifox 项目；接口先行测试使用
 #   projects:
-#     oa_platform:
-#       project_id: "8731182"
+#     sample_web:
+#       project_id: "<项目 ID>"
 #       branch: "main"
 #       environments:
-#         local: { name: "本地 tenant", base_url: "http://tenant.oa.com" }
+#         local: { name: "本地环境", base_url: "http://app.local.test" }
 #         test:  { id: "<环境ID>", name: "测试环境", base_url: "https://test.example.com" }
-#     oa_service:
-#       project_id: "8372255"
+#     sample_service:
+#       project_id: "<项目 ID>"
 #       branch: "main"
 #       environments:
 #         local: { id: "<环境ID>", name: "本地网关", base_url: "http://127.0.0.1:8082" }
 #         test:  { id: "<环境ID>", name: "测试环境", base_url: "https://test.example.com" }
 #   routes:                                 # API 域/受影响仓库 → 项目，前端改 PHP API 时也按此路由
 #     employee_contract:
-#       project: "oa_platform"
-#       repositories: ["oa-platform", "oa-app-employee", "oa-frontend-intergration"]
+#       project: "sample_web"
+#       repositories: ["web-app", "frontend"]
 #       api_prefixes: ["/frontend/employee/**"]
 ```
