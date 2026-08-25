@@ -213,6 +213,34 @@ export type LatestWeekPlan =
 
 export type RunMode = 'semi-auto' | 'full-auto';
 
+export type AutomationEvent =
+  | { kind: 'completed' }
+  | { kind: 'transient_failure'; detail: string }
+  | { kind: 'test_failed'; detail: string }
+  | { kind: 'git_conflict'; detail: string }
+  | { kind: 'missing_evidence'; detail: string; autoRecoverable: boolean }
+  | { kind: 'material_change'; detail: string }
+  | { kind: 'permission_denied'; detail: string }
+  | { kind: 'hard_gate'; detail: string };
+
+export type AutomationDecision =
+  | { action: 'continue'; reason: string }
+  | { action: 'retry'; remainingRetries: number; reason: string }
+  | { action: 'repair'; reason: string }
+  | {
+      action: 'pause';
+      code:
+        | 'transient_failure_exhausted'
+        | 'test_failed'
+        | 'git_conflict'
+        | 'missing_human_evidence'
+        | 'material_change'
+        | 'permission_denied'
+        | 'hard_gate';
+      reason: string;
+      requiredInput: string;
+    };
+
 export interface RunModeSelection {
   mode: RunMode;
   selectedAt: string;

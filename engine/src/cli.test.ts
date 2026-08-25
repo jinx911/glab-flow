@@ -13,13 +13,30 @@ const VALID_REVIEW_EVIDENCE = {
 };
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit' | 'run-mode-select', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit' | 'run-mode-select' | 'automation-decision', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
   });
   return { json: r.stdout ? JSON.parse(r.stdout) : null, status: r.status, stderr: r.stderr ?? '' };
 }
+
+describe('cli automation-decision', () => {
+  it('prints a decision as JSON', () => {
+    const result = cli('automation-decision', { event: { kind: 'transient_failure', detail: 'timeout' }, attempt: 0 });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ action: 'retry', remainingRetries: 0, reason: expect.stringContaining('timeout') });
+  });
+
+  it.each([
+    { event: { kind: 'unknown', detail: 'x' }, attempt: 0 },
+    { event: { kind: 'completed' }, attempt: -1 },
+  ])('returns a JSON error and non-zero status for invalid input', (input) => {
+    const result = cli('automation-decision', input);
+    expect(result.status).toBe(1);
+    expect(result.json).toEqual(expect.objectContaining({ error: expect.any(String) }));
+  });
+});
 
 describe('cli run-mode-select', () => {
   const state = {

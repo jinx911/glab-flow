@@ -18,6 +18,8 @@ import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import type { TestRun } from './types.js';
+import { decideAutomation } from './automation.js';
+import type { AutomationEvent } from './types.js';
 
 const model = loadModel();
 
@@ -219,8 +221,18 @@ async function main() {
       }
       break;
     }
+    case 'automation-decision': {
+      try {
+        const input = JSON.parse(readStdin()) as { event: AutomationEvent; attempt: number };
+        console.log(JSON.stringify(decideAutomation(input.event, input.attempt)));
+      } catch (e) {
+        console.log(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+        process.exitCode = 1;
+      }
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress | run-mode-select');
+      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress | run-mode-select | automation-decision');
       process.exit(1);
   }
 }
