@@ -1,23 +1,49 @@
 # glab-flow
 
+> 让 AI 推进需求，不绕过交付流程。先看 [项目介绍页](index.html) 了解完整流程、变更闭环与多环境证据链。
+
 Local human-driven Claude skill that drives OA requirements through the `oa-ai-native-harness` GitLab Issue state machine — from triage to release/acceptance — with **deterministic guardrails**, content generation via reused sub-skills, and **preview-confirmed** GitLab writeback.
 
 glab-flow is a self-contained, GitLab-native skill with its own config, state cache, and vendored sub-skills.
 
 ## Architecture (pure engine + Leader-driven I/O)
 
-- **Engine** (`engine/`, tested TypeScript): the deterministic **pure-computation** core — state-machine model, guard validator (G1–G14), comment renderer, write-plan builder. **No subprocess, no network, no GitLab client.** stdin → stdout only.
+- **Engine** (`engine/`, tested TypeScript): the deterministic **pure-computation** core — state-machine model, guard validator (G1–G16), comment renderer, write-plan builder. **No subprocess, no network, no GitLab client.** stdin → stdout only.
 - **Skill pack** (`skills/glab-flow/SKILL.md` + `agents/*.md`): the Leader orchestration that reads/writes GitLab **directly via `glab` CLI**, calls the engine CLI for deterministic decisions, delegates expert agents, previews write plans, confirms, applies.
 
 Seven layers: trigger → rule authority (harness) → state-machine driver → guard/pre-flight (deterministic) → content generation (expert agents) → GitLab integration (Leader via glab, preview-confirm) → persistence (GitLab Issue is truth).
 
-## Install
+## 完整安装（未通过即禁止使用）
+
+glab-flow 不支持“只装一部分先跑”的模式。安装成功必须同时具备 Git、Node.js 20+、pnpm 10.33.0、GitLab CLI、Apifox CLI、CodeGraph、ripgrep、Playwright Chromium、Claude Code/Codex 技能链接，以及 GitLab/Apifox 授权和目标业务工作区的 CodeGraph 索引。
+
+支持 macOS（Homebrew）、Ubuntu/Debian（apt）和 Windows（winget）。安装器会展示将执行的全局安装操作；传 `--yes` 才会跳过确认。它不会读取、打印或保存 GitLab/Apifox Token。
 
 ```bash
-./install.sh        # symlinks glab-flow + init-glab-flow into ~/.claude AND ~/.codex
-                    # (Claude Code + Codex 双端; symlink 指向本仓库,master 更新即双端生效,无需重装)
-# Requires glab CLI installed + authenticated (no token env needed).
-# 接口测试另需: npm i -g apifox-cli && apifox login --with-token <token>
+# 推荐：从 Git checkout 开始。<business-workspace> 是被 glab-flow 推进需求的业务仓库，
+# 不要填本 glab-flow 仓库。
+git clone https://github.com/jinx911/glab-flow.git
+cd glab-flow
+./install.sh --workspace /absolute/path/to/business-workspace
+
+# Windows PowerShell
+# 请先启用 Windows 开发者模式，或以管理员身份打开 PowerShell（安装器需要创建技能符号链接）。
+.\install.ps1 -Workspace C:\path\to\business-workspace
+```
+
+首次只有 GitHub 源码 ZIP 也可以执行 `install.sh`：脚本会先安装 Git，再把自身迁移到 `~/.local/share/glab-flow` 的官方 Git checkout，确保后续版本守卫和更新可用。
+
+安装结束必须看到 `doctor` 的“全部能力、授权与工作区索引均已就绪”。任何 `FAIL` 都表示完整流程不能启动。可随时复查：
+
+```bash
+scripts/doctor.sh --workspace /absolute/path/to/business-workspace
+# Windows: .\scripts\doctor.ps1 -Workspace C:\path\to\business-workspace
+```
+
+之后在 Claude Code 或 Codex 新开会话执行：
+
+```text
+/init-glab-flow /absolute/path/to/business-workspace
 ```
 
 ## Config (两份,职责分离)
@@ -63,6 +89,10 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
   plan <iid>        (stdin {payload})             # -> WritePlan JSON
   plan-return <iid> (stdin {type,from,target,issues,confirmer,date,assigneeUser})
                                                   # -> 退回 WritePlan JSON
+  change-impact  (stdin {iid,type,currentNode,changeId,proposer,changeDate,source,reason,scopes,testPlan?})
+                                                  # -> open 变更影响单 + 受影响产物/建议回退节点
+  change-close   (stdin {iid,changeId,closer,closeDate,notes,completed,testPlan?})
+                                                  # -> closed 变更回执；测试计划受影响时校验版本递增
   evidence          (stdin [{body}] from `glab api .../notes`)  # -> 抽取的状态变更证据
   config            (stdin = config markdown 文件内容)                      # -> GlabConfig JSON（Leader: cat <config.md> | pnpm cli config）
   test-config       (--repos a,b --env local [--iid N]; stdin = test-config.md)  # -> TestContext JSON（apifoxTargets/envId/凭据变量/数据库,配置送到脸上）
@@ -71,10 +101,14 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
 
 All GitLab reads/writes are done by the Leader via `glab` CLI (no token needed).
 
+## 变更闭环
+
+需求、技术方案、实现或测试中发现错误时，先用 `change-impact` 写入不可变的 open 影响单；它会推导必须同步的 proposal、design、测试计划、Apifox 资产、环境重测、排期或发布材料。open 单存在时 G16 阻断正向状态流转。完成所有受影响项后，以刚回读的 Issue notes 调 `change-close`；若测试计划被影响，`plan-version` 必须递增，旧 local/test 证据会自动失效。
+
 ## Test / typecheck / build
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm typecheck && pnpm test   # vitest
 pnpm build                    # tsc → engine/dist（可选；用 node engine/dist/cli.js 省去 tsx 冷启动）
 ```
@@ -93,6 +127,12 @@ install.sh / uninstall.sh     # 双端安装 (~/.claude + ~/.codex)
 ## Scope
 
 glab-flow is an independent, self-contained skill (GitLab-native). It does not depend on any external skill; all content sub-skills are vendored under `skills/glab-flow/sub-skills/`.
+
+## Open source
+
+- License: [MIT](LICENSE)
+- Project flow and product introduction: [index.html](index.html)
+- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## Memory hygiene
 

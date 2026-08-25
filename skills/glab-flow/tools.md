@@ -14,7 +14,7 @@ glab-flow **vendor 了 OA 方法论**——`sub-skills/` 下的 8 个子 skill�
 GitLab Issue 的全部读写（view / update label / note / close / `glab api`）由 Leader 直接调用 `glab` 完成详见 `SKILL.md`「GitLab 读写」一节。glab 已由环境认证（`glab auth login`），**无需 token、不在环境变量里配 token**。
 
 - 使用方：Leader（每轮编排读状态/应用写回）、`sub-skills/git-ops.md`、`sub-skills/spec-author.md`（读 Issue / 写评论）。
-- 未安装 → `/init-glab-flow` 引导用户先 `brew install glab` 并 `glab auth login`，flow 不在无认证下裸跑。
+- 未安装或未授权 → 先运行仓库的 `./install.sh --workspace <业务工作区>`（Windows 为 `install.ps1`）。全量安装会安装 `glab`、执行 `glab auth login`，并由 `doctor` 验证；flow 不在无认证下裸跑。
 
 **glab / git 写操作要点**：
 
@@ -29,27 +29,26 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 
 - 使用方：`sub-skills/git-ops.md`（定位改动符号、查 callers/callees 判断影响面）、`sub-skills/code-review.md`（按改动符号查影响面）、`agents/review-preview.md`（凡把现有系统行为作为阻塞/退回依据，先用 codegraph 或源码证据核实）。
 - 工具面：`codegraph_search` / `codegraph_context` / `codegraph_callers` / `codegraph_callees` / `codegraph_impact` / `codegraph_node` / `codegraph_explore` / `codegraph_files`。
-- 未初始化（`.codegraph/` 不存在）→ 提示用户跑 `codegraph init -i` 构建索引，不回退到 grep 暴力扫。
+- 全量安装使用官方 `@colbymchenry/codegraph` CLI，执行 `codegraph install --target=auto --yes` 接入已发现的 Agent，并对业务工作区执行 `codegraph init`。`doctor` 要求 `.codegraph/` 和 `codegraph status` 都通过；缺失时 flow 不启动。
 
-### 3. `*-reviewer` agents —— 代码评审
+### 3. `*-reviewer` agents —— 可选的栈专用加速器
 
-只读评审 agent，由 Leader spawn `~/.claude/agents/` 下的对应栈 agent 执行（不修改代码，只产出评审意见）。
+栈专用 reviewer 可由 Leader 从 `~/.claude/agents/` 调用（不修改代码，只产出评审意见），但不是完整 flow 的外部前置依赖：未安装时，Leader 必须将本仓 `sub-skills/code-review.md` 的对应栈检查表作为 prompt 注入 `general-purpose` reviewer，产出同样的严重度结论；不得降级成不做评审。
 
 - `php-reviewer` —— PHP / Laravel 专用（Eloquent / middleware / validation / queue / events / service container）。
 - `typescript-reviewer` —— TS / JS / Node 专用（类型安全 / async 正确性 / Node 安全 / 惯用法）。
 - `java-reviewer` —— Java / Spring Boot 专用（分层架构 / JPA / 安全 / 并发）。
 - `security-reviewer` —— OWASP Top 10 / 注入 / SSRF / 不安全加密 / 凭证泄漏。
 - `database-reviewer` —— MySQL / PostgreSQL（查询优化 / schema / 迁移安全 / 索引）。
-- 使用方：`sub-skills/code-review.md` 按改动文件的技术栈挑选调用——glab-flow 只提供方法论与严重度框架（CRITICAL/HIGH/MEDIUM/LOW），具体检查能力依赖已安装的 reviewer。
-- 未安装某栈 reviewer → code-review 退回 `code-reviewer`（通用）或人工评审，并在 lessons 里记录该栈缺失。
+- 使用方：`sub-skills/code-review.md` 按改动文件的技术栈挑选调用；优先专用 agent，否则使用 vendor 的检查表生成通用 reviewer prompt。
+- 未安装某栈 reviewer → 记录该加速器缺失，但仍完成完整代码评审与门禁判断。
 
-### 4. `apifox-*` skills —— API 测试
+### 4. Apifox CLI —— API 测试
 
-接口测试**执行**委托 apifox 运行时工具链（用例设计归 `sub-skills/test-design.md`，执行归 `sub-skills/test-flow-apifox.md`）。
+接口测试**执行**直接使用全量安装的 Apifox CLI（用例设计归 `sub-skills/test-design.md`，执行归 `sub-skills/test-flow-apifox.md`）。本仓的子 skill 已包含编排、回读与证据契约，不依赖其他 Agent skill 包。
 
-- 相关 skill：`apifox-test-case` / `apifox-test-scenario` / `apifox-test-automation` / `apifox-cli` / `apifox-cli-checkup` / `apifox-branch` / `apifox-import-export` / `apifox-workflow-api-lifecycle`。
-- 使用方：`sub-skills/test-flow-apifox.md`（执行 test-design 产出的用例，回传 pass/fail 契约）。
-- glab-flow **不自带 apifox 能力**，只提供执行方法论与结果契约；apifox 未配置 → test-flow-apifox 引导 `apifox-cli-checkup` 体检并配置当前项目。
+- 使用方：`sub-skills/test-flow-apifox.md`（以当前 `apifox <command> --help` 为准，执行 test-design 产出的用例并回传 pass/fail 契约）。
+- glab-flow **不自带 Apifox 云端资源**，但全量安装会安装最新 Apifox CLI 并要求安全登录；`doctor` 的 `apifox whoami` 未通过时 flow 不启动。具体项目/环境/测试数据仍由 `/init-glab-flow` 现场配置和回读。
 - 资产治理：场景、套件/场景分组、测试数据与场景实例由 Leader 通过当前 CLI `list/get` 回读后形成 `apifox-asset-audit`；引擎只校验该审计，不直接读写 Apifox。测试套件是否可用以当前项目 UI/CLI 为准，不硬编码为全项目必备能力。
 
 ### 5. MySQL MCP —— 数据库查验（可选）
@@ -87,4 +86,4 @@ Jenkins 配置存在、或 skill 显示已安装，均不等于当前运行时�
 
 glab-flow 宣称「**完全零外部依赖**」指的是**零外部 skill / 方法论依赖**——整个流程的方法论本体（节点 / 护栏 / 内容生成 / 评审 / 测试 / 发布）都已 vendor 进 `sub-skills/` 与 `nodes.md`/`guards.md`/`gate.md`，没有任何外部 flow skill 或外部方法论的引用。
 
-上述工具（glab CLI / codegraph / *-reviewer / apifox-* / MySQL MCP）是**基础设施**——同其他流程引擎依赖各自的外部 MCP（如 Atlassian MCP、Jira MCP）一样，glab-flow 依赖这批工具作为运行时支撑。它们是「环境已安装即用、未装则引导安装」的存在，文档声明即可，不破坏自包含性。子 skill 在需要时通过 `../tools.md` 反向引用本文件，避免在每个子 skill 里重复罗列工具清单。
+上述工具（glab CLI / codegraph / 可选 reviewer / MySQL MCP）是**基础设施**。其中 Git、Node、pnpm、glab、Apifox CLI、CodeGraph、ripgrep 与 Playwright 是全量安装器安装并强制验收的本地能力；Jenkins 与数据库访问取决于业务项目配置，必须在 `/init-glab-flow` 或对应节点完成能力发现，不能静默跳过。子 skill 在需要时通过 `../tools.md` 反向引用本文件，避免在每个子 skill 里重复罗列工具清单。

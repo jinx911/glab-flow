@@ -1,6 +1,6 @@
 ---
 name: glab-flow-code-review
-description: 开发中节点代码评审方法论 + 严重度分级；调用 *-reviewer agent（运行时工具）。
+description: 开发中节点代码评审方法论 + 严重度分级；可选调用栈专用 reviewer，不依赖外部 agent 包。
 ---
 
 > 本文件是 glab-flow 自有子 skill（方法论，单 Leader）。在对应节点由 Leader Read 本文件内联执行，或 spawn `general-purpose` 以其为 prompt。运行时工具依赖见 `../tools.md`。
@@ -34,7 +34,7 @@ description: 开发中节点代码评审方法论 + 严重度分级；调用 *-r
 
 ## 运行时 reviewer 工具
 
-评审由 Leader spawn `~/.claude/agents/` 下的**只读 reviewer agent** 执行。这些 agent 是**运行时工具**（见 `../tools.md`），不是 glab-flow 自带的——glab-flow 只提供方法论与严重度框架，具体检查能力依赖已安装的 reviewer。
+评审必须由 Leader 同步 spawn 一个**只读 reviewer** 执行。若 `~/.claude/agents/` 中存在对应栈 reviewer，可优先使用；否则把本文件的对应检查项、待评审 diff、spec、test-plan 与 local TestRun 一起注入 `general-purpose`，同样产出严重度结论。完整流程不依赖外部 agent 包。
 
 按栈选择（可多栈并行）：
 
@@ -51,7 +51,7 @@ description: 开发中节点代码评审方法论 + 严重度分级；调用 *-r
 - **同步调用**：用 `run_in_background: false` spawn reviewer，等它返回结果再合并结论。评审需要拿完整结果做门禁判定，不异步 fire-and-forget。
 - **只读**：reviewer agent 不改代码，只产问题清单（含严重度、文件、行、问题、建议）。修复由 Leader 转 `general-purpose` 或开发者执行。
 - **传入上下文**：把待评审的 diff、相关 spec（design.md 关键文件表）、当前 test-plan 与 local TestRun 证据一并喂给 reviewer，让它对齐规格而非凭空挑刺。
-- **未装 reviewer 时降级**：Leader 不报错中止，改为按上述四维度 + 严重度框架自行 Read diff 评审，并在结论里标注「未调用 reviewer，人工评审」。
+- **未装专用 reviewer 时**：Leader 仍须 spawn `general-purpose` 按上述四维度 + 严重度框架评审，并在结论里标注「使用内置通用评审 prompt」。
 
 ## 通过门槛
 

@@ -48,7 +48,7 @@ export function checkRuntimeVersion(fetched: boolean): RuntimeVersion {
   const notes: string[] = [`pkg=${pkgVersion()}`, `capability=v${ENGINE_CAPABILITY_VERSION}`];
   const commit = git(['rev-parse', '--short', 'HEAD']) ?? 'unknown';
   if (commit === 'unknown') {
-    notes.push('git 不可用(非 git 目录或 git 缺失)——无法判定版本,按落后处理');
+    notes.push('git 不可用(非 git 分发或 git 缺失)——无法自动判定更新；当前包仍可运行,请用发布版本或 capability 人工核对');
     return { commit, upToDate: false, remoteCommit: '', capability: ENGINE_CAPABILITY_VERSION, notes };
   }
   notes.push(`HEAD=${commit}`);

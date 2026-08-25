@@ -125,7 +125,7 @@ auth-profile: TP-001 | client-user | auth_token
 
 历史踩坑：Stage 验收套件跑了 7 单 `none`（执行时漏 `--upload-report detail`），页面打开全空，只能重跑。
 
-接口用例由 test-design 设计完毕（写在 `test-plan.md` 里），本阶段只做执行。用 apifox-* 运行时 skill 跑用例，按用例类型选择：
+接口用例由 test-design 设计完毕（写在 `test-plan.md` 里），本阶段只做执行。直接使用全量安装的 Apifox CLI，并先以当前 `apifox <command> --help` 核对参数：
 
 ### CLI 执行命令模板（套件/场景 run 的固定参数）
 
@@ -180,14 +180,14 @@ apifox test-suite run <suiteId> --project <projectId> \
 - 返回值断言不进数据集（那是断言的事）；行值可被后置脚本提取写入全局变量供下游场景引用（与 token 同机制）。
 - 本地 `*-data.json` 是云端沉淀前的过渡形态，沉淀后 `-d <testDataId>` 执行，本地文件仅留档。
 
-| 用例形态 | apifox 运行时 skill | 用途 |
+| 用例形态 | Apifox CLI 入口 | 用途 |
 |---|---|---|
-| 单接口用例 | apifox-test-case | 跑单个接口的请求/响应/断言 |
-| 多接口编排（场景流） | apifox-test-scenario | 跑按序串联的业务场景（如登录→下单→支付） |
-| 自动化测试套件 | apifox-test-automation | 跑一批用例的自动化集合 |
-| 命令行批量执行 | apifox-cli | 在 CI 或批量场景用 CLI 跑用例集 |
+| 单接口用例 | `apifox test-case` / `apifox run --test-case` | 跑单个接口的请求/响应/断言 |
+| 多接口编排（场景流） | `apifox test-scenario` | 跑按序串联的业务场景（如登录→下单→支付） |
+| 自动化测试套件 | `apifox test-suite run` | 跑一批用例的自动化集合 |
+| 命令行批量执行 | `apifox run` | 在 CI 或批量场景用 CLI 跑用例集 |
 
-skill 是**运行时工具**（见 `../tools.md`），glab-flow 不自带 apifox 能力，只提供执行方法论与结果契约。调用约定：
+Apifox CLI 是全量安装并由 `doctor` 验收的运行时工具（见 `../tools.md`）；glab-flow 不自带 Apifox 云端资源，只提供执行方法论与结果契约。调用约定：
 
 - **同步取结果**：执行后必须拿到结构化结果（通过/失败计数 + 失败明细），不异步丢任务。
 - **对齐 test-plan.md**：执行范围对齐 test-design 产出的接口用例清单，每条用例的执行结果回填到它的用例编号，便于追溯。**环境与 `-d` 参数从 test-plan.md 的「测试环境与数据集」章节读**（环境矩阵 + 场景↔数据集映射表），不在执行时现场翻 config 或猜数据集。
@@ -199,7 +199,7 @@ skill 是**运行时工具**（见 `../tools.md`），glab-flow 不自带 apifox
 
 **响应耗时分域统计**（防共享登录波动污染发布判断）：业务接口请求按 SLA 判定（默认 500ms）；登录/认证步骤单列基线（默认 2000ms，参考不阻断）；套件总耗时只作参考。归类按场景名（含 login/auth/token 或场景首步认证步骤归登录基线），无法归类时保守归业务 SLA 并注明。
 
-1. **命令**：实际执行的 apifox skill / CLI 调用（含用例集范围、环境参数）。
+1. **命令**：实际执行的 Apifox CLI 调用（含用例集范围、环境参数）。
 2. **计数**：汇总行，形如 `接口用例: X passed, Y failed, Z skipped`（或 apifox 等价输出）。
 3. **失败列表**：逐条列 `用例编号 — 接口 — 失败原因摘要（状态码/断言差异）`；全绿则写「无失败」。
 4. **云端报告链接**：`--upload-report detail` 产出的 `https://app.apifox.com/link/...`（含请求/响应详情，排障与复查入口）。

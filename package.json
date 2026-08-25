@@ -1,9 +1,24 @@
 {
   "name": "glab-flow",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
-  "description": "OA GitLab Issue state-machine driven delivery skill (harness executor)",
+  "description": "GitLab-native, deterministic delivery harness for issue-driven AI workflows",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jinx911/glab-flow.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jinx911/glab-flow/issues"
+  },
+  "homepage": "https://github.com/jinx911/glab-flow#readme",
+  "keywords": ["gitlab", "agent-skill", "workflow", "delivery", "apifox", "codex", "claude-code"],
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": "10.33.0"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
