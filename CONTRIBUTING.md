@@ -1,4 +1,4 @@
-# Contributing to glab-flow
+# 参与贡献 glab-flow
 
 感谢参与。glab-flow 的目标不是替团队绕过交付流程，而是将已确认的流程变成可校验、可回读的确定性约束。
 

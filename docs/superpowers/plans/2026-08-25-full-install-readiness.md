@@ -1,56 +1,56 @@
-# Full Install Readiness Implementation Plan
+# 完整安装就绪实施计划
 
-> **For agentic workers:** Execute inline in this session; implement first, then validate with a clean installation simulation.
+> **面向执行 Agent：** 在本会话直接实施；先完成实现，再用干净环境模拟安装验证。
 
-**Goal:** Make glab-flow refuse partial setups and provide one full, auditable installation path for every required local capability.
+**目标：** 让 glab-flow 拒绝不完整环境，为每项必需本地能力提供唯一、完整、可审计的安装路径。
 
-**Architecture:** Keep the installer as a thin, idempotent Bash entry point. Add a focused `scripts/doctor.sh` that reports machine-readable checks and is reused by the installer after dependency bootstrapping. Credentials and project access are validated but never collected or stored by this repository.
+**架构：** 安装器保持为轻量、幂等的 Bash 入口；新增专职的 `scripts/doctor.sh`，输出机器可读的检查结果，并在依赖安装后由安装器复用。仓库只校验凭据和项目访问能力，绝不收集或存储凭据。
 
-**Tech Stack:** Bash, Homebrew/apt/winget adapters, Node/pnpm, GitLab CLI, Apifox CLI, CodeGraph, Playwright, TypeScript/Vitest.
+**技术栈：** Bash、Homebrew/apt/winget 适配层、Node/pnpm、GitLab CLI、Apifox CLI、CodeGraph、Playwright、TypeScript/Vitest。
 
 ---
 
-### Task 1: Define the full-install contract
+### 任务 1：定义完整安装契约
 
-**Files:**
-- Create: `scripts/doctor.sh`
-- Modify: `install.sh`
-- Modify: `README.md`
+**涉及文件：**
+- 新增：`scripts/doctor.sh`
+- 修改：`install.sh`
+- 修改：`README.md`
 
-- [x] Detect supported OS/package-manager pairs before mutating the user environment.
-- [x] Treat Git, Node, pnpm, glab, Apifox CLI, CodeGraph, ripgrep, Playwright browsers, package dependencies, skill links, GitLab login, Apifox login, and CodeGraph setup as required checks.
-- [x] Stop with a non-zero exit code when a tool, credential, or target-workspace setup is absent.
-- [x] Require explicit confirmation for global package installation unless `--yes` was supplied.
+- [x] 修改用户环境前，识别受支持的操作系统与包管理器组合。
+- [x] 将 Git、Node、pnpm、glab、Apifox CLI、CodeGraph、ripgrep、Playwright 浏览器、项目依赖、技能链接、GitLab 登录、Apifox 登录与 CodeGraph 初始化全部视为必检项。
+- [x] 任一工具、凭据或目标工作区初始化缺失时，以非零退出码停止。
+- [x] 除非传入 `--yes`，全局安装软件包前必须明确确认。
 
-### Task 2: Install and configure all local capabilities
+### 任务 2：安装并配置全部本地能力
 
-**Files:**
-- Modify: `install.sh`
-- Modify: `uninstall.sh`
+**涉及文件：**
+- 修改：`install.sh`
+- 修改：`uninstall.sh`
 
-- [x] Install missing base tools with the detected package manager.
-- [x] Install/update pnpm, Apifox CLI, CodeGraph and Playwright from their official package sources.
-- [x] Register CodeGraph for available agent clients and create the initial graph only after the target workspace is supplied.
-- [x] Create non-destructive skill links, refusing to replace user-owned files.
+- [x] 用探测到的包管理器安装缺失的基础工具。
+- [x] 从官方软件源安装或更新 pnpm、Apifox CLI、CodeGraph 与 Playwright。
+- [x] 为可用的 Agent 客户端注册 CodeGraph，并且只在给定目标工作区后创建初始索引。
+- [x] 创建非破坏性的技能链接，拒绝覆盖用户已有文件。
 
-### Task 3: Make distribution and runtime checks portable
+### 任务 3：使分发与运行时检查可移植
 
-**Files:**
-- Modify: `engine/src/version.test.ts`
-- Modify: `engine/src/version.ts` if required
-- Modify: `package.json`
+**涉及文件：**
+- 修改：`engine/src/version.test.ts`
+- 必要时修改：`engine/src/version.ts`
+- 修改：`package.json`
 
-- [x] Let a source ZIP validate as a non-git distribution while preserving the runtime warning that automatic freshness comparison is unavailable.
-- [x] Declare verified Node and pnpm compatibility, pin the package-manager version, and configure pnpm build-script approval so clean installs are deterministic.
+- [x] 允许源码 ZIP 作为非 Git 分发方式通过校验，同时保留“无法自动比较新旧版本”的运行时提示。
+- [x] 声明已验证的 Node 与 pnpm 兼容性，锁定包管理器版本，并配置 pnpm 构建脚本批准项，保证干净安装可复现。
 
-### Task 4: Publish a first-run guide and verify it
+### 任务 4：发布首次使用指南并验证
 
-**Files:**
-- Modify: `README.md`
-- Modify: `skills/glab-flow/tools.md`
-- Modify: `skills/init-glab-flow/SKILL.md`
+**涉及文件：**
+- 修改：`README.md`
+- 修改：`skills/glab-flow/tools.md`
+- 修改：`skills/init-glab-flow/SKILL.md`
 
-- [x] Document a single clone → install → secure login → doctor → initialize sequence and the supported OS matrix.
-- [x] Replace the token-in-command example with secure interactive login guidance.
-- [x] State that API-test and CodeGraph capabilities are installed and checked as required components, while Jenkins/database access is project configuration validated during initialization.
-- [x] Verify shell syntax, clean git-clone installation, ZIP installation, engine checks, and the existing TypeScript test/build suite.
+- [x] 记录唯一的“克隆 → 安装 → 安全登录 → 诊断 → 初始化”顺序和支持的操作系统矩阵。
+- [x] 以安全的交互式登录指引替换命令中传 Token 的示例。
+- [x] 明确接口测试和 CodeGraph 是必须安装并检查的能力，而 Jenkins/数据库访问属于项目配置，在初始化阶段校验。
+- [x] 验证 Shell 语法、干净 Git 克隆安装、ZIP 安装、引擎检查与既有 TypeScript 测试/构建套件。

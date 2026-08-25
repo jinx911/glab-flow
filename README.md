@@ -2,16 +2,16 @@
 
 > 让 AI 推进需求，不绕过交付流程。先看 [项目介绍页](index.html) 了解完整流程、变更闭环与多环境证据链。
 
-Local human-driven Claude skill that drives OA requirements through the `oa-ai-native-harness` GitLab Issue state machine — from triage to release/acceptance — with **deterministic guardrails**, content generation via reused sub-skills, and **preview-confirmed** GitLab writeback.
+glab-flow 是由人主导的 Claude Code / Codex 技能包，依据 `oa-ai-native-harness` 的 GitLab Issue 状态机推进 OA 需求：从分诊到发布、验收，以**确定性护栏**约束流程，复用子技能生成内容，并以“预览—确认”方式写回 GitLab。
 
-glab-flow is a self-contained, GitLab-native skill with its own config, state cache, and vendored sub-skills.
+它是自包含、GitLab 原生的技能包，内置配置、状态缓存和随仓库维护的子技能。
 
-## Architecture (pure engine + Leader-driven I/O)
+## 架构（纯引擎 + Leader 负责 I/O）
 
-- **Engine** (`engine/`, tested TypeScript): the deterministic **pure-computation** core — state-machine model, guard validator (G1–G16), comment renderer, write-plan builder. **No subprocess, no network, no GitLab client.** stdin → stdout only.
-- **Skill pack** (`skills/glab-flow/SKILL.md` + `agents/*.md`): the Leader orchestration that reads/writes GitLab **directly via `glab` CLI**, calls the engine CLI for deterministic decisions, delegates expert agents, previews write plans, confirms, applies.
+- **引擎**（`engine/`，有 TypeScript 测试）：确定性的**纯计算**核心——状态机模型、护栏校验器（G1–G16）、评论渲染器和写回计划构建器。**不启动子进程、不访问网络、不调用 GitLab 客户端**，只接受标准输入并输出标准输出。
+- **技能包**（`skills/glab-flow/SKILL.md` + `agents/*.md`）：由 Leader 编排，直接通过 `glab` CLI 读写 GitLab，调用引擎 CLI 作确定性决策，委托专家 Agent，预览、确认后再应用写回。
 
-Seven layers: trigger → rule authority (harness) → state-machine driver → guard/pre-flight (deterministic) → content generation (expert agents) → GitLab integration (Leader via glab, preview-confirm) → persistence (GitLab Issue is truth).
+共七层：触发 → 规则权威（Harness）→ 状态机驱动 → 确定性护栏/预检 → 内容生成（专家 Agent）→ GitLab 集成（Leader 经 `glab` 预览确认）→ 持久化（GitLab Issue 是事实源）。
 
 ## 完整安装（未通过即禁止使用）
 
@@ -20,7 +20,7 @@ glab-flow 不支持“只装一部分先跑”的模式。安装成功必须同�
 支持 macOS（Homebrew）、Ubuntu/Debian（apt）和 Windows（winget）。安装器会展示将执行的全局安装操作；传 `--yes` 才会跳过确认。它不会读取、打印或保存 GitLab/Apifox Token。
 
 ```bash
-# 推荐：从 Git checkout 开始。<business-workspace> 是被 glab-flow 推进需求的业务仓库，
+# 推荐：从 Git 仓库克隆开始。<business-workspace> 是被 glab-flow 推进需求的业务仓库，
 # 不要填本 glab-flow 仓库。
 git clone https://github.com/jinx911/glab-flow.git
 cd glab-flow
@@ -46,9 +46,9 @@ scripts/doctor.sh --workspace /absolute/path/to/business-workspace
 /init-glab-flow /absolute/path/to/business-workspace
 ```
 
-## Config (两份,职责分离)
+## 配置（两份，职责分离）
 
-Run `/init-glab-flow <workspace.root>` — 一次性探测生成：
+运行 `/init-glab-flow <workspace.root>`，一次性探测并生成：
 
 | 文件 | 职责 |
 |---|---|
@@ -79,7 +79,7 @@ apifox test-suite run <suiteId> --project <pid> \
 - **四层环境事实**：测试计划环境、CLI 显式 `-e` 目标、报告 `environmentName`、Apifox 页面列表展示必须分别记录并核对；页面显示 local、报告为 Stage 不能通过资产审计。
 - **共用认证**：每个角色使用 AuthProfile 的登录引导和后置临时 token 提取；业务接口统一引用鉴权变量，账号、密码和 token 值不进入 Apifox 资产、Issue 或报告。
 
-## Engine CLI (pure: stdin → stdout, no I/O)
+## 引擎 CLI（纯计算：标准输入 → 标准输出，无 I/O）
 
 ```bash
 cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析，见 SKILL.md「引擎与命令」
@@ -99,13 +99,13 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
   state-init        (stdin {iid,type,host,projectId,workspaceRoot,runMode?,now?})  # -> RunState JSON（Leader 写到 .glab-flow/*-state.json）
 ```
 
-All GitLab reads/writes are done by the Leader via `glab` CLI (no token needed).
+全部 GitLab 读写均由 Leader 通过已登录的 `glab` CLI 完成，无需在命令或环境变量中配置 Token。
 
 ## 变更闭环
 
 需求、技术方案、实现或测试中发现错误时，先用 `change-impact` 写入不可变的 open 影响单；它会推导必须同步的 proposal、design、测试计划、Apifox 资产、环境重测、排期或发布材料。open 单存在时 G16 阻断正向状态流转。完成所有受影响项后，以刚回读的 Issue notes 调 `change-close`；若测试计划被影响，`plan-version` 必须递增，旧 local/test 证据会自动失效。
 
-## Test / typecheck / build
+## 测试、类型检查与构建
 
 ```bash
 pnpm install --frozen-lockfile
@@ -113,10 +113,10 @@ pnpm typecheck && pnpm test   # vitest
 pnpm build                    # tsc → engine/dist（可选；用 node engine/dist/cli.js 省去 tsx 冷启动）
 ```
 
-## Project structure
+## 项目结构
 
 ```
-engine/state-machine.yaml     # the model (story+bug), derived from harness docs/issue-state-machine.md
+engine/state-machine.yaml     # 状态机模型（story+bug），来源为 Harness 的 docs/issue-state-machine.md
 engine/src/{types,model,contract,guard,parse,gitlab,render,plan,evidence,test-config,cli}.ts   # + *.test.ts
 skills/glab-flow/{SKILL,config,config.example,test-config.example,nodes,guards,gate,resume,learn,tools}.md
 skills/glab-flow/sub-skills/*.md    # 含 test-design / test-flow-apifox / test-flow-e2e (测试三件套)
@@ -124,20 +124,20 @@ agents/{intake,review-preview,release-check}.md
 install.sh / uninstall.sh     # 双端安装 (~/.claude + ~/.codex)
 ```
 
-## Scope
+## 项目边界
 
-glab-flow is an independent, self-contained skill (GitLab-native). It does not depend on any external skill; all content sub-skills are vendored under `skills/glab-flow/sub-skills/`.
+glab-flow 是独立、自包含、GitLab 原生的技能包。它不依赖外部技能；所有内容类子技能均随仓库维护在 `skills/glab-flow/sub-skills/`。
 
-## Open source
+## 开源信息
 
 - License: [MIT](LICENSE)
-- Project flow and product introduction: [index.html](index.html)
-- Contribution guide: [CONTRIBUTING.md](CONTRIBUTING.md)
+- 项目流程与产品介绍：[index.html](index.html)
+- 贡献指南：[CONTRIBUTING.md](CONTRIBUTING.md)
 
-## Memory hygiene
+## 经验沉淀边界
 
-Reusable glab-flow lessons belong in versioned docs/tests/skill files after they are generalized and verified. Run-specific observations stay in `<workspace.root>/.glab-flow/<iid>/lessons-*.jsonl` or external memory until they are distilled; do not copy issue-specific details into reusable project docs.
+可复用的 glab-flow 经验须经抽象和验证后，沉淀到受版本控制的文档、测试或技能文件中。一次运行的观察先保留在 `<workspace.root>/.glab-flow/<iid>/lessons-*.jsonl` 或外部记忆，完成蒸馏前不得把 Issue 专有细节复制进可复用项目文档。
 
-## Authority
+## 规则权威
 
-The state machine and AI guardrails are the executable projection of `oa-ai-native-harness`'s `docs/issue-state-machine.md` and `AGENTS.md`. Those docs remain the single source of truth; `engine/src/contract.ts` checks the model against invariants to detect drift.
+状态机和 AI 护栏是 `oa-ai-native-harness` 中 `docs/issue-state-machine.md` 与 `AGENTS.md` 的可执行投影。它们仍是唯一事实源；`engine/src/contract.ts` 通过不变量校验模型，以发现漂移。
