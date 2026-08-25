@@ -5,11 +5,11 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
-const TSX = join(REPO_ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
+const TSX_CLI = join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const CLI = join(REPO_ROOT, 'engine', 'src', 'cli.ts');
 
 function weekPlanChange(input: unknown): { json: unknown; status: number | null } {
-  const result = spawnSync(TSX, [CLI, 'week-plan-change'], {
+  const result = spawnSync(process.execPath, [TSX_CLI, CLI, 'week-plan-change'], {
     input: JSON.stringify(input),
     encoding: 'utf8',
   });

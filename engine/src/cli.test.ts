@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
-const TSX = join(REPO_ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'tsx.cmd' : 'tsx');
+const TSX_CLI = join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const CLI = join(REPO_ROOT, 'engine', 'src', 'cli.ts');
 const VALID_REVIEW_EVIDENCE = {
   images: [], frontend: { applicable: false, routes: [] },
@@ -14,7 +14,7 @@ const VALID_REVIEW_EVIDENCE = {
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
 function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit', stdin: object): { json: unknown; status: number | null; stderr: string } {
-  const r = spawnSync(TSX, [CLI, command], {
+  const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
   });
