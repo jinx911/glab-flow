@@ -39,6 +39,24 @@ describe('cli automation-decision', () => {
     expect(result.status).toBe(1);
     expect(result.json).toEqual(expect.objectContaining({ error: expect.any(String) }));
   });
+
+  it.each([
+    ['transient retry exhausted', { kind: 'transient_failure', detail: 'network reset' }, 1, 'transient_failure_exhausted'],
+    ['test failure', { kind: 'test_failed', detail: 'TP-001 failed' }, 0, 'test_failed'],
+    ['Git conflict', { kind: 'git_conflict', detail: 'main diverged' }, 0, 'git_conflict'],
+    ['missing human evidence', { kind: 'missing_evidence', detail: 'approval absent', autoRecoverable: false }, 0, 'missing_human_evidence'],
+    ['material change', { kind: 'material_change', detail: 'API changed' }, 0, 'material_change'],
+    ['permission denied', { kind: 'permission_denied', detail: 'protected branch' }, 0, 'permission_denied'],
+    ['hard gate', { kind: 'hard_gate', detail: 'release approval' }, 0, 'hard_gate'],
+  ] as const)('prints every pause field for %s', (_label, event, attempt, code) => {
+    const result = cli('automation-decision', { event, attempt });
+
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      action: 'pause', code, reason: expect.stringContaining(event.detail), requiredInput: expect.any(String),
+    });
+    expect((result.json as { requiredInput: string }).requiredInput.trim().length).toBeGreaterThan(10);
+  });
 });
 
 describe('cli run-mode-select', () => {
