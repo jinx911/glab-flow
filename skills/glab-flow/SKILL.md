@@ -82,6 +82,8 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `asset-audit` | 预览/校验一条 Apifox 资产审计：stdin `{plan,audit}` → `{validate,comment}`；只解析计划与回读事实，不调用 Apifox 或写 GitLab |
 | `plan-return` | 退回建写回计划：stdin `{type,from,target,issues,confirmer,date,assigneeUser?}` |
 | `week-plan-change` | **独立排期变更**：stdin 提供完整排期与变更事实，返回仅含一条 `add_comment` 的 `WritePlan`；不改变状态、Assignee、Issue 正文或既有评论 |
+| `change-impact` | **变更影响单**：stdin 提供来源、影响维度、当前节点和当前测试计划，返回仅评论的 `WritePlan`、必须同步的产物、建议回退节点和旧计划版本；不直接改状态 |
+| `change-close` | **变更闭环**：stdin 提供刚回读的 notes、open 变更编号及各项完成证据；测试计划受影响时必须传入版本已递增的当前计划；返回仅评论的关闭回执 |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `version` | 运行时版本守卫（issue 22）：`--fetched` 表示 Skill 已先 `git fetch origin`；输出 `{commit, upToDate, remoteCommit, capability, notes}`；落后即阻断 |
@@ -140,6 +142,12 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
 
 `transition` 内部确定性编排 = 推导节点 + 评论字段扫描预填（`scanFieldsFromNotes`：精确 key 优先，缺失则按「实际日期 / 确认人 / 结论 / 依据」语义槽位回填，兼容 `render` 归一化评论）+ `validate` + `plan` + `render` + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。`evidence` 命令是独立的结构化取证工具（从 `## 状态变更` 块抽固定语义槽位，供 G1/G3/G11 人工排障），不参与 transition 内部预填。
+
+### 需求/方案变更闭环
+
+实施、联调或测试中发现需求、技术方案、接口契约、数据模型、权限或页面路由有误时，禁止仅改代码/文档后继续推进。Leader 先回读 Issue 和当前 `test-plan.md`，调用 `change-impact` 预览并经确认新增不可变的 `glab-flow:change-impact:v1 status: open` 评论。输出的 `requiredArtifacts` 是最小闭环清单：按影响更新 proposal/design/test-plan、Apifox 资产、代码、周排期或发布材料；需要状态回退时再调用既有 `plan-return`，不得由变更单暗改标签。
+
+变更影响到测试计划时，必须递增 `plan-version`；既有 local/test AssetAudit 与 TestRun 会因版本不一致自动失效。完成所有清单项及相应 local/test 重测后，Leader 以刚回读的 notes 调用 `change-close` 生成 `status: closed` 回执。每一次 `transition`/`validate` 都检查未关闭影响单（G16）；任何 open 单都会阻断正向流转。排期维度仍须另走 `week-plan-change` 并将其回读证据写入 close；关闭单不能替代周排期评论或 Milestone 同步。
 
 ### 周排期（Harness 协议）
 
@@ -200,7 +208,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 ## 硬规则
 
-要点（完整判定见 `guards.md` G1–G14）：
+要点（完整判定见 `guards.md` G1–G16）：
 
 - 三类评审分离（G4）：reviewType 必须等于门禁要求，防技评/代码评审替代需求评审。
 - 门禁二值（G2）：通过走 `plan`，退回走 `plan-return`，没有"附带条件通过"。
@@ -210,6 +218,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - Assignee 必须 `@用户`（G6），不接受角色名占位。
 - 不建 Jira（G13）：流程只在 GitLab Issue 上走，不外建工单。
 - 测试问题挂父需求（G11）：阻塞发布问题全部验证通过才放行待发布。
+- 变更闭环（G16）：存在未关闭的需求/方案/实现/测试变更影响单时，不得继续正向流转。
 - 多环境测试：开发中→测试中必须有当前计划的 `local` Apifox 资产审计和 TestRun；测试中→待发布必须有同计划版本的 `test` 资产审计和 TestRun。单测、构建、静态检查和代码评审不能替代真实业务闭环执行。
 - feature MR 评审前置（G14）：测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）。
 - 需求评审取证（G15）：待评审→已评审必须完成所有 Issue 图片的 OCR+视觉核查；有前端页面/菜单/路由信号必须用代码核实实际 URL、组件与分流，找不到即统一提问、不能猜；并以 grilling 决策账本覆盖五类需求分支，任何未决问题都不通过。
@@ -254,7 +263,7 @@ glab-flow 的同伴文件（与 SKILL.md 同目录 `skills/glab-flow/`，自包�
 
 - `config.md` —— 配置格式、字段语义、查找链。
 - `nodes.md` —— 节点契约（下一节点 / 必填项 / 门禁 / Assignee 角色 / 文档存储树）。
-- `guards.md` —— 护栏 G1–G14 完整判定。
+- `guards.md` —— 护栏 G1–G16 完整判定。
 - `gate.md` —— 门禁仪式（6 步）+ run 模式 + hard_gate 红线。
 - `resume.md` —— 恢复 / 脏状态处理 / GitLab 对账。
 - `learn.md` —— 自我迭代闭环（capture / apply / upgrade ritual）。

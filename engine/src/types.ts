@@ -93,6 +93,59 @@ export interface WeekPlanChangeInput {
   owner: string;
 }
 
+/** 变更闭环的来源；它决定建议回退节点，不会直接修改 Issue 状态。 */
+export type ChangeSource = 'requirement' | 'technical-design' | 'implementation' | 'test';
+/** 变更影响的业务维度；由引擎推导需要同步的产物与重测范围。 */
+export type ChangeScope = 'functional' | 'api-contract' | 'data-model' | 'permission' | 'frontend-route' | 'schedule' | 'release';
+export type ChangeArtifact =
+  | 'proposal'
+  | 'design'
+  | 'test-plan'
+  | 'apifox-assets'
+  | 'implementation'
+  | 'local-rerun'
+  | 'test-rerun'
+  | 'week-plan'
+  | 'release-check';
+
+/** 输入事实全部来自 Leader 回读/工作产物；引擎只据此推导闭环清单。 */
+export interface ChangeImpactInput {
+  iid: number;
+  type: IssueType;
+  currentNode: string;
+  changeId: string;
+  proposer: string;
+  changeDate: string;
+  source: ChangeSource;
+  reason: string;
+  scopes: ChangeScope[];
+  /** 变更提出时的唯一测试计划；用于在 close 时校验版本递增。 */
+  testPlan?: string;
+}
+
+export interface ChangeImpact {
+  iid: number;
+  changeId: string;
+  source: ChangeSource;
+  currentNode: string;
+  scopes: ChangeScope[];
+  requiredArtifacts: ChangeArtifact[];
+  returnTarget?: string;
+  previousPlanVersion?: string;
+}
+
+/** 关闭回执仅接受已回读的 open 影响单，不允许客户端自报 requiredArtifacts。 */
+export interface ChangeCloseInput {
+  iid: number;
+  changeId: string;
+  closer: string;
+  closeDate: string;
+  notes: { body: string }[];
+  completed: Partial<Record<ChangeArtifact, string>>;
+  /** 更新后的 test-plan.md；当 open 单要求 test-plan 时必填且版本必须前进。 */
+  testPlan?: string;
+}
+
 /** A validated plan, including engine-derived ISO-week coverage. */
 export interface WeekPlan extends WeekPlanInput {
   coverage: string;

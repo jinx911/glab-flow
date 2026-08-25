@@ -1,4 +1,4 @@
-# 护栏 G1–G14（确定性，由 engine/src/guard.ts 强制；本表给 Leader 参考）
+# 护栏 G1–G16（确定性，由 engine/src/guard.ts 强制；本表给 Leader 参考）
 
 护栏触发时，`reasons` 文本本身即携带**补救动作**（期望值 / 怎么补 / 去哪取）；优先用 `transition` 命令一次性拿到 `missing`（带 hint）+ `reasons`，而非手工拼 payload 试错。
 
@@ -17,3 +17,4 @@
 - **G13** 不建 Jira
 - **G14** feature→master MR 评审前置：测试中→待发布 必填 `feature分支MR评审结论`（由 G1 强制非空）——用 `code-review` sub-skill 跑全 MR diff，确认无 CRITICAL/HIGH 残留再放行。避免阻塞 bug 漏到「待发布」才被 mr-review 发现、已过测试验收还得回头重提测
 - **G15** 需求评审取证：Story 待评审→已评审必须有 `reviewEvidence`。Issue 正文/评论中每张图都要有 OCR 与视觉摘要；无法识别必须提问、不得跳过。涉及前端页面/菜单/路由时必须有“用户位置→实际 URL→路由文件→组件→分流”的代码证据，无法确认地址时不得猜测。Grilling 决策账本必须覆盖目标与范围、角色与权限、业务规则与边界、数据与兼容、验收与多环境验证；未决项不允许通过。
+- **G16** 变更闭环：检测到 `glab-flow:change-impact:v1 status: open` 时，任何正向状态流转均阻断。必须按影响单同步全部产物并写入 `change-close` 的 closed 回执；若影响测试计划，`plan-version` 必须递增，旧环境执行证据不可复用。

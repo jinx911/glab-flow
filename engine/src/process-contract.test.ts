@@ -211,6 +211,25 @@ describe('glab-flow process contracts', () => {
     expect(gate).toMatch(/test TestRun/);
   });
 
+  it('blocks forward flow until a versioned change impact has been closed', () => {
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const guards = readProjectFile('skills/glab-flow/guards.md');
+    const changeImpact = readProjectFile('engine/src/change-impact.ts');
+    const model = readProjectFile('engine/state-machine.yaml');
+
+    expect(skill).toMatch(/change-impact/);
+    expect(skill).toMatch(/change-close/);
+    expect(nodes).toMatch(/变更影响单/);
+    expect(nodes).toMatch(/测试计划变更必须递增[\s\S]{0,80}plan-version/);
+    expect(guards).toMatch(/G16[\s\S]{0,160}(open|闭环)/i);
+    expect(changeImpact).toMatch(/status: open/);
+    expect(changeImpact).toMatch(/status: closed/);
+    expect(changeImpact).toMatch(/validateChangeImpactClosure/);
+    expect(model).toMatch(/开发中: \[技术方案, 测试计划, 编码实现, 本地自测, 代码评审\]/);
+    expect(model).toMatch(/测试中: \[用例执行, 阻塞修复, 复测\]/);
+  });
+
   it('requires governed Apifox assets before each environment TestRun', () => {
     const skill = readProjectFile('skills/glab-flow/SKILL.md');
     const design = readProjectFile('skills/glab-flow/sub-skills/test-design.md');

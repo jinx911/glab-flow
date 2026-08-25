@@ -10,6 +10,8 @@ import { parseConfig } from './config.js';
 import { initState } from './state.js';
 import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
 import type { ApifoxAssetAudit, Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
+import type { ChangeCloseInput, ChangeImpactInput } from './types.js';
+import { buildChangeClosePlan, buildChangeImpactPlan, validateChangeClose, validateChangeImpactInput } from './change-impact.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
@@ -117,6 +119,28 @@ async function main() {
       console.log(JSON.stringify(buildWeekPlanChangePlan(input as WeekPlanChangeInput)));
       break;
     }
+    case 'change-impact': {
+      const input = JSON.parse(readStdin()) as unknown;
+      const validation = validateChangeImpactInput(input);
+      if (!validation.ok) {
+        console.log(JSON.stringify(validation));
+        process.exitCode = 1;
+        break;
+      }
+      console.log(JSON.stringify(buildChangeImpactPlan(input as ChangeImpactInput)));
+      break;
+    }
+    case 'change-close': {
+      const input = JSON.parse(readStdin()) as unknown;
+      const validation = validateChangeClose(input);
+      if (!validation.ok) {
+        console.log(JSON.stringify(validation));
+        process.exitCode = 1;
+        break;
+      }
+      console.log(JSON.stringify(buildChangeClosePlan(input as ChangeCloseInput)));
+      break;
+    }
     case 'version': {
       // issue 22: 运行时版本守卫。Skill 启动时先 `git fetch origin`(零网络的引擎不做网络),
       // 再 `pnpm cli version --fetched` 拿判定;不传 --fetched 则只比本地缓存 ref。
@@ -186,7 +210,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | evidence | config | version | test-config | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress');
       process.exit(1);
   }
 }

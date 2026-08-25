@@ -38,6 +38,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 - **待评审→已评审**：在同一条「状态变更头 + 内容体」合并评论中追加一次完整 `## 周排期` 与 `## 需求评审取证` 区块。有效的 `weekPlan` 和 `reviewEvidence` 是需求评审通过的前置条件；后者逐图证明 OCR/视觉核查，前端需求证明页面地址的路由/组件/分流代码证据，并证明 grilling 五类分支已覆盖且无未决项。`计划覆盖周`由引擎推导，Leader 不手填或推测。
 - **已评审→开发中**：除技术方案与既有计划提测/上线字段外，必须从刚回读的 Issue notes 验证**最新** `## 周排期` 区块。最新区块可为「启用」或「暂停」，但必须完整有效；最新无效或缺失就停止，不能用旧排期回退放行。
 - **排期变更**：不推进节点。用 `week-plan-change` 只新增一条 `## 排期变更` + replacement `## 周排期` 评论，不改标签、Assignee、Issue 正文或历史评论；评论回读成功后，再执行一次 Week Milestone 同步。
+- **需求/方案变更**：不直接改旧提案、设计评论或状态标签。先调用 `change-impact` 新增 open 的变更影响单，按 `requiredArtifacts` 同步 proposal/design/test-plan/Apifox 资产、代码、环境重测、排期或发布材料；需要回退时走 `plan-return`。所有证据齐全后调用 `change-close` 新增 closed 回执。open 单存在时 G16 阻断一切正向状态流转；测试计划变更必须递增 `plan-version`，旧 local/test 证据自动失效。
 
 **初始挂载与 rollover 分工**：Leader 是周内初始挂载的执行者，Harness 周一任务是后续跨周 rollover 的执行者。引擎只在 `plan.postWriteback` 声明 `sync_week_milestone`，没有 GitLab I/O 或 Milestone `WriteOp`。Leader 只能在状态/排期评论已回读后，按最新有效且启用的计划幂等创建目标 Week Milestone 或关联 Issue；标题遵循 Harness 的 `Week YYYY-Www`，其起止日期为目标 ISO 周的周一/周日。不得修改 Issue 状态、Assignee、正文或评论。同步失败只记 `week-milestone-sync` 审计并重试，不回滚已确认的状态或排期。
 
@@ -62,7 +63,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 ### 已评审后：测试计划（唯一版本化输入）
 
-技术方案评审完成、编码开始前，`test-design` 必须建立唯一的 `<workspace.root>/.glab-flow/<iid>/spec/test-plan.md`。计划以 machine-readable marker 声明版本和每个用例应执行的环境/方法；它同时是 local 与 test 的唯一输入，不能各写一套“自测计划/测试计划”。计划发生实质变化时升级 `plan-version`，旧 TestRun 随即失效。
+技术方案评审完成、编码开始前，`test-design` 必须建立唯一的 `<workspace.root>/.glab-flow/<iid>/spec/test-plan.md`。它是“开发中”的二级步骤，必须早于编码和本地自测；计划以 machine-readable marker 声明版本和每个用例应执行的环境/方法。它同时是 local 与 test 的唯一输入，不能各写一套“自测计划/测试计划”。计划发生实质变化时升级 `plan-version`，旧 TestRun 随即失效。
 
 ```text
 <!-- glab-flow:test-plan:v1
@@ -149,15 +150,15 @@ asset: TP-001 | suite-or-group
 
 ### 节点内部子步骤 checklist（层 2 进度可见）
 
-节点不是黑盒——`pnpm cli node` / `transition` 输出当前节点的子步骤（`progressSteps` / `nodeProgress`），Leader 据此展示「节点内做到哪了」，避免「推进到开发中后状态卡住、不知道进度」。引擎只声明 checklist（数据），子步骤执行仍由 Leader 调对应 sub-skill；done 步骤保存在 state 的 `progress` 中（引擎不驱动子步骤执行）。
+节点不是黑盒——`pnpm cli node` / `transition` 输出当前节点的子步骤（`progressSteps` / `nodeProgress`），Leader 据此展示「节点内做到哪了」，避免「推进到开发中后状态卡住、不知道进度」。开发中固定为「技术方案 → 测试计划 → 编码实现 → 本地自测 → 代码评审」；测试中固定为「用例执行 → 阻塞修复 → 复测」。引擎只声明 checklist（数据），子步骤执行仍由 Leader 调对应 sub-skill；done 步骤保存在 state 的 `progress` 中（引擎不驱动子步骤执行）。
 
 | 节点 | 子步骤 |
 |---|---|
 | 草稿中 | 需求澄清 / 六清楚草稿 |
 | 待评审 | 评审预审 / 问题清单 |
 | 已评审 | 技术方案 design.md / 技术方案评审 |
-| 开发中 | 技术方案 / 编码实现 / 自测 / 代码评审 |
-| 测试中 | 测试计划 / 用例执行 / 阻塞修复 / 复测 |
+| 开发中 | 技术方案 / 测试计划 / 编码实现 / 本地自测 / 代码评审 |
+| 测试中 | 用例执行 / 阻塞修复 / 复测 |
 | 待发布 | 发布计划就绪 / 上线前确认 |
 | 生产验收中 | 生产验证 / 验收确认 |
 | 生产验证中（Bug） | 生产验证 |
@@ -176,10 +177,10 @@ nodeProgress 子步骤与转换 playbook 是两个维度（前者 = 节点内做
 | 已评审.技术方案 design.md | spec-author（+ architect） |
 | 已评审.技术方案评审 | review-preview（技术方案评审口径） |
 | 开发中.技术方案 | spec-author / architect |
+| 开发中.测试计划 | test-design |
 | 开发中.编码实现 | git-ops + codegraph |
-| 开发中.自测 | test-flow-apifox / test-flow-e2e（实现后验证） |
+| 开发中.本地自测 | test-flow-apifox / test-flow-e2e（实现后验证） |
 | 开发中.代码评审 | code-review |
-| 测试中.测试计划 | test-design |
 | 测试中.用例执行 | test-flow-apifox / test-flow-e2e |
 | 测试中.阻塞修复 | git-ops + code-review + 实现后验证 |
 | 测试中.复测 | test-flow-apifox / test-flow-e2e |
