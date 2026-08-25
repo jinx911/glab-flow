@@ -13,13 +13,40 @@ const VALID_REVIEW_EVIDENCE = {
 };
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit' | 'run-mode-select', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
   });
   return { json: r.stdout ? JSON.parse(r.stdout) : null, status: r.status, stderr: r.stderr ?? '' };
 }
+
+describe('cli run-mode-select', () => {
+  const state = {
+    iid: '1', type: 'story', project: { host: 'h', id: '1' }, cachedNode: '', cachedNodeAt: 't0',
+    docVersion: 1, specDir: '/r/.glab-flow/1/spec', runMode: 'semi-auto', lastActions: [], spawnedAgents: [],
+    lessonsCaptured: 0, writebackAudit: [], progress: { node: '', done: [] }, updatedAt: 't0',
+  };
+
+  it('returns status 0 and the selected state for a valid selection', () => {
+    const result = cli('run-mode-select', { state, mode: 'full-auto', selectedBy: '  @owner ', now: ' t1 ' });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({ runModeSelection: { mode: 'full-auto', selectedAt: 't1', selectedBy: '@owner' } });
+  });
+
+  it.each([
+    ['empty selectedBy', { state, mode: 'full-auto', selectedBy: '   ', now: 't1' }],
+    ['invalid mode', { state, mode: 'manual', selectedBy: '@owner', now: 't1' }],
+    ['different second selection', {
+      state: { ...state, runModeSelection: { mode: 'full-auto', selectedAt: 't1', selectedBy: '@owner' } },
+      mode: 'semi-auto', selectedBy: '@owner', now: 't1',
+    }],
+  ])('returns status 1 and a JSON error for %s', (_label, input) => {
+    const result = cli('run-mode-select', input);
+    expect(result.status).toBe(1);
+    expect(result.json).toEqual(expect.objectContaining({ error: expect.any(String) }));
+  });
+});
 
 describe('cli validate — body passthrough (G6b reachable, ⑩)', () => {
   // 待评审→已评审：requiredFields 齐 + gateOutcome 通过 + reviewType 需求评审 + 日期已确认；
