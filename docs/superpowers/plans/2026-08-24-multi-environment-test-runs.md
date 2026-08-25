@@ -1,10 +1,10 @@
 # 统一多环境测试执行 Implementation Plan
 
-> **For agentic workers:** Execute inline in this worktree. Per user instruction, do **not** use TDD: implement each task first, then add or update focused tests and run the relevant verification.
+> **For agentic workers:** Execute inline in this worktree. Per user instruction, implement each task first, then add or update focused tests and run the relevant verification.
 
 **Goal:** Make local and test environments run one versioned test plan, persist parseable execution records, and gate delivery transitions on verified records.
 
-**Architecture:** `engine/src/test-run.ts` owns strict parsing, rendering, latest-record selection, and plan/run compatibility validation. `guard.ts` calls it for local and test gates through every transition entry point; the Leader remains responsible for actual Apifox/E2E execution and Issue writes. Markdown skills define the single plan, runtime authorization preflight, and post-implementation verification workflow without TDD.
+**Architecture:** `engine/src/test-run.ts` owns strict parsing, rendering, latest-record selection, and plan/run compatibility validation. `guard.ts` calls it for local and test gates through every transition entry point; the Leader remains responsible for actual Apifox/E2E execution and Issue writes. Markdown skills define the single plan, runtime authorization preflight, and post-implementation verification workflow without test-first steps.
 
 **Tech Stack:** TypeScript, Vitest, YAML state-machine data, Markdown skills, Apifox CLI runtime integration.
 
@@ -19,8 +19,8 @@
 - Modify `engine/src/cli.ts` — expose `test-run` preview/validation command and accept `testPlan` on legacy commands.
 - Modify `engine/src/transition.ts`, `engine/src/render.ts`, `engine/state-machine.yaml` — replace free-text self-test proof with run-record references in comments and required fields.
 - Modify `engine/src/{guard,transition,cli,render,process-contract}.test.ts` — integration and process-contract coverage.
-- Modify `skills/glab-flow/{SKILL,nodes,gate,tools,test-config.example}.md` and `skills/glab-flow/sub-skills/{test-design,test-flow-apifox,test-flow-e2e,code-review,mr-review}.md` — one plan/two environment runs, report-upload authorization, no TDD references.
-- Delete `skills/glab-flow/sub-skills/tdd-guide.md` — remove the now prohibited methodology.
+- Modify `skills/glab-flow/{SKILL,nodes,gate,tools,test-config.example}.md` and `skills/glab-flow/sub-skills/{test-design,test-flow-apifox,test-flow-e2e,code-review,mr-review}.md` — one plan/two environment runs and report-upload authorization.
+- Delete the retired test-first sub-skill.
 
 ### Task 1: Add pure plan and execution-record contracts
 
@@ -139,7 +139,7 @@
 
   Run `pnpm test -- engine/src/render.test.ts engine/src/transition.test.ts` and `pnpm typecheck`.
 
-### Task 4: Document one process, strict upload authorization, and no TDD
+### Task 4: Document one process and strict upload authorization
 
 **Files:**
 - Modify: `skills/glab-flow/SKILL.md`
@@ -152,7 +152,7 @@
 - Modify: `skills/glab-flow/sub-skills/test-flow-e2e.md`
 - Modify: `skills/glab-flow/sub-skills/code-review.md`
 - Modify: `skills/glab-flow/sub-skills/mr-review.md`
-- Delete: `skills/glab-flow/sub-skills/tdd-guide.md`
+- Delete: retired test-first sub-skill
 - Modify: `engine/src/process-contract.test.ts`
 
 - [x] **Step 1: Document the single-plan protocol.**
@@ -163,13 +163,13 @@
 
   In the Apifox execution guidance, require the Leader to show target project/branch/environment/suite/data prefix and that `--upload-report detail` uploads request/response details. In Codex, request `require_escalated` with the narrow reusable `apifox test-suite run` prefix. On Apifox AI-permission denial, stop, direct the user to enable target-branch external AI editing or manually run the same suite, then require `test-report get` readback. Never remove the upload option silently or accept stdout as a substitute.
 
-- [x] **Step 3: Remove TDD as a supported flow.**
+- [x] **Step 3: Remove the retired test-first flow.**
 
-  Remove every `tdd-guide`/TDD reference, remove it from the vendor inventory, delete the sub-skill, and replace development wording with `git-ops + codegraph + post-implementation verification`. Preserve mandatory post-implementation automated tests, integration tests, full regression, type checking, and code review.
+  Remove retired test-first references, remove the sub-skill from the vendor inventory, delete it, and replace development wording with `git-ops + codegraph + post-implementation verification`. Preserve mandatory post-implementation automated tests, integration tests, full regression, type checking, and code review.
 
 - [x] **Step 4: Add process-contract assertions.**
 
-  Assert that docs contain the two markers, both `local` and `test` gates, `require_escalated`/`apifox test-suite run`, and the no-silent-downgrade rule. Assert production skill/docs no longer contain `tdd-guide` or `RED → GREEN → REFACTOR`.
+  Assert that docs contain the two markers, both `local` and `test` gates, `require_escalated`/`apifox test-suite run`, and the no-silent-downgrade rule. Assert production skill/docs no longer contain retired test-first routes.
 
 - [x] **Step 5: Verify Task 4.**
 
@@ -186,7 +186,7 @@
 
 - [x] **Step 2: Review scope and contracts.**
 
-  Inspect `git diff --name-only` and the final diff. Confirm no production engine I/O, no Apifox/GitLab credentials, no accidental report upload during tests, and no remaining TDD instructions.
+  Inspect `git diff --name-only` and the final diff. Confirm no production engine I/O, no Apifox/GitLab credentials, no accidental report upload during tests, and no remaining test-first instructions.
 
 - [x] **Step 3: Prepare handoff.**
 
@@ -194,6 +194,6 @@
 
 ## Plan self-review
 
-- Specification coverage: Task 1 supplies strict records; Task 2 activates local/test gates; Task 3 makes Issue output truthful; Task 4 unifies docs, upload authorization and the no-TDD policy; Task 5 verifies boundaries.
+- Specification coverage: Task 1 supplies strict records; Task 2 activates local/test gates; Task 3 makes Issue output truthful; Task 4 unifies docs and upload authorization; Task 5 verifies boundaries.
 - Placeholder scan: no deferred behavior, generic validation instruction, or unnamed files remain.
 - Type consistency: `TestPlan`, `TestRun`, `LatestTestRun`, `testPlan`, `parseTestPlan`, `parseLatestTestRun`, and `validateTestRun` are defined in Task 1 and used with those names throughout later tasks.

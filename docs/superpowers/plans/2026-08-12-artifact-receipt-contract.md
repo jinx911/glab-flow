@@ -13,7 +13,7 @@
 ## File structure
 
 - Create: `engine/src/artifact.ts` — receipt marker parser, requirement resolver, and pure validation.
-- Create: `engine/src/artifact.test.ts` — parser and validation TDD coverage.
+- Create: `engine/src/artifact.test.ts` — parser and validation coverage.
 - Modify: `engine/src/types.ts` — artifact declarations, receipt input/output, and state-compatible audit types.
 - Modify: `engine/state-machine.yaml` — transition-local artifact requirements.
 - Modify: `engine/src/transition.ts` — combine normal guards and receipt validation before planning; show receipts/gaps in preview.

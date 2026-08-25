@@ -1,6 +1,6 @@
 # Apifox 资产治理实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement task-by-task. Per user instruction, do **not** use TDD: implement each task first, then add or update focused tests and run verification.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement task-by-task. Per user instruction, implement each task first, then add or update focused tests and run verification.
 
 **Goal:** 让场景、套件/场景分组、测试数据和场景实例成为可复用、可回读、可审计的 Apifox 测试资产，并使有效资产审计成为 local/test TestRun 的前置。
 
@@ -67,4 +67,4 @@
 
 - [x] 增加流程契约断言：资产审计 marker、四类资产、套件能力发现、临时数据生命周期、无审计则不能 TestRun、Apifox I/O 仍由 Leader 负责。
 - [x] 将前一份多环境计划标记为已完成，并在本计划完成后标记本计划全部步骤。
-- [x] 运行 `pnpm test`、`pnpm typecheck`、`git diff --check` 与活跃流程文档扫描；核查无引擎 I/O、无真实 Apifox 写入、无凭据泄露、无 TDD 路由。
+- [x] 运行 `pnpm test`、`pnpm typecheck`、`git diff --check` 与活跃流程文档扫描；核查无引擎 I/O、无真实 Apifox 写入、无凭据泄露、无测试先行路由。

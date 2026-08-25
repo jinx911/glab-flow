@@ -265,7 +265,7 @@ describe('glab-flow process contracts', () => {
     expect(apifox).toMatch(/test-report get/);
   });
 
-  it('prohibits TDD workflow and keeps active glab-flow docs free of TDD routes', () => {
+  it('prohibits test-first workflow and keeps active glab-flow docs free of retired routes', () => {
     const activeDocs = [
       'skills/glab-flow/SKILL.md',
       'skills/glab-flow/gate.md',
@@ -279,8 +279,18 @@ describe('glab-flow process contracts', () => {
       'docs/flow.md',
     ].map(readProjectFile);
 
-    expect(readProjectFile('skills/glab-flow/SKILL.md')).toMatch(/禁止 TDD/);
-    expect(activeDocs.join('\n')).not.toMatch(/tdd-guide|RED\s*→\s*GREEN\s*→\s*REFACTOR/i);
+    expect(readProjectFile('skills/glab-flow/SKILL.md')).toMatch(/禁止测试先行仪式/);
+    expect(activeDocs.join('\n')).not.toMatch(/test-first-guide|RED\s*→\s*GREEN\s*→\s*REFACTOR/i);
+  });
+
+  it('keeps repository documentation free of retired test-first terminology', () => {
+    const documentation = ['docs', 'skills', 'agents']
+      .flatMap((directory) => listFiles(directory))
+      .filter((filePath) => filePath.endsWith('.md'))
+      .map(readProjectFile)
+      .join('\n');
+
+    expect(documentation).not.toMatch(/t[d]d-guide|\bt[d]d\b|[R]ED\s*→\s*[G]REEN\s*→\s*REFACTOR/i);
   });
 
   it('requires code evidence before review-preview blocks on existing system behavior', () => {
