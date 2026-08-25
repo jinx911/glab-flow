@@ -61,7 +61,8 @@ const STALE_WRITEBACK_PATTERNS = [
 ];
 
 function readProjectFile(filePath: string): string {
-  return readFileSync(join(PROJECT_ROOT, filePath), 'utf8');
+  // Git 的 Windows checkout 可能使用 CRLF；文档契约只关心内容而非换行格式。
+  return readFileSync(join(PROJECT_ROOT, filePath), 'utf8').replace(/\r\n/g, '\n');
 }
 
 function listFiles(dirPath: string): string[] {
