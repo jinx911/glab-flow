@@ -1,0 +1,2 @@
+{ "iid": 200, "state": "opened", "labels": ["type::story", "story-status::草稿中", "triage::done"],
+  "description": "# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n" }

@@ -1,0 +1,69 @@
+# glab-flow state machine — executable project delivery contract.
+# Drift checked by engine/src/contract.ts.
+story:
+  states: [草稿中, 待评审, 已评审, 开发中, 测试中, 待发布, 生产验收中, 已完成]
+  transitions:
+    - {from: 草稿中, to: 待评审, gate: null, requiredFields: [], assigneeRole: 产品}
+    - {from: 待评审, to: 已评审, gate: 需求评审, gateOutcome: [通过, 退回],
+       requiredFields: [评审日期, 产品确认人, 评审结论, 需求文档或评审记录],
+       assigneeRole: 研发,
+       return: {target: 草稿中, assigneeRole: 产品}}
+    - {from: 已评审, to: 开发中, gate: 技术方案评审,
+       requiredFields: [技术方案评审通过记录或免评审结论, 实际开始日期, 研发Assignee, 计划提测时间, 计划上线时间],
+       assigneeRole: 研发,
+       return: {target: 已评审, note: 不退回, 继续完善方案}}
+    - {from: 开发中, to: 测试中, gate: 代码评审与自测,
+       requiredFields: [代码评审结论, 提测日期, 研发Assignee, 可测试版本或环境, 测试说明],
+       assigneeRole: 测试,
+       playbook: [{action: commit_push_feature}, {action: merge_to_deploy_branch, when: config.deployBranch}, {action: trigger_jenkins, when: config.jenkins}]}
+    - {from: 测试中, to: 待发布, gate: 测试验收,
+       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论],
+       assigneeRole: 研发,
+       return: {target: 开发中, onlyWhen: 整体返工},
+       playbook: [{action: create_mr_to_master}, {action: mr_review}, {action: release_check}]}
+    - {from: 待发布, to: 生产验收中, gate: 发布, hardGate: true,
+       requiredFields: [发布日期, 研发Assignee, 生产版本, 发布记录或回滚信息],
+       assigneeRole: 产品,
+       playbook: [{action: deploy}]}
+    - {from: 生产验收中, to: 已完成, gate: 产品验收, hardGate: true, terminal: true,
+       requiredFields: [验收完成日期, 具体产品验收人, 产品Assignee, 验收结论, 验收依据],
+       assigneeRole: 产品}
+bug:
+  states: [已确认缺陷, 开发中, 测试中, 待发布, 生产验证中, 已完成]
+  transitions:
+    - {from: 已确认缺陷, to: 开发中, gate: null, requiredFields: [], assigneeRole: 研发}
+    - {from: 开发中, to: 测试中, gate: 代码评审与自测,
+       requiredFields: [代码评审结论, 提测日期, 研发Assignee, 可测试版本或环境],
+       assigneeRole: 测试,
+       playbook: [{action: commit_push_feature}, {action: merge_to_deploy_branch, when: config.deployBranch}, {action: trigger_jenkins, when: config.jenkins}]}
+    - {from: 测试中, to: 待发布, gate: 测试验收,
+       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论],
+       assigneeRole: 研发,
+       playbook: [{action: create_mr_to_master}, {action: mr_review}, {action: release_check}]}
+    - {from: 待发布, to: 生产验证中, gate: 发布, hardGate: true,
+       requiredFields: [发布日期, 研发Assignee, 生产版本, 发布记录或回滚信息],
+       assigneeRole: 测试,
+       playbook: [{action: deploy}]}
+    - {from: 生产验证中, to: 已完成, gate: 生产验证, hardGate: true, terminal: true,
+       requiredFields: [验证完成日期, 具体测试验证人, 测试验证人Assignee, 验证结论, 验证依据],
+       assigneeRole: 测试}
+reviews:
+  需求评审: 推进状态
+  技术方案评审: 只记录不推进
+  代码评审: 不单独推进
+roleFields:
+  产品: [产品确认人, 具体产品验收人, 产品Assignee]
+  研发: [研发Assignee]
+  测试: [测试Assignee, 具体测试验证人, 测试验证人Assignee]
+# 节点内部子步骤 checklist（层 2 进度可见，纯数据声明；Leader 据此展示/追踪进度，引擎不驱动执行）
+progressSteps:
+  草稿中: [需求澄清, 六清楚草稿]
+  待评审: [评审预审, 问题清单]
+  已评审: [技术方案 design.md, 技术方案评审]
+  开发中: [技术方案, 测试计划, 编码实现, 本地自测, 代码评审]
+  测试中: [用例执行, 阻塞修复, 复测]
+  待发布: [发布计划就绪, 上线前确认]
+  生产验收中: [生产验证, 验收确认]
+  生产验证中: [生产验证]
+  已确认缺陷: [复现确认, 根因定位]
+  已完成: []

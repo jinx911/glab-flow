@@ -1,0 +1,9 @@
+node_modules/
+engine/dist/
+.glab-flow/
+.worktrees/
+.DS_Store
+*.log
+.pnpm-store/
+不覆盖
+.playwright-mcp/
