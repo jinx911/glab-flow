@@ -422,7 +422,7 @@ describe('transition — per-transition side-effect playbook', () => {
 describe('transition — node progress checklist (layer 2 visibility)', () => {
   it('surfaces 开发中 sub-steps in nodeProgress and preview', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true }));
-    expect(r.nodeProgress).toEqual(['技术方案', '编码实现', '自测', '代码评审']);
+    expect(r.nodeProgress).toEqual(['技术方案', '测试计划', '编码实现', '本地自测', '代码评审']);
     expect(r.preview).toContain('当前节点子步骤');
     expect(r.preview).toContain('代码评审');
   });

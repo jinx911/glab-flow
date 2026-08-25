@@ -21,7 +21,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
    - `dirty` / `dirtyReason`（脏则停，见下文「脏状态」）；
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」）；
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）；
-   - `validate`（G1–G14，`reasons` 自带补救动作；`ok:false` 则 `plan` 为空、不推进）；
+   - `validate`（G1–G16，`reasons` 自带补救动作；`ok:false` 则 `plan` 为空、不推进）；
    - `plan`（`WritePlan`：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，`renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm`。
 
    `transition` 内部即「评论字段扫描（取证 + 预填）→ `validate`（校验）→ `plan`（计划）→ `render`（预览）」的顺序编排；`evidence` 命令是独立的结构化取证工具（不参与内部预填）；退回（G2 二值）仍走 `plan-return`。
@@ -42,6 +42,8 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
    - **G8 不编评论**：永不 edit/delete 已发评论；评论只新增，不改写历史。
 
    门禁**二值**（G2）——通过走 `transition`/`plan`，退回走 `plan-return`，没有"附带条件通过"；`hard_gate`（待发布 / 生产验收中 / 已完成）必须 `humanConfirmed`（G3），无论 run 模式如何都要人工拍板，这是不可关闭的红线。
+
+4. **变更闭环**（G16）。实施中发现需求、技术方案或既有实现错误，Leader 先回读 Issue notes 和当前 `test-plan.md`，以 `change-impact` 预览并确认新增 open 影响单。按其 `requiredArtifacts` 更新所有关联产物；需要返回评审/开发节点时用 `plan-return`，排期变化另走 `week-plan-change`。全部完成、测试计划版本递增及受影响环境重测后，使用刚回读的 notes 调 `change-close` 写 closed 回执。open 单存在时不允许调用普通 `transition` 继续推进。
 
 ### 脏状态（`transition.dirty=true` 直接识别）
 
@@ -85,9 +87,13 @@ Story `待评审→已评审` 的一键 `transition` 必须带有效 `weekPlan`�
 
 Harness 的周一任务是**后续 rollover writer**，不是周内初始挂载入口。glab-flow 引擎没有 GitLab Milestone API/`WriteOp`；Leader 仅按引擎的 `postWriteback` 意图，在 Issue 回读完成后执行初始或排期变更同步。
 
+## 需求/方案变更闭环
+
+`change-impact` 与 `change-close` 均是仅评论路径，和 `week-plan-change` 一样不修改标签、Assignee、正文或历史评论。区别是它们成对工作：open 记录冻结推进，closed 记录逐项完成证据。引擎只校验结构、清单和测试计划版本；Leader 负责实际修改产物、运行 local/test，以及每次评论写入后的回读。
+
 ## 引用
 
-- 护栏 G1–G14 的完整判定与触发条件见 `guards.md`。
+- 护栏 G1–G16 的完整判定与触发条件见 `guards.md`。
 - 各节点的下一节点、必填项、门禁类型、Assignee 角色见 `nodes.md`。
 - run 模式在恢复场景下的取值（state vs config）见 `resume.md`。
 # Apifox v2 资产审计补充

@@ -16,9 +16,11 @@ flowchart TD
       S2 -->|"门禁:需求评审 通过"| S3["已评审"]
       S2 -.->|"需求评审 退回(带问题清单)"| S1
       S3 -->|"门禁:技术方案评审(只记录)<br/>+实际开始+计划提测/上线"| S4["开发中"]
+      S4 -.->|"需求/方案/实现发现变更<br/>影响单→同步→必要回退/重测→闭环"| S4
       S4 -->|"门禁:代码评审 + local 资产审计 + TestRun"| S5["测试中"]
       S5 -->|"门禁:test 资产审计 + TestRun + 阻塞问题全验证"| S6["待发布"]
       S5 -.->|"整体返工"| S4
+      S5 -.->|"变更影响单要求返工"| S4
       S6 -->|"门禁:发布 (hard)"| S7["生产验收中"]
       S7 -->|"门禁:产品验收 (hard·终态)"| S8["已完成 ✅关闭Issue"]
       S7 -.->|"验收不通过"| S4
@@ -76,13 +78,13 @@ flowchart TD
     L1["① 触发入口<br/>GitLab Issue URL / free-flow"] --> L2
     L2["② 规则权威<br/>harness: issue-state-machine.md + AGENTS.md<br/>派生 state-machine.yaml + 一致性校验"] --> L3
     L3["③ 状态机驱动<br/>读 labels → 查模型 → 节点/必填/门禁/Assignee角色"] --> L4
-    L4["④ 护栏 / 前置校验<br/>确定性纯函数  G1–G14 + G6b（关键路径不放 LLM）"] --> L5
+    L4["④ 护栏 / 前置校验<br/>确定性纯函数  G1–G16 + G6b（关键路径不放 LLM）"] --> L5
     L5["⑤ 内容生成<br/>专家 agent（spec-author / git-ops / code-review / test-flow ...；实现后验证）"] --> L6
     L6["⑥ GitLab 写回层<br/>Leader 直接 glab CLI · preview-confirm · 引擎零 I/O"] --> L7
     L7["⑦ 持久化<br/>GitLab Issue = 唯一真相 · .glab-flow/&lt;issue&gt;/ = 工作产物"]
 ```
 
-## 4. 护栏速查（G1–G14 + G6b）
+## 4. 护栏速查（G1–G16 + G6b）
 
 | 门禁类 | 规则 |
 |---|---|
@@ -91,6 +93,7 @@ flowchart TD
 | **不臆造** | G9 禁「待确认」占位 · G10 日期需 datesConfirmed |
 | **写计划** | G7 不改原文 · G8 不编评论 · G12 终态原子(标签+Assignee+评论+关闭同次) · G13 不建 Jira |
 | **发布门** | G11 阻塞发布问题全验证才放行(需求+Bug) · G14 feature→master MR 评审前置(无 CRITICAL/HIGH 残留才放行) |
+| **变更闭环** | G16 未关闭的变更影响单阻断正向流转；测试计划受影响时必须版本递增并按影响范围重跑 local/test |
 
 > 引擎权威来源：`engine/state-machine.yaml`（模型）+ `engine/src/guard.ts`（护栏）。规则与 harness 文档漂移由 `engine/src/contract.ts` 检测。
 

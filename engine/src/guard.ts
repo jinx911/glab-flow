@@ -6,6 +6,7 @@ import { parseLatestWeekPlan, validateWeekPlan } from './week-plan.js';
 import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
+import { validateChangeImpactClosure } from './change-impact.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
@@ -176,10 +177,11 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
     : ok();
   const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
   const testRunGate = validateTestRunTransition(payload, notes);
-  if (missing.length || reasons.length || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok) {
+  const changeImpactGate = validateChangeImpactClosure(notes);
+  if (missing.length || reasons.length || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok) {
     return fail(
-      unique([...reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons]),
-      unique([...missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing]),
+      unique([...reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons]),
+      unique([...missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing]),
     );
   }
   return ok();
