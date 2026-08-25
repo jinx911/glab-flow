@@ -26,10 +26,11 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
    `transition` 内部即「评论字段扫描（取证 + 预填）→ `validate`（校验）→ `plan`（计划）→ `render`（预览）」的顺序编排；`evidence` 命令是独立的结构化取证工具（不参与内部预填）；退回（G2 二值）仍走 `plan-return`。
 
-2. **执行 playbook + 确认/应用**。`playbook` 是本转换的完整动作包，代码侧步骤在前、Issue 写回（`isWriteback:true`）恒为末步。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
+2. **执行 playbook + 确认/应用**。`playbook` 的相位固定为代码侧 `pre-writeback` → Issue 写回/回读 `issue-writeback` → 条件同步 `post-readback`。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
    - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——与 run_mode 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认 ≠ 参数确认，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
    - **mr-review**：测试中→待发布 时，对每个受影响 feature→master MR 跑评审（G14，无 CRITICAL/HIGH 残留才放行），评审结论作为评论发到该 MR；父 Issue 汇总不能替代 MR-local 评审。
-   - **末步 issue_writeback（合并评论 + 三阶段串行，每阶段记 `writebackAudit`）**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令。按严格串行：**metadata**（标签 add/unlabel + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）→（终态时 close）→ **readback**（最终 Issue 回读）。内容体按节点类型见 `nodes.md`「节点内容评论」。
+   - **issue_writeback（合并评论 + 三阶段串行，每阶段记 `writebackAudit`）**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令。按严格串行：**metadata**（标签 add/unlabel + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）→（终态时 close）→ **readback**（最终 Issue 回读）。内容体按节点类型见 `nodes.md`「节点内容评论」。
+   - **post-readback `sync_week_milestone`**：仅当 `plan.postWriteback.action === 'sync_week_milestone'` 执行。回读最新有效且启用的周排期，按 Asia/Shanghai 日期选目标周（未开始=计划开始周，执行中=当天周，已结束=跳过），幂等创建/关联 Week Milestone。标题必须是 Harness 同一格式 `Week YYYY-Www`，创建时 `start_date`/`due_date` 为该 ISO 周的周一/周日；不能自行发明标题或日期。用项目数字 ID 的 GitLab API：先列出 active milestones 并精确匹配标题；缺失时 `POST projects/:project_id/milestones`，并发冲突则重新读取；最后仅 `PUT projects/:project_id/issues/:iid` 的 `milestone_id`。它只能调整 Milestone；绝不改 Issue 状态、负责人、正文或评论。失败记录 `week-milestone-sync` 后重试，不撤回已成功的 Issue 写回。
      - **标签 + Assignee**：`glab issue update <iid> [--label <add1,add2>] [--unlabel <rm1,rm2>] --assignee <@user>`；无 `harnessClone` 时加 `-R <host>/<group>/<project>` 限定项目（见 `SKILL.md`「GitLab 读写」，数字 project_id 不适用 `-R`、改用 `glab api`）。
      - **评论**：短正文 `glab issue note <iid> -m "<正文>"`；长正文（含 backtick/表格）写临时文件后 `glab issue note <iid> -F <file>`，避开 shell 转义。
      - **终态（已完成）**：`glab issue close <iid>` 只在合并评论成功后执行，并由最终回读确认；不能先关 Issue 再补评论。
@@ -80,9 +81,9 @@ Story `待评审→已评审` 的一键 `transition` 必须带有效 `weekPlan`�
 
 若最新 `## 周排期` 区块无效，Leader **停止**，不建状态流转计划、不写标签或状态评论，并把解析错误列为待补排期缺口。即使更早评论里有有效排期，也不得回退（fallback）使用旧区块；Harness 同样只读取最新区块。
 
-日期、原因或负责人变化时，走 `pnpm cli week-plan-change`，而非 `transition`。这是**仅评论（comment-only）**路径：先按普通预览与确认，再新增恰好一条含 `## 排期变更` 和完整 replacement `## 周排期` 的评论，随后 readback。它没有标签、Assignee、关闭或 Milestone 操作，且不得编辑旧排期评论。
+日期、原因或负责人变化时，走 `pnpm cli week-plan-change`，而非 `transition`。这是**仅评论（comment-only）**路径：先按普通预览与确认，再新增恰好一条含 `## 排期变更` 和完整 replacement `## 周排期` 的评论，随后 readback。它没有标签、Assignee、关闭或 Milestone `WriteOp`，且不得编辑旧排期评论；但启用排期会在 readback 后按 `postWriteback` 触发独立的 Milestone 同步。
 
-Harness 是唯一的 Milestone writer。glab-flow 的引擎和 Leader 都没有 Milestone API/`WriteOp`，不得写入 GitLab Milestone；只读到的 Milestone 信息仅供展示，不能成为写回动作。
+Harness 的周一任务是**后续 rollover writer**，不是周内初始挂载入口。glab-flow 引擎没有 GitLab Milestone API/`WriteOp`；Leader 仅按引擎的 `postWriteback` 意图，在 Issue 回读完成后执行初始或排期变更同步。
 
 ## 引用
 

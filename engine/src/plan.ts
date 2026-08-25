@@ -1,4 +1,4 @@
-import type { WritePlan, IssueType, Payload, WeekPlanChangeInput } from './types.js';
+import type { WritePlan, IssueType, Payload, WeekMilestoneSyncIntent, WeekPlanChangeInput } from './types.js';
 import { STATUS_NAMESPACE } from './constants.js';
 import { renderNodeComment, renderReturn } from './render.js';
 import { renderWeekPlan, validateWeekPlan } from './week-plan.js';
@@ -14,9 +14,30 @@ export interface ReturnInput {
   issueIid: number;
 }
 
+/**
+ * The engine only emits this intent. The Leader applies it after the Issue
+ * comment/state readback so a failed Milestone operation can be retried
+ * without repeating or rolling back the confirmed state change.
+ */
+export function buildWeekMilestoneSyncIntent(
+  payload: Pick<Payload, 'type' | 'from' | 'to' | 'weekPlan'>,
+): WeekMilestoneSyncIntent | undefined {
+  const trigger = payload.type === 'story' && payload.from === '待评审' && payload.to === '已评审'
+    ? 'review-approved'
+    : payload.type === 'bug' && payload.from === '已确认缺陷' && payload.to === '开发中'
+      ? 'bug-development-start'
+      : undefined;
+  if (!trigger || !payload.weekPlan) return undefined;
+
+  const validation = validateWeekPlan(payload.weekPlan);
+  if (!validation.ok || !validation.plan.autoRollover) return undefined;
+  return { action: 'sync_week_milestone', trigger, plan: validation.plan };
+}
+
 /** 正向流转建写回计划：标签替换 + Assignee + 状态变更评论 +（终态）关闭。 */
 export function buildForwardPlan(payload: Payload, issueIid: number): WritePlan {
   const prefix = STATUS_NAMESPACE[payload.type];
+  const postWriteback = buildWeekMilestoneSyncIntent(payload);
   return {
     issueIid,
     ops: [
@@ -26,6 +47,7 @@ export function buildForwardPlan(payload: Payload, issueIid: number): WritePlan 
       { kind: 'add_comment', body: renderNodeComment(payload) },
       ...(payload.closeIssue ? [{ kind: 'close_issue' as const }] : []),
     ],
+    ...(postWriteback ? { postWriteback } : {}),
   };
 }
 
@@ -62,5 +84,11 @@ export function buildWeekPlanChangePlan(input: WeekPlanChangeInput): WritePlan {
     weekPlan,
   ].join('\n');
 
-  return { issueIid: input.iid, ops: [{ kind: 'add_comment', body: comment }] };
+  return {
+    issueIid: input.iid,
+    ops: [{ kind: 'add_comment', body: comment }],
+    ...(validation.plan.autoRollover ? {
+      postWriteback: { action: 'sync_week_milestone' as const, trigger: 'week-plan-change' as const, plan: validation.plan },
+    } : {}),
+  };
 }

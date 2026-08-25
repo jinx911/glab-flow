@@ -11,7 +11,7 @@ export interface Transition {
   hardGate?: boolean;
   terminal?: boolean;
   return?: { target: string; assigneeRole: Role; onlyWhen?: string; note?: string };
-  /** 跨节点副作用步骤（仅声明，Leader 执行）：commit/merge/deploy 等；Issue 写回由引擎自动追加为末步。 */
+  /** 跨节点副作用步骤（仅声明，Leader 执行）：commit/merge/deploy 等；Issue 写回后可追加 post-readback 同步。 */
   playbook?: { action: string; when?: string }[];
 }
 
@@ -32,6 +32,8 @@ export interface Payload {
   testPlan?: string;
   /** Structured schedule input; rendering derives coverage only after validation. */
   weekPlan?: WeekPlanInput;
+  /** Evidence completed before a Story requirement review can be approved. */
+  reviewEvidence?: RequirementsReviewEvidence;
   gateOutcome?: '通过' | '退回';
   reviewType?: string;
   assigneeUser?: string;
@@ -57,6 +59,13 @@ export type WriteOp =
 export interface WritePlan {
   issueIid: number;
   ops: WriteOp[];
+  /**
+   * A Leader-owned action that can run only after every Issue write has been
+   * read back. It deliberately is not a WriteOp: the engine never performs
+   * GitLab I/O and Milestone association must not be interleaved with state
+   * metadata/comment writes.
+   */
+  postWriteback?: WeekMilestoneSyncIntent;
 }
 
 export interface GuardResult {
@@ -89,6 +98,55 @@ export interface WeekPlan extends WeekPlanInput {
   coverage: string;
 }
 
+export type OcrStatus = 'verified' | 'no-text' | 'unreadable';
+
+/** One image found in the Issue body or comments and inspected before review. */
+export interface IssueImageReviewEvidence {
+  source: string;
+  ocrStatus: OcrStatus;
+  /** OCR transcript; required when text was identified, never a credential store. */
+  ocrText?: string;
+  /** Visual meaning needed when OCR has no text or cannot capture layout. */
+  visualSummary: string;
+}
+
+/** Code evidence that a user-facing location resolves to the intended implementation. */
+export interface FrontendRouteReviewEvidence {
+  requestedLocation: string;
+  resolvedPath: string;
+  routeFile: string;
+  componentFiles: string[];
+  /** Explicitly record device / tenant / feature-flag branches; `无额外分流` is valid. */
+  branches: string[];
+}
+
+export interface GrillingDecision {
+  question: string;
+  recommendation: string;
+  resolution: 'confirmed' | 'conditional-default';
+}
+
+/** Machine-checkable summary of image, route and requirement-decision review evidence. */
+export interface RequirementsReviewEvidence {
+  images: IssueImageReviewEvidence[];
+  frontend: {
+    applicable: boolean;
+    routes: FrontendRouteReviewEvidence[];
+  };
+  grilling: {
+    coverage: string[];
+    decisions: GrillingDecision[];
+    unresolved: string[];
+  };
+}
+
+/** Deterministic instruction for the Leader to reconcile one Issue to its active Week Milestone. */
+export interface WeekMilestoneSyncIntent {
+  action: 'sync_week_milestone';
+  trigger: 'review-approved' | 'bug-development-start' | 'week-plan-change';
+  plan: WeekPlan;
+}
+
 export type WeekPlanValidation =
   | { ok: true; errors: []; plan: WeekPlan }
   | { ok: false; errors: string[]; plan?: undefined };
@@ -113,7 +171,9 @@ export interface PlaybookStep {
   subskill?: string;
   when?: string;
   desc: string;
-  /** 是否 Issue 写回（官方状态变更，恒为末步）。 */
+  /** 执行时序：代码动作 → Issue 写回并回读 → 后置同步。 */
+  phase: 'pre-writeback' | 'issue-writeback' | 'post-readback';
+  /** 是否 Issue 写回（官方状态变更阶段）。 */
   isWriteback: boolean;
 }
 
@@ -131,6 +191,8 @@ export interface TransitionInput {
   testPlan?: string;
   /** Structured schedule supplied when approving a Story. */
   weekPlan?: WeekPlanInput;
+  /** Completed image/OCR, frontend-route and grilling evidence for Story review approval. */
+  reviewEvidence?: RequirementsReviewEvidence;
   gateOutcome?: '通过' | '退回';
   reviewType?: string;
   assigneeUser?: string;

@@ -1,5 +1,6 @@
 import type { Payload } from './types.js';
 import { renderWeekPlan, validateWeekPlan } from './week-plan.js';
+import { renderRequirementsReviewEvidence } from './review-evidence.js';
 
 export function renderStatusChange(p: Payload): string {
   const f = p.fields;
@@ -134,6 +135,10 @@ export function renderNodeComment(p: Payload): string {
   if (p.type === 'story' && p.from === '待评审' && p.to === '已评审' && p.weekPlan) {
     const validation = validateWeekPlan(p.weekPlan);
     if (validation.ok) blocks.push(renderWeekPlan(validation.plan)!);
+  }
+
+  if (p.type === 'story' && p.from === '待评审' && p.to === '已评审' && p.reviewEvidence) {
+    blocks.push(renderRequirementsReviewEvidence(p.reviewEvidence));
   }
 
   return blocks.join('\n\n');

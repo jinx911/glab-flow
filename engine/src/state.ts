@@ -2,7 +2,7 @@ import type { IssueType } from './types.js';
 import type { RunMode } from './config.js';
 
 export type WritebackAuditTarget = 'issue' | `mr:${string}!${number}`;
-export type WritebackAuditStage = 'metadata' | 'state-comment' | 'readback';
+export type WritebackAuditStage = 'metadata' | 'state-comment' | 'readback' | 'week-milestone-sync';
 export type WritebackAuditStatus = 'succeeded' | 'failed';
 
 export interface WritebackAuditEntry {

@@ -1,8 +1,10 @@
-# Week Plan Contract Design
+# Week Plan Contract Design（已由 2026-08-25 初始挂载设计修订）
+
+> 本文的「Harness 是唯一 Milestone writer」结论已失效。现行职责为：glab-flow Leader 在状态/排期评论回读后完成初始挂载；Harness 周一任务仅做后续 rollover。详见 `2026-08-25-week-milestone-initial-sync-design.md`。
 
 ## Goal
 
-Make glab-flow emit and validate the exact machine-readable `## 周排期` comment consumed by OA AI Native Harness, without giving glab-flow authority to create or move GitLab Milestones.
+Make glab-flow emit and validate the exact machine-readable `## 周排期` comment consumed by OA AI Native Harness, then emit a pure post-readback intent for the Leader to perform the initial Week Milestone association.
 
 ## Context
 
@@ -22,12 +24,12 @@ glab-flow currently records only planned test and release times before developme
 
 ### Out of scope
 
-- Creating, closing, or assigning GitLab Milestones.
+- 引擎直接创建、关闭或关联 GitLab Milestone（引擎仍无 I/O；Leader 在回读后按意图执行初始同步）。
 - Running a Monday scheduler, an event hook, or any other rollover worker.
 - Inferring dates, owners, or whether rollover should be enabled.
 - Retroactively rewriting historic Issue comments or schedule data.
 
-Harness remains the sole Milestone writer. This avoids two writers competing over a single GitLab field and preserves the protected-master audit trail.
+Leader 与 Harness 的职责按触发时机分离：Leader 负责周内初始挂载与排期变更同步；Harness 受保护 master 的周一任务负责后续 rollover。两者只调整 Milestone 关联，且都不得修改 Issue 其他字段。
 
 ## Contract
 
@@ -74,7 +76,7 @@ Add a pure engine command, `week-plan-change`, that accepts the Issue identity, 
 - impact;
 - next step and concrete owner.
 
-It returns a preview and a `WritePlan` containing one `add_comment` operation. The comment contains `## 排期变更` followed by the complete replacement `## 周排期` block. It has no label, Assignee, close, or Milestone operation.
+It returns a preview and a `WritePlan` containing one `add_comment` operation. The comment contains `## 排期变更` followed by the complete replacement `## 周排期` block. It has no label, Assignee, close, or Milestone `WriteOp`; an enabled plan additionally carries a post-readback sync intent for the Leader.
 
 The Leader uses the ordinary preview/confirmation/readback protocol. It never edits the earlier schedule block. Harness intentionally reads the newest block; if that newest block is malformed, the Leader reports it as a blocking schedule defect rather than falling back to an older plan.
 
@@ -89,7 +91,7 @@ Introduce a pure parser for note bodies that finds the latest `## 周排期` blo
 
 Transition preview and resume output show this diagnosis. A valid older plan followed by a malformed latest block is `invalid latest plan`, not a valid fallback. This matches Harness behaviour exactly.
 
-Milestone information may be displayed only when the Leader has read it from GitLab; it is informational and never creates a WritePlan operation.
+The engine emits a typed post-readback sync intent, not a Milestone `WriteOp`. The Leader reads GitLab before deciding whether the target needs creation or association, then records the result independently for recovery.
 
 ## Error handling
 
@@ -105,8 +107,8 @@ Milestone information may be displayed only when the Leader has read it from Git
 2. Unit-test parser outcomes for absent, enabled, paused, incomplete, invalid-date, and later-invalid Week Plan comments.
 3. Add transition tests proving Story review needs a valid plan, development entry rejects an invalid latest readback, and Bug transitions remain compatible.
 4. Add renderer tests for exact Harness Markdown fields and derived coverage text.
-5. Add CLI/plan tests proving `week-plan-change` emits one comment-only operation and no metadata, close, or Milestone operation.
-6. Add process-contract tests that preserve the ownership boundary: glab-flow never invokes Milestone creation or update APIs.
+5. Add CLI/plan tests proving `week-plan-change` emits one comment-only operation plus an enabled-plan post-readback sync intent, without metadata or close operations.
+6. Add process-contract tests that preserve the boundary: engine never invokes GitLab APIs; Leader initial sync and Harness rollover are documented separately.
 
 ## Compatibility
 

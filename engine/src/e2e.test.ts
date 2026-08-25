@@ -6,10 +6,14 @@ import { toFacts, parseAssigneeTable, type GitLabIssue } from './gitlab.js';
 import { renderReturn } from './render.js';
 import { buildForwardPlan } from './plan.js';
 import { runTransition } from './transition.js';
-import type { TransitionInput, WritePlan } from './types.js';
+import type { RequirementsReviewEvidence, TransitionInput, WritePlan } from './types.js';
 
 const model = loadModel();
 const issue = JSON.parse(readFileSync(new URL('../fixtures/issue-story-draft.json', import.meta.url), 'utf8')) as GitLabIssue;
+const VALID_REVIEW_EVIDENCE: RequirementsReviewEvidence = {
+  images: [], frontend: { applicable: false, routes: [] },
+  grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
+};
 
 describe('e2e: 草稿中 -> 待评审 -> (退回) 草稿中 -> 待评审 -> 已评审', () => {
   it('drives the loop with guards + render + plan validation', () => {
@@ -44,6 +48,7 @@ describe('e2e: 草稿中 -> 待评审 -> (退回) 草稿中 -> 待评审 -> 已�
       type: 'story', from: '待评审', to: '已评审',
       fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc' },
       weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
+      reviewEvidence: VALID_REVIEW_EVIDENCE,
       gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true,
     });
     expect(r.ok).toBe(true);
@@ -53,6 +58,7 @@ describe('e2e: 草稿中 -> 待评审 -> (退回) 草稿中 -> 待评审 -> 已�
       type: 'story', from: '待评审', to: '已评审',
       fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc' },
       weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
+      reviewEvidence: VALID_REVIEW_EVIDENCE,
       assigneeUser: '@dev',
     }, 200);
     expect(validateWritePlan(plan).ok).toBe(true);

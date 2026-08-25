@@ -2,7 +2,8 @@ import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payl
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
 import { parseAssigneeTable } from './parse.js';
-import { buildForwardPlan } from './plan.js';
+import { buildForwardPlan, buildWeekMilestoneSyncIntent } from './plan.js';
+import { parseLatestWeekPlan } from './week-plan.js';
 import { renderNodeComment } from './render.js';
 import { STATUS_PREFIX, TERMINAL, ROLES } from './constants.js';
 
@@ -63,7 +64,7 @@ function hintFor(field: string): string {
   return FIELD_HINTS[field] ?? '来自对应节点评论 / spec 文档';
 }
 
-/** 副作用动作 → 执行它的 sub-skill + 人类可读说明（Issue 写回由 buildPlaybook 末步追加）。 */
+/** 副作用动作 → 执行它的 sub-skill + 人类可读说明（Issue 写回由 buildPlaybook 追加到中间相位）。 */
 const PLAYBOOK_ACTIONS: Record<string, { subskill?: string; desc: string }> = {
   commit_push_feature: { subskill: 'git-ops', desc: '提交并推送 feature 分支剩余改动' },
   merge_to_deploy_branch: { subskill: 'git-ops', desc: '合并 feature → deploy_branch（如 test）' },
@@ -80,15 +81,23 @@ function conditionActive(when: string | undefined, config?: { deployBranch?: str
   return true;
 }
 
-/** 把转换声明的 playbook（仅代码侧步骤）按 config 过滤，末尾追加 issue_writeback（官方状态变更，恒末步）。 */
-function buildPlaybook(tr: Transition, config: TransitionInput['config']): PlaybookStep[] {
+/** 把转换声明的 playbook（仅代码侧步骤）按 config 过滤，再追加 Issue 写回与条件性回读后同步。 */
+function buildPlaybook(tr: Transition, config: TransitionInput['config'], hasWeekMilestoneSync: boolean): PlaybookStep[] {
   const steps: PlaybookStep[] = [];
   for (const decl of tr.playbook ?? []) {
     if (!conditionActive(decl.when, config)) continue;
     const meta = PLAYBOOK_ACTIONS[decl.action] ?? { desc: decl.action };
-    steps.push({ action: decl.action, subskill: meta.subskill, when: decl.when, desc: meta.desc, isWriteback: false });
+    steps.push({ action: decl.action, subskill: meta.subskill, when: decl.when, desc: meta.desc, phase: 'pre-writeback', isWriteback: false });
   }
-  steps.push({ action: 'issue_writeback', desc: '应用 WritePlan 写回 Issue（标签 / Assignee / 评论 / 关闭）', isWriteback: true });
+  steps.push({ action: 'issue_writeback', desc: '应用 WritePlan 写回 Issue（标签 / Assignee / 评论 / 关闭）并最终回读', phase: 'issue-writeback', isWriteback: true });
+  if (hasWeekMilestoneSync) {
+    steps.push({
+      action: 'sync_week_milestone',
+      desc: 'Issue 状态/排期评论回读成功后，按最新有效周排期幂等创建或关联当前 Week Milestone；失败只记录审计并重试，不回滚状态、Assignee、正文或评论',
+      phase: 'post-readback',
+      isWriteback: false,
+    });
+  }
   return steps;
 }
 
@@ -132,7 +141,7 @@ const FIELD_TO_SLOT: ReadonlyMap<string, string> = (() => {
 function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
-  const code = playbook.filter((s) => !s.isWriteback);
+  const code = playbook.filter((s) => s.phase === 'pre-writeback');
   if (code.length) {
     lines.push(`动作包（代码侧，先于 Issue 写回）：\n${code.map((s, i) => `  ${i + 1}. ${s.desc}${s.subskill ? ` — ${s.subskill}` : ''}`).join('\n')}`);
   }
@@ -143,6 +152,10 @@ function previewText(from: string, to: string, payload: Payload, validateOk: boo
   lines.push(`校验：${validateOk ? '✓ 通过' : '✗ 未通过（见 reasons）'}`);
   if (missing.length) lines.push(`缺口：\n${missing.map((m) => `  - ${m.field} — ${m.hint}`).join('\n')}`);
   if (hardGate) lines.push('hard_gate：必须人工确认（humanConfirmed），无论 run 模式');
+  const postReadback = playbook.filter((s) => s.phase === 'post-readback');
+  if (postReadback.length) {
+    lines.push(`回读后动作（不得与状态写回并行）：\n${postReadback.map((s, i) => `  ${i + 1}. ${s.desc}`).join('\n')}`);
+  }
   lines.push(`run 模式：${runMode} → ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
   return lines.join('\n');
 }
@@ -217,6 +230,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     ...(input.testPlan !== undefined ? { testPlan: input.testPlan } : {}),
     ...(input.gateOutcome ? { gateOutcome: input.gateOutcome } : {}),
     ...(input.reviewType ? { reviewType: input.reviewType } : {}),
+    ...(input.reviewEvidence ? { reviewEvidence: input.reviewEvidence } : {}),
     ...(assigneeUser ? { assigneeUser } : {}),
     ...(input.datesConfirmed !== undefined ? { datesConfirmed: input.datesConfirmed } : {}),
     ...(input.humanConfirmed !== undefined ? { humanConfirmed: input.humanConfirmed } : {}),
@@ -231,7 +245,13 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     hasJiraSourceLabel: input.labels.includes('source::jira'),
   };
   const validate = validateTransition(model, facts, payload, input.notes);
-  const playbook = buildPlaybook(tr, input.config);
+  // Bug 允许已有周排期但不强制；读取到最新有效且启用的计划时，也必须在进入开发后立即挂载。
+  const latestWeekPlan = payload.type === 'bug' ? parseLatestWeekPlan(input.notes) : undefined;
+  const bugWeekPlan = latestWeekPlan?.kind === 'valid-enabled' ? latestWeekPlan.plan : undefined;
+  const weekMilestoneSync = validate.ok
+    ? buildWeekMilestoneSyncIntent({ ...payload, ...(bugWeekPlan ? { weekPlan: bugWeekPlan } : {}) })
+    : undefined;
+  const playbook = buildPlaybook(tr, input.config, !!weekMilestoneSync);
 
   // 缺口（必填未填）带 hint
   const missing: MissingItem[] = [];
@@ -248,8 +268,16 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (validate.missing.includes('latestWeekPlan')) {
     missing.push({ field: 'latestWeekPlan', hint: '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段' });
   }
+  if (validate.missing.some((field) => field.startsWith('reviewEvidence'))) {
+    missing.push({ field: 'reviewEvidence', hint: '补齐图片 OCR/视觉摘要、页面地址的路由代码证据和 grilling 决策账本；页面地址无法确认或存在未决问题时，先在同一批评审问题中向产品确认' });
+  }
   const runMode = input.runMode ?? 'semi-auto';
-  const plan = validate.ok ? buildForwardPlan(payload, input.iid) : undefined;
+  const plan = validate.ok
+    ? buildForwardPlan(
+      weekMilestoneSync && payload.type === 'bug' ? { ...payload, weekPlan: weekMilestoneSync.plan } : payload,
+      input.iid,
+    )
+    : undefined;
   const nodeProgress = progressStepsFor(model, current);
   const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
   const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);

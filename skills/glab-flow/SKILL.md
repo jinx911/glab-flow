@@ -128,11 +128,12 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `node` / `next` / `dirty`（脏：0/≥2 状态标签，或已 closed 但非终态 → 停，见 `resume.md`）
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
-   - `validate`（G1–G14，`reasons` 自带补救动作）
+   - `validate`（G1–G15，`reasons` 自带补救动作）
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm`
-3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，代码侧步骤在前、Issue 写回（`isWriteback`）恒为末步。Leader 按序：
+3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。Leader 按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
-   - **末步 issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
+   - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
+   - **post-readback `sync_week_milestone`（仅 `plan.postWriteback` 存在）**：状态或排期评论回读成功后，Leader 用最新有效、启用的 `## 周排期` 和 Asia/Shanghai 业务日期决定目标 Week：未开始取计划开始日期所在周，执行中取当天所在周，已结束跳过。目标不存在则创建，存在则关联当前 Issue；必须幂等，且只调整 Milestone。失败写入 `week-milestone-sync` 审计并重试，不撤回已确认的标签、Assignee、正文或评论。Harness 周一任务只接手已初始挂载的 Issue 做后续 rollover，不能替代此步骤。
    - `shouldConfirm=false`（full-auto 且 `validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
    - 任何标签/Assignee、合并评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
    - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
@@ -142,7 +143,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 ### 周排期（Harness 协议）
 
-周排期是给 Harness 周滚动读取的、不可改写的 Issue 评论协议；**Harness is the sole Milestone writer**。glab-flow 的引擎没有 Milestone API 或 Milestone `WriteOp`，Leader 也不得创建、关联、迁移或关闭 GitLab Milestone。即使 Leader 从 GitLab 读到 Milestone 信息，也只可展示为只读信息。
+周排期是给 Harness 周滚动读取的、不可改写的 Issue 评论协议。**职责分离**：glab-flow 引擎只产生纯计算的 `postWriteback.sync_week_milestone` 意图，绝不调用 GitLab；Leader 在评论回读成功后完成周内初始挂载；Harness 受保护 master 的周一任务只负责后续 rollover。三者不能互相替代。
 
 Story 的 `待评审 → 已评审` 除既有需求评审证据外，必须提供有效的结构化 `weekPlan`。引擎将下列区块**原样追加一次**到该次合并状态评论；`计划覆盖周`由引擎根据 ISO 周计算，日期和 `自动 rollover` 不得臆测：
 
@@ -157,7 +158,7 @@ Story 的 `待评审 → 已评审` 除既有需求评审证据外，必须提�
 
 Story 的 `已评审 → 开发中` 在既有「计划提测时间 / 计划上线时间」要求外，必须重新读取 Issue notes，并确认**最新** `## 周排期` 区块完整有效（`启用`或`暂停`均有效）。若最新区块无效或缺失，停止流转并报告排期缺口；绝不回退使用更早的有效区块。
 
-排期变化不走状态流转：Leader 调用 `pnpm cli week-plan-change`，提供完整 replacement `weekPlan` 与变更日期、原排期、原因、影响、后续动作、负责人。它只产生一条含 `## 排期变更` 和 replacement `## 周排期` 的评论；按普通预览→确认→写入→回读执行，**不**改标签、Assignee、Issue 正文、既有评论或 Milestone。
+排期变化不走状态流转：Leader 调用 `pnpm cli week-plan-change`，提供完整 replacement `weekPlan` 与变更日期、原排期、原因、影响、后续动作、负责人。它只产生一条含 `## 排期变更` 和 replacement `## 周排期` 的评论；按普通预览→确认→写入→回读执行，**不**改标签、Assignee、Issue 正文或既有评论。若计划为启用，引擎同时产生 `postWriteback.sync_week_milestone`，Leader 按上述规则即时重新同步。
 
 ### 批量推进（可选）
 
@@ -211,6 +212,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - 测试问题挂父需求（G11）：阻塞发布问题全部验证通过才放行待发布。
 - 多环境测试：开发中→测试中必须有当前计划的 `local` Apifox 资产审计和 TestRun；测试中→待发布必须有同计划版本的 `test` 资产审计和 TestRun。单测、构建、静态检查和代码评审不能替代真实业务闭环执行。
 - feature MR 评审前置（G14）：测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）。
+- 需求评审取证（G15）：待评审→已评审必须完成所有 Issue 图片的 OCR+视觉核查；有前端页面/菜单/路由信号必须用代码核实实际 URL、组件与分流，找不到即统一提问、不能猜；并以 grilling 决策账本覆盖五类需求分支，任何未决问题都不通过。
 - 禁止 TDD：不采用“先写失败测试再实现”的开发仪式；实现后必须完成定向测试、完整业务闭环、全量回归、类型检查和代码走查。
 
 ## 内容生成

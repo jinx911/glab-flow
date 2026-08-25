@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
 import { validateTransition, validateWritePlan, isAffirmative } from './guard.js';
-import type { IssueFacts, Payload, WritePlan } from './types.js';
+import type { IssueFacts, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
 
 describe('isAffirmative — tight prefix (excludes 是否/是吗)', () => {
   it.each(['是', '是(无阻塞)', '是。详细说明…', '是，无问题', '已验证', 'true', ' 是 '])('accepts %s', (v) => {
@@ -56,6 +56,10 @@ evidence: list-get:https://apifox.example/test
 asset: TP-001 | scenario | scenario-101 | reuse
 -->`;
 const TEST_NOTES = [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }, { body: TEST_AUDIT }, { body: TEST_RUN }];
+const VALID_REVIEW_EVIDENCE: RequirementsReviewEvidence = {
+  images: [], frontend: { applicable: false, routes: [] },
+  grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
+};
 
 describe('G1 required fields', () => {
   it('blocks when a required field is missing', () => {
@@ -68,6 +72,7 @@ describe('G1 required fields', () => {
     const p: Payload = { type: 'story', from: '待评审', to: '已评审',
       fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
       weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
+      reviewEvidence: VALID_REVIEW_EVIDENCE,
       gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::待评审']), p);
     expect(r.ok).toBe(true);
@@ -250,6 +255,7 @@ describe('G6b role cross-check (when 交付协同 table present)', () => {
     const p: Payload = { type: 'story', from: '待评审', to: '已评审',
       fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
       weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
+      reviewEvidence: VALID_REVIEW_EVIDENCE,
       gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, factsWithTable(['type::story', 'story-status::待评审']), p);
     expect(r.ok).toBe(true);
