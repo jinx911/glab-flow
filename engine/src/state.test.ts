@@ -75,8 +75,12 @@ describe('Issue-level run mode selection', () => {
   });
 
   it('persists a selection and makes it effective', () => {
-    const selected = selectRunMode(base, selection);
+    const input = { ...selection };
+    const selected = selectRunMode(base, input);
+    input.selectedBy = '@mutated';
     expect(selected.runModeSelection).toEqual(selection);
+    expect(selected.runModeSelection).not.toBe(input);
+    expect(selected.updatedAt).toBe('t1');
     expect(effectiveRunMode(selected)).toBe('full-auto');
   });
 

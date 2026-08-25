@@ -63,7 +63,7 @@ export function effectiveRunMode(state: RunState): RunMode {
 export function selectRunMode(state: RunState, selection: RunModeSelection): RunState {
   const normalized = normalizeRunState(state);
   const existing = normalized.runModeSelection;
-  if (!existing) return { ...normalized, runModeSelection: selection };
+  if (!existing) return { ...normalized, runModeSelection: { ...selection }, updatedAt: selection.selectedAt };
   if (existing.mode === selection.mode && existing.selectedAt === selection.selectedAt && existing.selectedBy === selection.selectedBy) {
     return normalized;
   }
