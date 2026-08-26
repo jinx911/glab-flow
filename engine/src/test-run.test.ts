@@ -7,6 +7,7 @@ const planText = `# 测试计划
 plan-version: v3
 case: TP-001 | local,test | api,e2e
 case: TP-002 | test | data,manual
+case: TP-003 | local,test | unit
 asset: TP-001 | scenario
 -->`;
 
@@ -16,8 +17,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/local
-cases: TP-001=passed
-evidence: api=report:101,e2e=note:https://git.example/1
+cases: TP-001=passed,TP-003=passed
+evidence: api=report:101,e2e=note:https://git.example/1,unit=phpunit:targeted
 -->`;
 
 const testRun = `<!-- glab-flow:test-run:v1
@@ -26,8 +27,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/test
-cases: TP-001=passed,TP-002=passed
-evidence: api=report:102,e2e=note:https://git.example/2,data=db:assertion,manual=video:https://git.example/2
+cases: TP-001=passed,TP-002=passed,TP-003=passed
+evidence: api=report:102,e2e=note:https://git.example/2,data=db:assertion,manual=video:https://git.example/2,unit=phpunit:targeted
 -->`;
 
 describe('test plan and environment execution receipts', () => {
@@ -43,10 +44,11 @@ describe('test plan and environment execution receipts', () => {
     const parsed = parseTestPlan(planText);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    const missingCase = localRun.replace('cases: TP-001=passed', 'cases:');
-    const missingEvidence = localRun.replace('evidence: api=report:101,e2e=note:https://git.example/1', 'evidence: api=report:101');
+    const missingCase = localRun.replace('cases: TP-001=passed,TP-003=passed', 'cases:');
+    const missingEvidence = localRun.replace('evidence: api=report:101,e2e=note:https://git.example/1,unit=phpunit:targeted', 'evidence: api=report:101');
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: missingCase }], 'local')).ok).toBe(false);
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: missingEvidence }], 'local')).errors).toContain('local 缺 e2e 执行证据');
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: missingEvidence }], 'local')).errors).toContain('local 缺 unit 执行证据');
   });
 
   it('rejects a stale plan version', () => {
@@ -81,10 +83,11 @@ describe('test plan and environment execution receipts', () => {
     if (!parsed.ok) return;
     const rendered = renderTestRun({
       environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'passed', assetAudit: 'v3/local',
-      cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/1' },
+      cases: { 'TP-001': 'passed', 'TP-003': 'passed' },
+      evidence: { api: 'report:101', e2e: 'note:https://git.example/1', unit: 'phpunit:targeted' },
     });
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: rendered }], 'local'))).toEqual({ ok: true, errors: [] });
-    const unexpected = rendered.replace('cases: TP-001=passed', 'cases: TP-001=passed,TP-999=passed');
+    const unexpected = rendered.replace('cases: TP-001=passed,TP-003=passed', 'cases: TP-001=passed,TP-003=passed,TP-999=passed');
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: unexpected }], 'local')).errors).toContain('local 记录含非本环境计划 case：TP-999');
   });
 

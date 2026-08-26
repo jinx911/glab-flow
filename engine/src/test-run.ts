@@ -3,7 +3,7 @@ import { chronologicalNotes } from './notes.js';
 
 const PLAN_MARKER = '<!-- glab-flow:test-plan:v1';
 const RUN_MARKER = '<!-- glab-flow:test-run:v1';
-const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual']);
+const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual', 'unit']);
 const ASSET_TYPES = new Set<ApifoxAssetType>(['scenario', 'suite-or-group', 'test-data', 'scenario-instance']);
 const ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const ENVIRONMENT = /^[a-z][a-z0-9-]*$/;

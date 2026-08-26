@@ -291,7 +291,7 @@ export interface TransitionOutput {
 
 /** Environment names are configuration-owned; local/test are the current default gates. */
 export type TestEnvironment = string;
-export type TestMethod = 'api' | 'e2e' | 'data' | 'manual';
+export type TestMethod = 'api' | 'e2e' | 'data' | 'manual' | 'unit';
 export type ApifoxAssetType = 'scenario' | 'suite-or-group' | 'test-data' | 'scenario-instance';
 export type ApifoxAssetAction = 'reuse' | 'create' | 'update' | 'retire' | 'cleanup';
 
