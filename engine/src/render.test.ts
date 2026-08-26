@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { renderStatusChange, renderReturn, renderChangeRequest, renderTestIssue, renderCorrection, renderNodeComment } from './render.js';
+import { renderStatusChange, renderReturn, renderChangeRequest, renderTestIssue, renderCorrection, renderNodeComment, validatePublicComment } from './render.js';
 import type { Payload } from './types.js';
 
 describe('render', () => {
@@ -117,60 +117,44 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
   });
 });
 
-describe('测试报告环境字段(测试中→待发布,issue 环境接入)', () => {
-  it('renders verified plan and environment-run references instead of free-text self-test claims', () => {
-    const submission = renderNodeComment({
-      type: 'story', from: '开发中', to: '测试中',
-      fields: { 测试计划版本: 'v3', Apifox资产审计记录: 'Issue note #100', local测试执行记录: 'Issue note #101', 自测计划: '旧自由文本' }, assigneeUser: '@qa',
-    });
-    const acceptance = renderNodeComment({
-      type: 'story', from: '测试中', to: '待发布',
-      fields: { 测试计划版本: 'v3', test测试执行记录: 'Issue note #102' }, assigneeUser: '@dev',
-    });
-    expect(submission).toContain('- 测试计划版本：v3');
-    expect(submission).toContain('- Apifox资产审计记录：Issue note #100');
-    expect(submission).toContain('- local测试执行记录：Issue note #101');
-    expect(submission).not.toContain('- 自测计划：旧自由文本');
-    expect(acceptance).toContain('- test测试执行记录：Issue note #102');
-  });
-
-  it('渲染 测试环境/测试账号 进合并评论', () => {
+describe('团队交接评论（内部证据隔离）', () => {
+  it('renders a submission handoff with projects and branches, not execution receipts', () => {
     const md = renderNodeComment({
-      type: 'story', from: '测试中', to: '待发布',
-      fields: { 测试环境: 'test https://app.test.example', 测试账号: 'tester@example.test', 回归详情: '回归通过' },
-      assigneeUser: '@dev',
+      type: 'story', from: '开发中', to: '测试中',
+      fields: {
+        涉及项目与提测分支: 'oa-platform:test；oa-frontend:test', 可测试版本: 'release-candidate-1',
+        本次改动: '完成离职补偿计算', 测试范围: '审批、权限与结算', 环境准备与配置: '完成初始化配置',
+        测试重点: '边界与权限', 已知限制: '无阻塞限制', Apifox资产审计记录: 'internal-only',
+      }, assigneeUser: '@qa',
     });
-    expect(md).toContain('## 测试报告');
-    expect(md).toContain('- 测试环境：test https://app.test.example');
-    expect(md).toContain('- 测试账号：tester@example.test');
+    expect(md).toContain('## 提测说明');
+    expect(md).toContain('- 涉及项目与提测分支：oa-platform:test；oa-frontend:test');
+    expect(md).toContain('## 下一步');
+    expect(md).not.toContain('Apifox');
+    expect(md).not.toContain('internal-only');
   });
-  it('环境字段缺失时不渲染空行(不卡流转,与内容体语义一致)', () => {
-    const md = renderNodeComment({ type: 'story', from: '测试中', to: '待发布', fields: { 回归详情: 'r' }, assigneeUser: '@dev' });
-    expect(md).toContain('## 测试报告');
-    expect(md).not.toContain('测试环境：');
-  });
-});
 
-describe('测试报告双轨证据(issue 31:执行证据 vs 资产状态)', () => {
-  it('渲染 reportId与环境/请求与断言统计/Apifox资产状态 进合并评论', () => {
+  it('renders a readable test report and release plan without environment accounts or report IDs', () => {
     const md = renderNodeComment({
       type: 'story', from: '测试中', to: '待发布',
       fields: {
-        测试环境: 'test https://app.test.example',
-        reportId与环境: '<报告 ID> | https://app.apifox.com/link/... | environmentName=test(test-report get 回读);场景页签为空,项目级报告为准',
-        请求与断言统计: 'requests 25/25 passed, assertions 25/25 passed',
-        Apifox资产状态: '场景/套件已归位(test 套件);矩阵未沉淀 test-data(散在场景+seed)',
-        回归详情: '全场景回归通过',
-      },
-      assigneeUser: '@dev',
+        业务覆盖范围: '离职审批、结算与权限', 缺陷处理结果: '阻塞问题已关闭', 遗留风险: '无阻塞遗留风险',
+        上线步骤: '按发布计划执行', 配置清单: '完成后台配置', 回滚方案: '回滚版本与配置', 发布建议: '建议发布',
+        测试账号: 'internal-user', reportId与环境: 'report:123',
+      }, assigneeUser: '@dev',
     });
-    expect(md).toContain('- reportId与环境：<报告 ID>');
-    expect(md).toContain('- 请求与断言统计：requests 25/25');
-    expect(md).toContain('- Apifox资产状态：场景/套件已归位');
+    expect(md).toContain('## 测试报告与上线方案');
+    expect(md).toContain('- 业务覆盖范围：离职审批、结算与权限');
+    expect(md).not.toContain('测试账号');
+    expect(md).not.toContain('report:123');
   });
-  it('资产字段缺失时跳过(不卡流转)', () => {
-    const md = renderNodeComment({ type: 'story', from: '测试中', to: '待发布', fields: { 回归详情: 'r' }, assigneeUser: '@dev' });
-    expect(md).not.toContain('Apifox资产状态：');
-    expect(md).not.toContain('reportId与环境：');
+
+  it('blocks machine-only content from a formal state comment', () => {
+    const result = validatePublicComment({
+      type: 'story', from: '开发中', to: '测试中',
+      fields: { 涉及项目与提测分支: 'service:test', 可测试版本: 'local build', 本次改动: 'x' }, assigneeUser: '@qa',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reasons.join('\n')).toContain('内部执行证据');
   });
 });

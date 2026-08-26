@@ -61,6 +61,13 @@ const TEST_DONE_FIELDS = {
   回归范围或证据: 'r',
   阻塞发布问题均已验证通过: '是',
   feature分支MR评审结论: '通过，无 HIGH 残留',
+  业务覆盖范围: '核心离职结算与权限流程',
+  缺陷处理结果: '阻塞问题已关闭',
+  遗留风险: '无阻塞遗留风险',
+  上线步骤: '按发布计划执行',
+  配置清单: '配置已核对',
+  回滚方案: '按发布计划回滚',
+  发布建议: '建议发布',
 };
 
 const DEVELOPMENT_START_FIELDS = {
@@ -69,6 +76,17 @@ const DEVELOPMENT_START_FIELDS = {
   研发Assignee: '@dev',
   计划提测时间: '2026-08-08',
   计划上线时间: '2026-08-09',
+  技术方案版本: 'v1',
+  方案概述: '按已评审方案实现',
+  影响模块: '服务与前端',
+  数据模型变更: '新增审计字段',
+  API契约: '兼容现有接口',
+  前端页面与路由: '现有页面扩展',
+  权限与安全: '复用现有权限',
+  迁移与配置: '迁移已纳入发布',
+  测试计划摘要: '覆盖本地与测试环境',
+  风险与对策: '灰度验证',
+  回滚方案: '回滚版本与迁移',
 };
 
 const REVIEW_FIELDS = {
@@ -95,8 +113,13 @@ const TEST_SUBMISSION_FIELDS = {
   代码评审结论: '通过',
   提测日期: '2026-08-07',
   研发Assignee: '@dev',
-  可测试版本或环境: 'test-v1',
-  测试说明: '说明',
+  涉及项目与提测分支: 'oa-platform:test；oa-frontend:test',
+  可测试版本: 'release-candidate-1',
+  本次改动: '完成已评审功能',
+  测试范围: '核心业务流程',
+  环境准备与配置: '按配置清单完成',
+  测试重点: '边界与权限',
+  已知限制: '无阻塞限制',
 };
 
 
@@ -153,7 +176,7 @@ describe('transition — assignee resolution', () => {
 describe('transition — G11 normalization flows through', () => {
   const f = (val: string) => runTransition(model, baseInput({
     labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-    fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: val, feature分支MR评审结论: '通过，无 HIGH 残留' },
+    fields: { ...TEST_DONE_FIELDS, 阻塞发布问题均已验证通过: val },
     datesConfirmed: true,
   }));
   it('accepts 已验证', () => expect(f('已验证').validate.ok).toBe(true));
@@ -169,10 +192,10 @@ describe('transition — missing fields carry hints', () => {
     expect(fields).toContain('阻塞发布问题均已验证通过');
     expect(r.missing.find((m) => m.field === '阻塞发布问题均已验证通过')?.hint).toMatch(/是 \/ 已验证/);
   });
-  it('hints 上线清单 on 测试说明 (开发中→测试中)', () => {
+  it('requires involved projects and branches in the submission handoff', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true }));
     expect(r.next).toBe('测试中');
-    expect(r.missing.find((m) => m.field === '测试说明')?.hint).toMatch(/上线步骤与配置清单/);
+    expect(r.missing.find((m) => m.field === '涉及项目与提测分支')?.hint).toBeDefined();
   });
   it('requires feature MR review before 待发布 (blocks when missing)', () => {
     const fieldsWithoutMR = { ...TEST_DONE_FIELDS };
@@ -478,7 +501,11 @@ describe('transition — node progress checklist (layer 2 visibility)', () => {
 
 describe('transition — evidence smart prefill', () => {
   const NOTE = '## 状态变更\n- 测试完成日期：2026-08-05\n- 测试结论：通过\n- 回归范围或证据：回归通过\n';
-  const rest = { 测试Assignee: '@qa', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' };
+  const rest = {
+    测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过',
+    业务覆盖范围: '核心业务流程', 缺陷处理结果: '阻塞问题已关闭', 遗留风险: '无阻塞遗留风险',
+    上线步骤: '按发布计划执行', 配置清单: '配置已核对', 回滚方案: '按发布计划回滚', 发布建议: '建议发布',
+  };
 
   it('prefills required fields from note "- 字段：值" lines', () => {
     const r = runTransition(model, baseInput({

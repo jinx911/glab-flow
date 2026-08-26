@@ -1,4 +1,4 @@
-import type { Payload } from './types.js';
+import type { GuardResult, Payload } from './types.js';
 import { renderWeekPlan, validateWeekPlan } from './week-plan.js';
 import { renderRequirementsReviewEvidence } from './review-evidence.js';
 
@@ -70,24 +70,29 @@ export function renderCorrection(f: Record<string, string>): string {
  * 节点流转(type:from:to) → 内容体配置(标题 + 内容字段 key)。内容字段只渲染结构、Leader 填、
  * 不进 requiredFields(不卡流转)——门禁只卡确定事实(日期/确认人/结论/依据/Assignee)。
  */
+/**
+ * The only fields allowed into the reader-facing Issue timeline. Gate evidence
+ * remains in the run-state ledger and is intentionally absent here.
+ */
 const NODE_CONTENT: Record<string, { title: string; keys: string[] }> = {
   'story:草稿中:待评审': { title: '需求提案要点', keys: ['背景', '目标', '范围内', '范围外', '核心业务规则', '验收要点'] },
   'story:待评审:已评审': { title: '评审意见', keys: ['评审要点', '问题清单', '修订要求'] },
-  'story:已评审:开发中': { title: '技术方案', keys: ['方案概述', '数据模型变更', 'API契约', '影响模块', '风险与对策', '回滚方案'] },
-  'story:开发中:测试中': { title: '提测说明', keys: ['测试计划版本', 'Apifox资产审计记录', 'local测试执行记录', '测试范围', '改动点', '上线步骤A类', '上线步骤B类', '注意事项'] },
-  'story:测试中:待发布': { title: '测试报告', keys: ['测试计划版本', 'Apifox资产审计记录', 'test测试执行记录', '测试环境', '测试账号', 'reportId与环境', '请求与断言统计', 'Apifox资产状态', '回归详情', '阻塞问题及验证', 'featureMR评审详情', '发布建议'] },
+  'story:已评审:开发中': { title: '技术方案', keys: ['技术方案版本', '方案概述', '影响模块', '数据模型变更', 'API契约', '前端页面与路由', '权限与安全', '迁移与配置', '测试计划摘要', '计划提测时间', '计划上线时间', '风险与对策', '回滚方案'] },
+  'story:开发中:测试中': { title: '提测说明', keys: ['涉及项目与提测分支', '可测试版本', '本次改动', '测试范围', '环境准备与配置', '测试重点', '已知限制'] },
+  'story:测试中:待发布': { title: '测试报告与上线方案', keys: ['业务覆盖范围', '缺陷处理结果', '遗留风险', '上线步骤', '配置清单', '回滚方案', '发布建议'] },
   'story:待发布:生产验收中': { title: '上线操作手册', keys: ['生产版本', '部署顺序', 'migration', '配置A类', '配置B类', '上线后验证', '回滚方案'] },
   'story:生产验收中:已完成': { title: '验收报告', keys: ['验收意见', '生产验证详情'] },
   'bug:已确认缺陷:开发中': { title: '缺陷复现与根因', keys: ['复现步骤', '根因', '影响范围', '修复方案'] },
-  'bug:开发中:测试中': { title: '提测说明', keys: ['测试计划版本', 'Apifox资产审计记录', 'local测试执行记录', '测试范围', '改动点', '上线步骤A类', '上线步骤B类', '注意事项'] },
-  'bug:测试中:待发布': { title: '测试报告', keys: ['测试计划版本', 'Apifox资产审计记录', 'test测试执行记录', '测试环境', '测试账号', 'reportId与环境', '请求与断言统计', 'Apifox资产状态', '回归详情', '阻塞问题及验证', 'featureMR评审详情', '发布建议'] },
+  'bug:开发中:测试中': { title: '提测说明', keys: ['涉及项目与提测分支', '可测试版本', '本次改动', '测试范围', '环境准备与配置', '测试重点', '已知限制'] },
+  'bug:测试中:待发布': { title: '测试报告与上线方案', keys: ['业务覆盖范围', '缺陷处理结果', '遗留风险', '上线步骤', '配置清单', '回滚方案', '发布建议'] },
   'bug:待发布:生产验证中': { title: '上线操作手册', keys: ['生产版本', '部署顺序', 'migration', '配置A类', '配置B类', '上线后验证', '回滚方案'] },
   'bug:生产验证中:已完成': { title: '验证报告', keys: ['验证意见', '生产验证详情'] },
 };
 
 /**
- * 合并评论 = 状态变更头(变更/实际日期/确认人/结论/依据/目标节点 Assignee) + 内容体(按节点类型) + 剩余字段兜底。
- * 状态头槽位与 `renderStatusChange` 一致;内容体字段只渲染、不卡流转;rendered 集合去重,头/体/兜底不重复。
+ * 合并评论 = 状态变更头 + 当前阶段的正式交付物 + 下一步。
+ * 绝不追加未声明字段：本地环境、测试平台、报告链接及机器 marker
+ * 属于内部证据账本，不得出现在团队阅读的 Issue 时间线上。
  * 退回(G2 二值)不走本函数,仍用 `renderReturn`。
  */
 export function renderNodeComment(p: Payload): string {
@@ -123,12 +128,6 @@ export function renderNodeComment(p: Payload): string {
     for (const key of ['自测计划', '接口自测结论', '接口自测覆盖', 'E2E结论']) rendered.add(key);
   }
 
-  const tail: string[] = [];
-  for (const k of Object.keys(f)) {
-    if (!rendered.has(k) && f[k]) tail.push(`- ${k}：${f[k]}`);
-  }
-  if (tail.length) blocks.push(tail.join('\n'));
-
   // Only the Story review approval records a newly supplied schedule.  The
   // Validate at the rendering boundary so malformed runtime input can never
   // emit a partial Harness heading.
@@ -141,5 +140,29 @@ export function renderNodeComment(p: Payload): string {
     blocks.push(renderRequirementsReviewEvidence(p.reviewEvidence));
   }
 
+  const next = f['下一步']?.trim() || `由 ${p.assigneeUser ?? '目标节点负责人'} 按「${p.to}」节点继续推进。`;
+  blocks.push(`## 下一步\n\n- ${next}`);
   return blocks.join('\n\n');
+}
+
+const INTERNAL_COMMENT_CONTENT = [
+  /apifox/i,
+  /(?:^|[^a-z])local(?:$|[^a-z])/i,
+  /本地(?:环境|路径|测试|执行|资产)/,
+  /report\s*id/i,
+  /<!--\s*glab-flow:/i,
+  /(?:^|\s)\/(?:Users|private|tmp|home)\//,
+  /\b[a-f0-9]{7,40}\b/i,
+];
+
+/** Reject machine-only material before a state comment can be written. */
+export function validatePublicComment(p: Payload): GuardResult {
+  const rendered = renderNodeComment(p);
+  const forbidden = INTERNAL_COMMENT_CONTENT.find((pattern) => pattern.test(rendered));
+  if (!forbidden) return { ok: true, missing: [], reasons: [] };
+  return {
+    ok: false,
+    missing: [],
+    reasons: ['正式状态评论包含内部执行证据（测试平台、本地环境、报告 ID、路径、提交哈希或机器 marker）；请写入内部证据账本，并改为团队可读的交接说明'],
+  };
 }

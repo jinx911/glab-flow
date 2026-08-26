@@ -17,15 +17,15 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 ## 节点内容评论（合并评论 = 状态变更头 + 内容体）
 
-每个节点流转写回 Issue 的**一条合并评论** = 状态变更头（变更/实际日期/确认人/结论/依据/目标节点 Assignee，由 `renderNodeComment` 渲染）+ 内容体（按节点类型，见下表）。内容体字段只渲染结构、Leader 填、**不卡流转**——门禁只卡确定事实（日期/确认人/结论/依据/Assignee，由 `requiredFields` 在校验层保证）。本地 `.glab-flow/<iid>/spec/` 仅作 AI 工作副本，不入 GitLab；团队在 Issue 评论上看到的就是正式内容。退回（G2 二值）走 `plan-return`（`renderReturn`，带问题清单），不走合并评论。
+每个节点流转写回 Issue 的**一条合并评论** = 状态变更头（状态/日期/确认人/结论/目标节点 Assignee）+ 当前阶段正式交付物 + 下一步（按下表）。这是给产品、研发、测试及负责人阅读的交接单；只渲染白名单字段，未知字段绝不追加。测试平台、本地环境、报告 ID、账号、路径、提交 SHA、命令和机器 marker 均属于内部证据，写入 `<iid>-state.json` 的 `evidence`，不得进入父 Issue 评论。本地 `.glab-flow/<iid>/spec/` 是工作副本，正式版本在对应状态评论中可完整阅读。退回（G2 二值）走 `plan-return`（`renderReturn`，带问题清单），不走合并评论。
 
 | 节点流转 | 内容体标题 |
 |---|---|
 | 草稿中→待评审 | 需求提案要点 |
 | 待评审→已评审 | 评审意见（通过）/ 退回带问题清单 |
-| 已评审→开发中 | 技术方案 |
-| 开发中→测试中 | 提测说明 |
-| 测试中→待发布 | 测试报告 |
+| 已评审→开发中 | 技术方案（版本、影响模块、数据/API、页面路由、权限、迁移配置、测试计划摘要、风险与回滚、提测/上线计划） |
+| 开发中→测试中 | 提测说明（涉及项目与提测分支、可测试版本、改动、范围、环境准备、重点、限制） |
+| 测试中→待发布 | 测试报告与上线方案（业务覆盖、缺陷处理、遗留风险、上线步骤、配置、回滚、发布建议） |
 | 待发布→生产验收中/验证中 | 上线操作手册 |
 | 生产验收中→已完成 | 验收报告 |
 | 生产验证中→已完成（bug） | 验证报告 |
@@ -76,7 +76,7 @@ asset: TP-001 | suite-or-group
 
 ### 开发中→测试中：local 完整业务闭环（门禁强制）
 
-提测前必须完成代码评审、当前 test-plan 的 local Apifox 资产审计，并对所有标记 `local` 的用例在本地环境实际执行。引擎从刚回读的 Issue 评论读取**最新**审计与 local TestRun；缺失、格式错误、计划版本不一致、资源未回读、存在未处置问题、用例未通过或缺少任一要求方法的证据，均不得进入测试中。不得用“单测/构建通过”“P0 冒烟”或自由文本结论代替闭环执行记录。
+提测前必须完成代码评审、当前 test-plan 的 local 资产审计，并对所有标记 `local` 的用例在本地环境实际执行。Leader 将最新审计与 TestRun receipt 用 `evidence-record` 写入 run-state；引擎从 `state.evidence` 读取门禁证据。缺失、格式错误、计划版本不一致、资源未回读、存在未处置问题、用例未通过或缺少任一要求方法的证据，均不得进入测试中。不得用“单测/构建通过”“P0 冒烟”或自由文本结论代替闭环执行记录。
 
 0. **接口同步 Apifox**：若本次改动新增/修改了接口，**先更新 Apifox 的接口定义再往下走**——确保自测和后续测试用的是最新接口定义，而不是过时的旧版。当前方式：IDEA Apifox 插件手动更新上传（Leader 主动提醒，不靠自觉记忆）；长期方向：后端加 springdoc/scribe 生成 OpenAPI + Apifox CLI `auto-import` 定期自动拉取。
 0.5. **测试上下文注入（配置送到脸上，不靠找）**：自测开始前跑一次，环境/账号/Apifox 项目/环境 ID/数据库/前端构建/测试数据前缀**一次拿全**：
@@ -89,7 +89,7 @@ asset: TP-001 | suite-or-group
 1. **接口/API、E2E、数据、手工验证**：仅执行 test-plan 中对 local 声明的方法。接口和 E2E 均被计划要求时，两者都要完成；纯后端需求没有 e2e 用例时才不执行 E2E。
 2. **执行环境与版本**：先执行 `test-config --env local`，完成三段链路健康检查和本地运行版本校验；API 与 E2E 执行细节分别遵循 `sub-skills/test-flow-apifox.md` / `sub-skills/test-flow-e2e.md`。
 3. **资产盘点并回读**：先查现有场景、套件/场景分组、测试数据和场景实例；复用优先，只有业务步骤/断言确有差异才新建。场景按“业务域/功能能力”命名，套件/分组仅承载稳定的冒烟/模块回归/发布回归入口；环境差异用 Profile、数据集或场景实例，不复制场景。临时数据使用 `TMP-<iid>-` 前缀，需求结束前清理或升级为共享资产。对计划声明 `presentation:` 的入口，额外回读 Apifox 页面名称、目录、标签和运行环境，并与报告 `environmentName` 核对；对 `auth-profile:`，回读登录后置临时变量和统一鉴权引用，但不记录任何凭据/token 值。以 `asset-audit` 生成并回读当前环境审计，空场景、空套件/分组、空数据集、重复/孤儿资产、展示漂移或未清理临时数据均停止。
-4. **生成并回读 TestRun**：将每个计划用例的 `passed`、代码版本、`asset-audit: v3/local` 和 API/E2E/数据/手工证据生成 marker，新增到 Issue 后立刻回读；只认可最新 local marker：
+4. **生成并持久化 TestRun**：将每个计划用例的 `passed`、代码版本、`asset-audit: v3/local` 和 API/E2E/数据/手工证据生成 receipt；先 `evidence-record(kind=apifox-asset-audit)`，再 `evidence-record(kind=test-run)` 写入 run-state。只认可当前 state 中最新 local receipt；不得新增到父 Issue：
 
    ```text
    <!-- glab-flow:test-run:v1
@@ -123,10 +123,10 @@ asset: TP-001 | suite-or-group
    cat <workspace.root>/.glab-flow/test-config.md | cd "$ENGINE_ROOT" && pnpm cli test-config --repos <改动仓库> --env <候选环境> --iid <iid>
    ```
    把 `test-config.md` 里 `environments` 的候选环境列成表让用户选（AskUserQuestion：本地 local / 测试 test / …），选中环境跑上面命令（或每个候选都跑、展示对比）。输出即完备上下文：**Apifox 项目+环境 ID**（routes 按改动仓库推导，无需记忆具体项目）、账号、数据库 MCP 引用、前端构建、测试数据前缀。
-2. `apifox.envId` 直接作为 Apifox CLI 的 `--environment`；`databases.*` 查 `config.md` 的 databases 得 MCP 名；`credentials` 为本轮测试账号，写进测试报告（见内容体 keys）。
+2. `apifox.envId` 直接作为 Apifox CLI 的 `--environment`；`databases.*` 查 `config.md` 的 databases 得 MCP 名；`credentials` 仅用于本轮执行与内部 receipt，绝不写入 Issue 测试报告。
 3. **区分三个入口**（配错则请求落错站）：登录入口 / 接口网关（API base 以 Apifox 环境的 baseUrls 为准，不复制进本地配置）/ 前端入口（`webUrl`，E2E 浏览器用）。
 4. **test-config.md 不存在或缺字段** → 停下引导按 `test-config.example.md` 补（每项目一次），不臆造地址、不用本地环境冒充测试环境。
-5. 以同一份当前 test-plan 盘点、回读 test 环境的资产后执行所有标记 `test` 的用例，并新增且回读 `environment: test` 的 AssetAudit 与 TestRun。`测试中→待发布` 只读取最新 test 记录；不得拿 local 结果、旧计划版本或自由文本测试报告替代。
+5. 以同一份当前 test-plan 盘点、回读 test 环境的资产后执行所有标记 `test` 的用例，并将 `environment: test` 的 AssetAudit 与 TestRun receipt 写入 state.evidence。`测试中→待发布` 只读取最新 test receipt；不得拿 local 结果、旧计划版本或自由文本测试报告替代。
 6. 测试环境执行前的预检（三段链路健康 / 运行版本）与凭据注入规则见 `sub-skills/test-flow-apifox.md`。
 
 ### 测试中→待发布：MR 评审前置（G14）+ 提前产出发布计划

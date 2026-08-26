@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { loadModel, currentNode, progressStepsFor } from './model.js';
 import { validateTransition, validateWeekPlanChange } from './guard.js';
 import { toFacts } from './gitlab.js';
-import { renderStatusChange } from './render.js';
+import { renderNodeComment } from './render.js';
 import { buildReturnPlan, buildForwardPlan, buildWeekPlanChangePlan } from './plan.js';
 import { runTransition } from './transition.js';
 import { extractEvidence } from './evidence.js';
@@ -12,7 +12,7 @@ import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
 import type { ApifoxAssetAudit, Payload, RunMode, TransitionInput, WeekPlanChangeInput } from './types.js';
 import type { ChangeCloseInput, ChangeImpactInput } from './types.js';
 import { buildChangeClosePlan, buildChangeImpactPlan, validateChangeClose, validateChangeImpactInput } from './change-impact.js';
-import { progressCommand, runModeSelectCommand, stateWritebackCommand } from './cli-commands.js';
+import { evidenceRecordCommand, progressCommand, runModeSelectCommand, stateWritebackCommand } from './cli-commands.js';
 import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
@@ -37,19 +37,22 @@ async function main() {
       break;
     }
     case 'validate': {
-      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload; body?: string; notes?: { body: string }[]; testPlan?: string };
+      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload; body?: string; notes?: { body: string }[]; evidence?: import('./types.js').InternalEvidenceReceipt[]; testPlan?: string };
       if (input.testPlan !== undefined) input.payload.testPlan = input.testPlan;
-      const result = validateTransition(model, toFacts({ iid: 0, state: 'opened', labels: input.labels, description: input.body ?? '' }), input.payload, input.notes);
+      const result = validateTransition(model, toFacts({ iid: 0, state: 'opened', labels: input.labels, description: input.body ?? '' }), input.payload, input.notes, input.evidence);
       console.log(JSON.stringify(result));
       break;
     }
     case 'render': {
       const payload = JSON.parse(readStdin()) as Payload;
-      console.log(renderStatusChange(payload));
+      // `render` is a user-facing preview. Keep it on the same whitelist-only
+      // renderer as the eventual Issue writeback so a copied preview cannot
+      // reintroduce machine receipts into a parent Issue comment.
+      console.log(renderNodeComment(payload));
       break;
     }
     case 'plan': {
-      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[]; body?: string; testPlan?: string };
+      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[]; evidence?: import('./types.js').InternalEvidenceReceipt[]; body?: string; testPlan?: string };
       const payload = input.payload;
       if (input.testPlan !== undefined) payload.testPlan = input.testPlan;
       // Development entry is the one transition that requires the Issue-scoped,
@@ -68,7 +71,7 @@ async function main() {
         state: 'opened',
         labels: [`type::${payload.type}`, statusLabel],
         description: input.body ?? '',
-      }), payload, input.notes);
+      }), payload, input.notes, input.evidence);
       if (!result.ok) {
         console.log(JSON.stringify(result));
         process.exitCode = 1;
@@ -90,9 +93,9 @@ async function main() {
         process.exitCode = 1;
         break;
       }
-      const comment = renderTestRun(input.run);
-      const validation = validateTestRun(parsed.plan, input.run.environment, parseLatestTestRun([{ body: comment }], input.run.environment));
-      console.log(JSON.stringify({ validate: { ok: validation.ok, missing: validation.ok ? [] : [`${input.run.environment}TestRun`], reasons: validation.errors }, ...(validation.ok ? { comment } : {}) }));
+      const receipt = renderTestRun(input.run);
+      const validation = validateTestRun(parsed.plan, input.run.environment, parseLatestTestRun([{ body: receipt }], input.run.environment));
+      console.log(JSON.stringify({ validate: { ok: validation.ok, missing: validation.ok ? [] : [`${input.run.environment}TestRun`], reasons: validation.errors }, ...(validation.ok ? { receipt } : {}) }));
       if (!validation.ok) process.exitCode = 1;
       break;
     }
@@ -104,9 +107,9 @@ async function main() {
         process.exitCode = 1;
         break;
       }
-      const comment = renderApifoxAssetAudit(input.audit);
-      const validation = validateApifoxAssetAudit(parsed.plan, input.audit.environment, parseLatestApifoxAssetAudit([{ body: comment }], input.audit.environment));
-      console.log(JSON.stringify({ validate: { ok: validation.ok, missing: validation.ok ? [] : [`${input.audit.environment}AssetAudit`], reasons: validation.errors }, ...(validation.ok ? { comment } : {}) }));
+      const receipt = renderApifoxAssetAudit(input.audit);
+      const validation = validateApifoxAssetAudit(parsed.plan, input.audit.environment, parseLatestApifoxAssetAudit([{ body: receipt }], input.audit.environment));
+      console.log(JSON.stringify({ validate: { ok: validation.ok, missing: validation.ok ? [] : [`${input.audit.environment}AssetAudit`], reasons: validation.errors }, ...(validation.ok ? { receipt } : {}) }));
       if (!validation.ok) process.exitCode = 1;
       break;
     }
@@ -221,6 +224,16 @@ async function main() {
       console.log(JSON.stringify(stateWritebackCommand(input)));
       break;
     }
+    case 'evidence-record': {
+      try {
+        const input = JSON.parse(readStdin()) as { state: RunState; kind: 'test-run' | 'apifox-asset-audit'; receipt: string; now: string };
+        console.log(JSON.stringify(evidenceRecordCommand(input)));
+      } catch (e) {
+        console.log(JSON.stringify({ error: e instanceof Error ? e.message : String(e) }));
+        process.exitCode = 1;
+      }
+      break;
+    }
     case 'run-mode-select': {
       try {
         const input = JSON.parse(readStdin()) as { state: RunState; mode: RunMode; selectedBy: string; now: string };
@@ -242,7 +255,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress | run-mode-select | automation-decision');
+      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | evidence-record | progress | run-mode-select | automation-decision');
       process.exit(1);
   }
 }

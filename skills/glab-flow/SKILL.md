@@ -75,11 +75,12 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
 | `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 当前 `testPlan` 全文 + 已知 `fields`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm}`。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
-| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?}` → `{ok,missing,reasons}`；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与刚回读 `notes`，以验证当前环境资产审计和 TestRun |
+| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?,evidence?}` → `{ok,missing,reasons}`；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与本地 run-state 的 `evidence`，以验证当前环境资产审计和 TestRun |
 | `render` | 渲染评论正文 |
-| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?}`；周排期和 local/test TestRun 门禁均需传刚回读 `notes`，否则拒绝建计划 |
-| `test-run` | 预览/校验一条环境执行记录：stdin `{plan,run}` → `{validate,comment}`；只产出评论草稿，不执行测试或写 GitLab |
-| `asset-audit` | 预览/校验一条 Apifox 资产审计：stdin `{plan,audit}` → `{validate,comment}`；只解析计划与回读事实，不调用 Apifox 或写 GitLab |
+| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?,evidence?}`；周排期需传刚回读 `notes`，local/test TestRun 门禁需传本地 run-state 的 `evidence`，否则拒绝建计划 |
+| `test-run` | 预览/校验一条环境执行记录：stdin `{plan,run}` → `{validate,receipt}`；`receipt` 是内部证据，不执行测试或写 GitLab |
+| `asset-audit` | 预览/校验一条测试资产审计：stdin `{plan,audit}` → `{validate,receipt}`；`receipt` 是内部证据，不调用测试平台或写 GitLab |
+| `evidence-record` | 将一条已校验的 `test-run` / `apifox-asset-audit` receipt 写入 Issue 对应的本地 run-state；跨会话恢复时作为门禁输入，绝不写入父 Issue 评论 |
 | `plan-return` | 退回建写回计划：stdin `{type,from,target,issues,confirmer,date,assigneeUser?}` |
 | `week-plan-change` | **独立排期变更**：stdin 提供完整排期与变更事实，返回仅含一条 `add_comment` 的 `WritePlan`；不改变状态、Assignee、Issue 正文或既有评论 |
 | `change-impact` | **变更影响单**：stdin 提供来源、影响维度、当前节点和当前测试计划，返回仅评论的 `WritePlan`、必须同步的产物、建议回退节点和旧计划版本；不直接改状态 |
@@ -128,7 +129,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 每个节点用 `transition` 一次算完确定性部分，Leader 只做「读 → 确认 → 写」三件事（门禁细节见 `gate.md`）：
 
 1. **读状态（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论；有受影响 MR 时，逐个读取该 MR 的 notes。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读，不能以 state 缓存替代。
-2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
+2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields + 当前 `<iid>-state.json` 的 `evidence` 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
    - `node` / `next` / `dirty`（脏：0/≥2 状态标签，或已 closed 但非终态 → 停，见 `resume.md`）
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
@@ -137,7 +138,8 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 3. **开发入口选择、执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。Leader 按序：
    - **仅一次的模式选择**：当且仅当当前转换是「已评审 → 开发中」且 state 没有 `runModeSelection`，先问用户选择半自动（`semi-auto`）或自动（`full-auto`），以 `pnpm cli run-mode-select` 将 `{ mode, selectedBy, selectedAt }` 落盘，**立刻重读 state**，把完整 `runModeSelection` 传回下一次 `transition`。选择一经落盘不可改；此时不能以裸 `runMode` 或配置值跳过选择。非开发入口的旧 state 没有选择时，才兼容采用 state/config 的 `runMode` 默认值。
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
-   - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
+   - **内部执行证据**：测试资产审计与环境执行完成后，先用 `asset-audit` / `test-run` 生成 receipt，再以 `evidence-record` 更新 run-state；receipt 仅供 guard 校验和恢复，**禁止** `glab issue note` 到父 Issue。旧 Issue 已有 marker 时只读兼容，下一次执行起必须迁移到 run-state。
+   - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 面向团队的状态交接单，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。评论只含状态、正式交付物与下一步；不得出现本地环境、测试平台、报告 ID、账号、路径、SHA 或机器 marker。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
    - **post-readback `sync_week_milestone`（仅 `plan.postWriteback` 存在）**：状态或排期评论回读成功后，Leader 用最新有效、启用的 `## 周排期` 和 Asia/Shanghai 业务日期决定目标 Week：未开始取计划开始日期所在周，执行中取当天所在周，已结束跳过。目标不存在则创建，存在则关联当前 Issue；必须幂等，且只调整 Milestone。失败写入 `week-milestone-sync` 审计并重试，不撤回已确认的标签、Assignee、正文或评论。Harness 周一任务只接手已初始挂载的 Issue 做后续 rollover，不能替代此步骤。
    - `shouldConfirm=false`（持久化 `full-auto`、`validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口 / 未选择模式）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
    - 任何标签/Assignee、合并评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
@@ -190,7 +192,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 # → 写到 <workspace.root>/.glab-flow/<iid>-state.json
 ```
 
-之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`writebackAudit`/`updatedAt` 写回该文件；`writebackAudit` 记录串行写回阶段。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签与评论是唯一真理**，state 仅是派生缓存——两者不一致时以 GitLab 回读为准（对账逻辑见 `resume.md`）。
+之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`writebackAudit`/`evidence`/`updatedAt` 写回该文件；`writebackAudit` 记录串行写回阶段，`evidence` 保存不可直接展示的环境执行 receipt。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签、正式评论和 run-state 的内部证据账本共同构成运行事实**：状态与交接内容以 GitLab 回读为准，环境门禁以 state.evidence 为准；缺失证据必须重跑，不能以自由文本补齐。
 
 ### 学习闭环（learn）
 

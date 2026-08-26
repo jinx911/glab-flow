@@ -276,6 +276,11 @@ export interface TransitionInput {
   fields?: Record<string, string>;
   /** Current contents of .glab-flow/<iid>/spec/test-plan.md, read by Leader. */
   testPlan?: string;
+  /**
+   * Persisted internal execution receipts. These are deliberately separate
+   * from Issue notes: they are gate evidence, not reader-facing handoff text.
+   */
+  evidence?: InternalEvidenceReceipt[];
   /** Structured schedule supplied when approving a Story. */
   weekPlan?: WeekPlanInput;
   /** Completed image/OCR, frontend-route and grilling evidence for Story review approval. */
@@ -349,6 +354,15 @@ export interface TestRun {
   assetAudit: string;
   cases: Record<string, 'passed'>;
   evidence: Partial<Record<TestMethod, string>>;
+}
+
+export type InternalEvidenceKind = 'test-run' | 'apifox-asset-audit';
+
+/** A machine receipt retained in the Issue-scoped run state, never rendered into an Issue comment. */
+export interface InternalEvidenceReceipt {
+  kind: InternalEvidenceKind;
+  receipt: string;
+  recordedAt: string;
 }
 
 export type LatestTestRun =
