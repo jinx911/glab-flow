@@ -6,9 +6,11 @@ import type {
   ChangeScope,
   ChangeSource,
   GuardResult,
+  IssueNote,
   WritePlan,
 } from './types.js';
 import { parseTestPlan } from './test-run.js';
+import { chronologicalNotes } from './notes.js';
 
 const SCOPES = new Set<ChangeScope>(['functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release']);
 const SOURCES = new Set<ChangeSource>(['requirement', 'technical-design', 'implementation', 'test']);
@@ -135,11 +137,11 @@ function markerFields(raw: string): Map<string, string> {
 }
 
 /** Parses all immutable markers in chronological Issue notes; malformed marker blocks are explicit errors. */
-function parseMarkers(notes: { body: string }[]): { markers: ChangeMarker[]; errors: string[] } {
+function parseMarkers(notes: IssueNote[]): { markers: ChangeMarker[]; errors: string[] } {
   const markers: ChangeMarker[] = [];
   const errors: string[] = [];
   let index = 0;
-  for (const note of notes) {
+  for (const note of chronologicalNotes(notes)) {
     const blocks = note.body.matchAll(/<!--\s*glab-flow:change-impact:v1\r?\n([\s\S]*?)-->/g);
     for (const block of blocks) {
       const fields = markerFields(block[1] ?? '');
@@ -166,7 +168,7 @@ function parseMarkers(notes: { body: string }[]): { markers: ChangeMarker[]; err
   return { markers, errors };
 }
 
-export function openChangeImpacts(notes: { body: string }[]): { open: ChangeMarker[]; errors: string[] } {
+export function openChangeImpacts(notes: IssueNote[]): { open: ChangeMarker[]; errors: string[] } {
   const { markers, errors } = parseMarkers(notes);
   const latest = new Map<string, ChangeMarker>();
   for (const marker of markers) latest.set(marker.changeId, marker);
@@ -174,7 +176,7 @@ export function openChangeImpacts(notes: { body: string }[]): { open: ChangeMark
 }
 
 /** G16: no normal state transition may bypass an unclosed change impact receipt. */
-export function validateChangeImpactClosure(notes: { body: string }[] = []): GuardResult {
+export function validateChangeImpactClosure(notes: IssueNote[] = []): GuardResult {
   const { open, errors } = openChangeImpacts(notes);
   const reasons = [...errors];
   if (open.length) reasons.push(`存在未闭环变更影响单：${open.map((item) => item.changeId).join('、')}。先完成受影响产物、必要回退与环境重测，再执行 change-close 并回读评论`);

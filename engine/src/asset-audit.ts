@@ -9,7 +9,9 @@ import type {
   LatestApifoxAssetAudit,
   TestEnvironment,
   TestPlan,
+  IssueNote,
 } from './types.js';
+import { chronologicalNotes } from './notes.js';
 
 const MARKERS = [
   { marker: '<!-- glab-flow:apifox-asset-audit:v1', version: 'v1' as const },
@@ -154,9 +156,9 @@ function declaredEnvironment(block: MarkerBlock): string | undefined {
 }
 
 /** Selects the newest audit for one environment without falling back past malformed evidence. */
-export function parseLatestApifoxAssetAudit(notes: { body: string }[] = [], environment: TestEnvironment): LatestApifoxAssetAudit {
+export function parseLatestApifoxAssetAudit(notes: IssueNote[] = [], environment: TestEnvironment): LatestApifoxAssetAudit {
   let latest: MarkerBlock | undefined;
-  for (const note of notes) {
+  for (const note of chronologicalNotes(notes)) {
     for (const block of markerBlocks(note.body)) {
       const declared = declaredEnvironment(block);
       if (!declared || declared === environment) latest = block;

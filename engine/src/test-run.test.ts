@@ -66,6 +66,15 @@ describe('test plan and environment execution receipts', () => {
     expect(parseLatestTestRun([{ body: localRun }, { body: failed }], 'local').kind).toBe('invalid-latest');
   });
 
+  it('uses GitLab created_at rather than newest-first API array order', () => {
+    const older = localRun.replace('version: service:abc123', 'version: service:older');
+    const latest = localRun.replace('version: service:abc123', 'version: service:latest');
+    expect(parseLatestTestRun([
+      { id: 20, created_at: '2026-08-26T09:01:00Z', body: latest },
+      { id: 10, created_at: '2026-08-25T09:01:00Z', body: older },
+    ], 'local')).toMatchObject({ kind: 'valid', run: { version: 'service:latest' } });
+  });
+
   it('round-trips a rendered run and rejects unknown cases', () => {
     const parsed = parseTestPlan(planText);
     expect(parsed.ok).toBe(true);

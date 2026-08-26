@@ -49,6 +49,17 @@ export interface IssueFacts {
   hasJiraSourceLabel: boolean;
 }
 
+/**
+ * A GitLab Issue note read back by the Leader.  `created_at` and `id` are
+ * optional for backwards-compatible CLI fixtures, but real API responses
+ * should preserve them so the engine can select the newest receipt safely.
+ */
+export interface IssueNote {
+  body: string;
+  created_at?: string;
+  id?: number | string;
+}
+
 export type WriteOp =
   | { kind: 'add_label'; value: string }
   | { kind: 'remove_label'; value: string }
@@ -140,7 +151,7 @@ export interface ChangeCloseInput {
   changeId: string;
   closer: string;
   closeDate: string;
-  notes: { body: string }[];
+  notes: IssueNote[];
   completed: Partial<Record<ChangeArtifact, string>>;
   /** 更新后的 test-plan.md；当 open 单要求 test-plan 时必填且版本必须前进。 */
   testPlan?: string;
@@ -236,7 +247,7 @@ export interface TransitionInput {
   iid: number;
   labels: string[];
   body: string;
-  notes: { body: string }[];
+  notes: IssueNote[];
   state: 'opened' | 'closed';
   to?: string;
   fields?: Record<string, string>;
