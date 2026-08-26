@@ -89,7 +89,7 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
                                                   # -> open 变更影响单 + 受影响产物/建议回退节点
   change-close   (stdin {iid,changeId,closer,closeDate,notes,completed,testPlan?})
                                                   # -> closed 变更回执；测试计划受影响时校验版本递增
-  evidence          (stdin [{body}] from `glab api .../notes`)  # -> 抽取的状态变更证据
+  evidence          (stdin [{body,created_at,id}] from `glab api .../notes`)  # -> 抽取的状态变更证据
   config            (stdin = config markdown 文件内容)                      # -> GlabConfig JSON（Leader: cat <config.md> | pnpm cli config）
   test-config       (--repos a,b --env local [--iid N]; stdin = test-config.md)  # -> TestContext JSON（apifoxTargets/envId/凭据变量/数据库,配置送到脸上）
   state-init        (stdin {iid,type,host,projectId,workspaceRoot,runMode?,now?})  # -> RunState JSON（Leader 写到 .glab-flow/*-state.json）

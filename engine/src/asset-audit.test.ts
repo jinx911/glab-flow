@@ -89,6 +89,16 @@ describe('Apifox asset audit receipts', () => {
     expect(validateApifoxAssetAudit(parsed.plan, 'local', parseLatestApifoxAssetAudit([{ body: rendered }], 'local'))).toEqual({ ok: true, errors: [] });
   });
 
+  it('uses GitLab created_at rather than newest-first API array order', () => {
+    const older = localAudit.replace('plan-version: v3', 'plan-version: v2');
+    const latest = localAudit.replace('evidence: scenario:list-get:https://apifox.example/local', 'evidence: scenario:list-get:https://apifox.example/local-v3');
+    const parsed = parseLatestApifoxAssetAudit([
+      { id: 20, created_at: '2026-08-26T09:01:00Z', body: latest },
+      { id: 10, created_at: '2026-08-25T09:01:00Z', body: older },
+    ], 'local');
+    expect(parsed).toMatchObject({ kind: 'valid', audit: { planVersion: 'v3', evidence: 'scenario:list-get:https://apifox.example/local-v3' } });
+  });
+
   it('requires v2 display and authentication evidence only when the plan declares it', () => {
     const parsed = parseTestPlan(governedPlanText);
     expect(parsed.ok).toBe(true);

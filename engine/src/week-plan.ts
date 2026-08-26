@@ -1,4 +1,5 @@
-import type { LatestWeekPlan, WeekPlan, WeekPlanInput, WeekPlanValidation } from './types.js';
+import type { IssueNote, LatestWeekPlan, WeekPlan, WeekPlanInput, WeekPlanValidation } from './types.js';
+import { chronologicalNotes } from './notes.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const WEEK_PLAN_CANDIDATE_RE = /^#{1,6}[^\r\n]*周排期[^\r\n]*\r?$/gm;
@@ -132,9 +133,9 @@ function validateParsedWeekPlan(input: ParsedWeekPlan): string[] {
   return errors;
 }
 
-function weekPlanBlocks(notes: { body: string }[]): WeekPlanBlock[] {
+function weekPlanBlocks(notes: IssueNote[]): WeekPlanBlock[] {
   const blocks: WeekPlanBlock[] = [];
-  for (const note of notes) {
+  for (const note of chronologicalNotes(notes)) {
     const headers = [...note.body.matchAll(WEEK_PLAN_CANDIDATE_RE)];
     for (const header of headers) {
       const start = header.index! + header[0].length;
@@ -150,7 +151,7 @@ function weekPlanBlocks(notes: { body: string }[]): WeekPlanBlock[] {
  * Parses only the latest Week Plan in chronological note order. A malformed
  * latest block intentionally blocks use of any older valid schedule.
  */
-export function parseLatestWeekPlan(notes: { body: string }[]): LatestWeekPlan {
+export function parseLatestWeekPlan(notes: IssueNote[]): LatestWeekPlan {
   const latest = weekPlanBlocks(notes).at(-1);
   if (!latest) return { kind: 'absent' };
 

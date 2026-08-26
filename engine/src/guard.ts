@@ -1,4 +1,4 @@
-import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput } from './types.js';
+import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
@@ -49,7 +49,7 @@ export function validateWeekPlanChange(input: unknown): GuardResult {
 }
 
 /** Applies the schedule contract to any forward entry point, including legacy CLI commands. */
-export function validateWeekPlanTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
+export function validateWeekPlanTransition(payload: Payload, notes: IssueNote[] = []): GuardResult {
   if (payload.type !== 'story') return ok();
   if (payload.from === '待评审' && payload.to === '已评审') {
     if (!isWeekPlanInput(payload.weekPlan)) return fail([`周排期缺失：${WEEK_PLAN_INPUT_HINT}`], ['weekPlan']);
@@ -65,7 +65,7 @@ export function validateWeekPlanTransition(payload: Payload, notes: { body: stri
 }
 
 /** Applies one versioned test plan to the local and test acceptance gates. */
-export function validateTestRunTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
+export function validateTestRunTransition(payload: Payload, notes: IssueNote[] = []): GuardResult {
   const environment = payload.from === '开发中' && payload.to === '测试中'
     ? 'local'
     : payload.from === '测试中' && payload.to === '待发布'
@@ -80,7 +80,7 @@ export function validateTestRunTransition(payload: Payload, notes: { body: strin
 }
 
 /** Requires a current, read-back Apifox asset audit before each environment TestRun can pass. */
-export function validateApifoxAssetAuditTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
+export function validateApifoxAssetAuditTransition(payload: Payload, notes: IssueNote[] = []): GuardResult {
   const environment = payload.from === '开发中' && payload.to === '测试中'
     ? 'local'
     : payload.from === '测试中' && payload.to === '待发布'
@@ -111,7 +111,7 @@ export function isAffirmative(v: string | undefined): boolean {
   return AFFIRMATIVE_NOTE_PREFIX.some((p) => raw.startsWith(p));
 }
 
-export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: { body: string }[] = []): GuardResult {
+export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: IssueNote[] = []): GuardResult {
   const t = transitionFor(model, payload.type, payload.from, payload.to);
   if (!t) return fail([`transition ${payload.from}->${payload.to} not allowed`]);
 

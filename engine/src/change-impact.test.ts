@@ -88,6 +88,23 @@ describe('change-impact closure', () => {
     expect(validateChangeImpactClosure([{ body: open }, { body: closed }])).toEqual({ ok: true, missing: [], reasons: [] });
   });
 
+  it('releases a close receipt even when GitLab returns notes newest-first', () => {
+    const { plan } = buildChangeImpactPlan(input);
+    const open = (plan.ops[0] as { body: string }).body;
+    const close = buildChangeClosePlan({
+      iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes: [{ body: open }], testPlan: PLAN_V4,
+      completed: {
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#v4', 'apifox-assets': 'audit:123',
+        'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
+      },
+    });
+    const closed = (close.ops[0] as { body: string }).body;
+    expect(validateChangeImpactClosure([
+      { id: 20, created_at: '2026-08-26T09:01:00Z', body: closed },
+      { id: 10, created_at: '2026-08-25T09:01:00Z', body: open },
+    ])).toEqual({ ok: true, missing: [], reasons: [] });
+  });
+
   it('requires proposal plus schedule evidence for a requirement change', () => {
     const { impact } = buildChangeImpactPlan({
       ...input, currentNode: '开发中', source: 'requirement', scopes: ['functional', 'schedule'], testPlan: undefined,

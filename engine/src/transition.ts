@@ -6,6 +6,7 @@ import { buildForwardPlan, buildWeekMilestoneSyncIntent } from './plan.js';
 import { parseLatestWeekPlan } from './week-plan.js';
 import { renderNodeComment } from './render.js';
 import { STATUS_PREFIX, TERMINAL, ROLES } from './constants.js';
+import { chronologicalNotes } from './notes.js';
 
 /** 角色名不是用户；其余自动补 @ 前缀。 */
 function ensureAt(user: string | undefined): string | undefined {
@@ -103,11 +104,12 @@ function buildPlaybook(tr: Transition, config: TransitionInput['config'], hasWee
 
 /**
  * 扫全部评论里「- 字段：值」行（renderStatusChange / renderTestIssue 等产物格式），按精确 key 建字段→值映射。
- * 同名字段后出现的覆盖先出现的（GitLab notes 默认时间升序，后出现≈最新）。仅精确匹配，不做模糊推断。
+ * 同名字段后出现的覆盖先出现的；`chronologicalNotes` 会先把 GitLab 默认
+ * newest-first 的 API 回读归一为时间升序。仅精确匹配，不做模糊推断。
  */
-function scanFieldsFromNotes(notes: { body: string }[]): Map<string, string> {
+function scanFieldsFromNotes(notes: TransitionInput['notes']): Map<string, string> {
   const map = new Map<string, string>();
-  for (const n of notes) {
+  for (const n of chronologicalNotes(notes)) {
     for (const line of n.body.split('\n')) {
       const m = line.match(/^-\s+(.+?)[：:](.+)$/);
       if (!m) continue;

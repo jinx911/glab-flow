@@ -1,8 +1,9 @@
-import type { ApifoxAssetType, LatestTestRun, TestEnvironment, TestMethod, TestPlan, TestPlanCase, TestRun, TestRunValidation } from './types.js';
+import type { ApifoxAssetType, IssueNote, LatestTestRun, TestEnvironment, TestMethod, TestPlan, TestPlanCase, TestRun, TestRunValidation } from './types.js';
+import { chronologicalNotes } from './notes.js';
 
 const PLAN_MARKER = '<!-- glab-flow:test-plan:v1';
 const RUN_MARKER = '<!-- glab-flow:test-run:v1';
-const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual']);
+const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual', 'unit']);
 const ASSET_TYPES = new Set<ApifoxAssetType>(['scenario', 'suite-or-group', 'test-data', 'scenario-instance']);
 const ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const ENVIRONMENT = /^[a-z][a-z0-9-]*$/;
@@ -219,10 +220,10 @@ function declaredEnvironment(block: MarkerBlock): string | undefined {
   return matches.length === 1 && matches[0] ? matches[0] : undefined;
 }
 
-/** Selects the newest execution marker for an environment. Notes must be in GitLab readback order. */
-export function parseLatestTestRun(notes: { body: string }[] = [], environment: TestEnvironment): LatestTestRun {
+/** Selects the newest execution marker for an environment from GitLab readback. */
+export function parseLatestTestRun(notes: IssueNote[] = [], environment: TestEnvironment): LatestTestRun {
   let latest: MarkerBlock | undefined;
-  for (const note of notes) {
+  for (const note of chronologicalNotes(notes)) {
     for (const block of markerBlocks(note.body, RUN_MARKER)) {
       const declared = declaredEnvironment(block);
       if (!declared || declared === environment) latest = block;

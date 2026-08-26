@@ -9,7 +9,7 @@ import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
 import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
-import type { ApifoxAssetAudit, Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
+import type { ApifoxAssetAudit, IssueNote, Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
 import type { ChangeCloseInput, ChangeImpactInput } from './types.js';
 import { buildChangeClosePlan, buildChangeImpactPlan, validateChangeClose, validateChangeImpactInput } from './change-impact.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
@@ -35,7 +35,7 @@ async function main() {
       break;
     }
     case 'validate': {
-      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload; body?: string; notes?: { body: string }[]; testPlan?: string };
+      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload; body?: string; notes?: IssueNote[]; testPlan?: string };
       if (input.testPlan !== undefined) input.payload.testPlan = input.testPlan;
       const result = validateTransition(model, toFacts({ iid: 0, state: 'opened', labels: input.labels, description: input.body ?? '' }), input.payload, input.notes);
       console.log(JSON.stringify(result));
@@ -47,7 +47,7 @@ async function main() {
       break;
     }
     case 'plan': {
-      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: { body: string }[]; body?: string; testPlan?: string };
+      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: IssueNote[]; body?: string; testPlan?: string };
       const payload = input.payload;
       if (input.testPlan !== undefined) payload.testPlan = input.testPlan;
       const statusLabel = payload.type === 'story' ? `story-status::${payload.from}` : `status::${payload.from}`;
