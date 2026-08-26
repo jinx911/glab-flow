@@ -1,4 +1,4 @@
-import type { StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput } from './types.js';
+import type { InternalEvidenceReceipt, StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
@@ -7,6 +7,7 @@ import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.j
 import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
 import { validateChangeImpactClosure } from './change-impact.js';
+import { validatePublicComment } from './render.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
@@ -65,7 +66,14 @@ export function validateWeekPlanTransition(payload: Payload, notes: { body: stri
 }
 
 /** Applies one versioned test plan to the local and test acceptance gates. */
-export function validateTestRunTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
+function evidenceNotes(evidence: InternalEvidenceReceipt[] = [], legacyNotes: { body: string }[] = []): { body: string }[] {
+  // Existing flows may contain receipts written before the ledger migration.
+  // New flows always pass the ledger; this fallback is read-only compatibility,
+  // never a reason to emit machine evidence into the Issue again.
+  return evidence.length ? evidence.map((item) => ({ body: item.receipt })) : legacyNotes;
+}
+
+export function validateTestRunTransition(payload: Payload, evidence: InternalEvidenceReceipt[] = [], legacyNotes: { body: string }[] = []): GuardResult {
   const environment = payload.from === '开发中' && payload.to === '测试中'
     ? 'local'
     : payload.from === '测试中' && payload.to === '待发布'
@@ -75,12 +83,12 @@ export function validateTestRunTransition(payload: Payload, notes: { body: strin
 
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
-  const validation = validateTestRun(parsedPlan.plan, environment, parseLatestTestRun(notes, environment));
+  const validation = validateTestRun(parsedPlan.plan, environment, parseLatestTestRun(evidenceNotes(evidence, legacyNotes), environment));
   return validation.ok ? ok() : fail(validation.errors, [`${environment}TestRun`]);
 }
 
 /** Requires a current, read-back Apifox asset audit before each environment TestRun can pass. */
-export function validateApifoxAssetAuditTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
+export function validateApifoxAssetAuditTransition(payload: Payload, evidence: InternalEvidenceReceipt[] = [], legacyNotes: { body: string }[] = []): GuardResult {
   const environment = payload.from === '开发中' && payload.to === '测试中'
     ? 'local'
     : payload.from === '测试中' && payload.to === '待发布'
@@ -89,7 +97,7 @@ export function validateApifoxAssetAuditTransition(payload: Payload, notes: { bo
   if (!environment) return ok();
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
-  const validation = validateApifoxAssetAudit(parsedPlan.plan, environment, parseLatestApifoxAssetAudit(notes, environment));
+  const validation = validateApifoxAssetAudit(parsedPlan.plan, environment, parseLatestApifoxAssetAudit(evidenceNotes(evidence, legacyNotes), environment));
   return validation.ok ? ok() : fail(validation.errors, [`${environment}AssetAudit`]);
 }
 
@@ -111,7 +119,7 @@ export function isAffirmative(v: string | undefined): boolean {
   return AFFIRMATIVE_NOTE_PREFIX.some((p) => raw.startsWith(p));
 }
 
-export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: { body: string }[] = []): GuardResult {
+export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: { body: string }[] = [], evidence: InternalEvidenceReceipt[] = []): GuardResult {
   const t = transitionFor(model, payload.type, payload.from, payload.to);
   if (!t) return fail([`transition ${payload.from}->${payload.to} not allowed`]);
 
@@ -175,13 +183,14 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   const reviewEvidenceGate = payload.type === 'story' && payload.from === '待评审' && payload.to === '已评审'
     ? validateRequirementsReviewEvidence(facts.body, notes, payload.reviewEvidence)
     : ok();
-  const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
-  const testRunGate = validateTestRunTransition(payload, notes);
+  const assetAuditGate = validateApifoxAssetAuditTransition(payload, evidence, notes);
+  const testRunGate = validateTestRunTransition(payload, evidence, notes);
   const changeImpactGate = validateChangeImpactClosure(notes);
-  if (missing.length || reasons.length || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok) {
+  const publicCommentGate = validatePublicComment(payload);
+  if (missing.length || reasons.length || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok || !publicCommentGate.ok) {
     return fail(
-      unique([...reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons]),
-      unique([...missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing]),
+      unique([...reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons, ...publicCommentGate.reasons]),
+      unique([...missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing, ...publicCommentGate.missing]),
     );
   }
   return ok();

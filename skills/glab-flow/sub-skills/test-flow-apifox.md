@@ -1,6 +1,6 @@
 ---
 name: glab-flow-test-flow-apifox
-description: local/test 环境的 API 测试执行（经 apifox 运行时工具），回读报告并写入 TestRun。
+description: local/test 环境的 API 测试执行（经 apifox 运行时工具），回读报告并将 TestRun 写入内部证据账本。
 ---
 
 > 本文件是 glab-flow 自有子 skill（方法论，单 Leader）。在对应节点由 Leader Read 本文件内联执行，或 spawn `general-purpose` 以其为 prompt。运行时工具依赖见 `../tools.md`。
@@ -40,9 +40,9 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 
 不一致(如页面显示本地但实际跑的 Stage)→ 形成 `presentation` 不匹配，**停止 AssetAudit/TestRun**；只在报告中说明而继续放行是不允许的。
 
-## 测试报告拆两类(glab-flow 合并评论的测试报告内容体)
+## 测试报告与内部证据分离
 
-「测试报告」评论必须拆成两组,不得混写:
+测试平台执行详情与 Issue 测试报告必须分离：
 
 1. **执行证据**:CLI 命令 + reportId + environmentName + stats + DB 回读断言——证明"真跑了、真过了"。
 2. **Apifox 资产状态**:场景/套件/测试数据是否整理归位、命名分组是否区分环境、页面展示与执行是否一致——描述资产治理水平。
@@ -69,7 +69,7 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 2. 场景必须回读步骤非空；套件/分组必须回读成员非空；测试数据必须回读实际数据行；场景实例必须对应同一流程的环境/数据/循环配置。
 3. 新需求先检索现有业务域/功能能力资产，复用或更新优先于新建；新建/更新必须按当前 Apifox schema 校验、写入后 `get` 回读。不得自动删除已有资产。
 4. 发现空壳、重复、孤儿、未清理 `TMP-<iid>-` 数据或未能解释的新建资产时停止，处置后重新审计。
-5. 将项目、分支、环境、回读证据、计划资产与未处置问题数喂给 `pnpm cli asset-audit`。计划若含 `presentation:` 或 `auth-profile:`，还必须写入 v2 的页面环境三方比对和非敏感认证回执；输出评论新增到 Issue 后回读。只有最新审计通过，才生成 `asset-audit: <plan-version>/<environment>` 的 TestRun。
+5. 将项目、分支、环境、回读证据、计划资产与未处置问题数喂给 `pnpm cli asset-audit`。计划若含 `presentation:` 或 `auth-profile:`，还必须写入 v2 的页面环境三方比对和非敏感认证回执；将输出的 `receipt` 用 `pnpm cli evidence-record` 写入 `<iid>-state.json`，**不得**新增到父 Issue。只有最新审计通过，才生成 `asset-audit: <plan-version>/<environment>` 的 TestRun。
 
 审计 marker 例：
 
@@ -204,19 +204,19 @@ Apifox CLI 是全量安装并由 `doctor` 验收的运行时工具（见 `../too
 3. **失败列表**：逐条列 `用例编号 — 接口 — 失败原因摘要（状态码/断言差异）`；全绿则写「无失败」。
 4. **云端报告链接**：`--upload-report detail` 产出的 `https://app.apifox.com/link/...`（含请求/响应详情，排障与复查入口）。
 
-结果与 test-plan.md 的用例编号一一对应，方便定位哪条验收标准的测试未过。报告回读全绿且最新资产审计通过后，以 `pnpm cli test-run` 生成当前环境的 marker（必须带 `asset-audit: <plan-version>/<environment>`）；新增到 Issue 后再次回读，才可把该 TestRun 传给 `transition`。
+结果与 test-plan.md 的用例编号一一对应，方便定位哪条验收标准的测试未过。报告回读全绿且最新资产审计通过后，以 `pnpm cli test-run` 生成当前环境的 receipt（必须带 `asset-audit: <plan-version>/<environment>`），再用 `pnpm cli evidence-record` 写入 state；后续把 `state.evidence` 传给 `transition`。父 Issue 只在状态推进时写团队可读的提测说明或测试报告。
 
-## 挂评论
+## 测试问题评论（例外）
 
 测试问题（失败的用例、发现的缺陷）以评论形式挂父 GitLab Issue：
 
-- **挂评论命令**：`glab issue note <iid> -m "<测试结果正文>"`（见 `../gate.md` 第 5 步）。评论只新增，不改历史（G8，见 `../guards.md`）。
+- **挂评论命令**：`glab issue note <iid> -m "<测试问题说明>"`。仅在发现需协作处理的问题时使用；评论只新增，不改历史（G8，见 `../guards.md`）。
 - **不建 Bug Issue**（G13，见 `../guards.md`）：测试问题挂父需求评论，不为单个问题新建独立工单 Issue。glab-flow 以父需求为流转单元，问题在父需求评论里跟踪到关闭。
 - **阻塞问题放行规则**（G11，见 `../guards.md`）：**阻塞发布的问题须全部验证通过**才能放行「待发布」。非阻塞问题（MEDIUM/LOW 级，不影响主流程）可记录后带过，但阻塞级（CRITICAL/HIGH）必须全部复测绿，门禁才放行。
-- **正文格式**：评论正文包含计数 + 失败列表（上面的三段式），并标注哪些是阻塞级、是否已全部验证。
+- **正文格式**：用业务语言写现象、影响范围、复现前提、阻塞级别和验证结果；不写测试平台链接、报告 ID、命令、本地环境、账号、路径或机器 marker。原始执行详情保留在内部 receipt。
 
 ## glab-flow 上下文
 
-- **节点归属**：local 执行在「开发中」收尾，test 执行在「测试中」收尾。产出是已回读的 Apifox 报告和对应环境 TestRun，不以测试结果评论代替 TestRun。
-- **单 Leader**：Leader 调度 apifox 运行时工具、收集结果、判定阻塞、挂评论，不组建多 agent 团队，不引入团队编排、状态文件或阶段闸门管道。需要并行跑多场景时 spawn 至多一个 `general-purpose`。
+- **节点归属**：local 执行在「开发中」收尾，test 执行在「测试中」收尾。产出是已回读的测试平台报告和对应环境 TestRun receipt，不以测试问题评论代替 TestRun。
+- **单 Leader**：Leader 调度测试运行时工具、收集结果、判定阻塞，并将 receipt 写入 state；需要协作处理问题时才挂人可读评论，不组建多 agent 团队。需要并行跑多场景时 spawn 至多一个 `general-purpose`。
 - **门禁对齐**：local TestRun 是「开发中→测试中」门禁，test TestRun 是「测试中→待发布」门禁（见 `../gate.md`）。阻塞问题、报告详情缺失或最新 TestRun 无效 → Leader 不推进状态。

@@ -69,7 +69,7 @@ apifox test-suite run <suiteId> --project <pid> \
 
 - **参数三轴口诀**：随环境轴变（每环境一值）→ apifox-vars.json；随轮次轴变（同环境 N 值）→ 云端数据集 `-d`；不变 → 写死 case。
 - ⚠️ CLI 环境变量坑：Apifox 环境 UI / `environment update` 写的变量 CLI 运行时**取不到**——只认 `--variables` 文件（实测三轮坐实）。
-- **产物落点**：所有产出按 `.glab-flow/<iid>/` 归位（spec / e2e / fixtures / archive）；工作区根的 `playwright-report/`、`test-results/` 是临时执行位，报告进 Issue 评论后立即清理。
+- **产物落点**：所有产出按 `.glab-flow/<iid>/` 归位（spec / e2e / fixtures / archive）；工作区根的 `playwright-report/`、`test-results/` 是临时执行位。测试平台回执写入 Issue 对应 run-state 的内部证据账本；Issue 只保留团队可读的提测说明、测试报告与上线方案。
 - **测试计划**：`test-plan.md` 必含「测试环境与数据集」章节（环境矩阵 + 场景↔数据集映射表 + fixture 顺序）——执行时 `-d` 传什么一目了然。
 - **证据门禁**：执行后 `test-report get` 回读 environmentName + stats，禁止只凭 CLI stdout 说通过。
 - **四层环境事实**：测试计划环境、CLI 显式 `-e` 目标、报告 `environmentName`、Apifox 页面列表展示必须分别记录并核对；页面显示 local、报告为 Stage 不能通过资产审计。

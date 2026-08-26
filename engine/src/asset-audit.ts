@@ -221,7 +221,7 @@ export function validateApifoxAssetAudit(plan: TestPlan, environment: TestEnviro
   return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
 }
 
-/** Renders an immutable, readable audit comment. It is a preview only; Leader writes it after Apifox readback. */
+/** Renders a strict internal audit receipt. Leader persists it in run-state after test-platform readback. */
 export function renderApifoxAssetAudit(audit: ApifoxAssetAudit): string {
   const assets = [...audit.assets].sort((a, b) => `${a.caseId}/${a.type}`.localeCompare(`${b.caseId}/${b.type}`));
   const presentations = [...(audit.presentations ?? [])].sort((a, b) => `${a.caseId}/${a.type}`.localeCompare(`${b.caseId}/${b.type}`));

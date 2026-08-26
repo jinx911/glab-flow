@@ -254,7 +254,7 @@ export function validateTestRun(plan: TestPlan, environment: TestEnvironment, la
   return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
 }
 
-/** Renders an immutable, human-readable Issue comment plus its strict machine receipt. */
+/** Renders a strict internal receipt for the persisted evidence ledger. */
 export function renderTestRun(run: TestRun): string {
   const cases = Object.entries(run.cases).sort(([a], [b]) => a.localeCompare(b)).map(([id, outcome]) => `${id}=${outcome}`).join(',');
   const evidence = Object.entries(run.evidence).sort(([a], [b]) => a.localeCompare(b)).map(([method, value]) => `${method}=${value}`).join(',');

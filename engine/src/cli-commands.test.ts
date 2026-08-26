@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { progressCommand, runModeSelectCommand, stateWritebackCommand } from './cli-commands.js';
+import { evidenceRecordCommand, progressCommand, runModeSelectCommand, stateWritebackCommand } from './cli-commands.js';
 import type { RunModeSelectCommandInput } from './cli-commands.js';
 import { initState } from './state.js';
 
@@ -47,5 +47,19 @@ describe('run-mode-select command handler', () => {
     ['empty now', { mode: 'semi-auto', selectedBy: '@owner', now: '   ' }],
   ])('rejects %s', (_label, input) => {
     expect(() => runModeSelectCommand({ state: base, ...input } as RunModeSelectCommandInput)).toThrow('run-mode-select:');
+  });
+});
+
+describe('evidence-record command handler', () => {
+  it('writes a machine receipt only to persisted state', () => {
+    const output = evidenceRecordCommand({
+      state: base, kind: 'test-run', receipt: '<!-- glab-flow:test-run:v1\nenvironment: local\n-->', now: 't1',
+    });
+    expect(output.evidence).toHaveLength(1);
+    expect(output.writebackAudit).toHaveLength(0);
+  });
+
+  it('rejects an invalid receipt envelope', () => {
+    expect(() => evidenceRecordCommand({ state: base, kind: 'unknown' as 'test-run', receipt: 'r', now: 't1' })).toThrow('kind');
   });
 });

@@ -56,6 +56,15 @@ evidence: list-get:https://apifox.example/test
 asset: TP-001 | scenario | scenario-101 | reuse
 -->`;
 const TEST_NOTES = [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }, { body: TEST_AUDIT }, { body: TEST_RUN }];
+const PUBLIC_RELEASE_FIELDS = {
+  业务覆盖范围: '核心业务流程',
+  缺陷处理结果: '阻塞问题已关闭',
+  遗留风险: '无阻塞遗留风险',
+  上线步骤: '按发布计划执行',
+  配置清单: '配置已核对',
+  回滚方案: '按发布计划回滚',
+  发布建议: '建议发布',
+};
 const VALID_REVIEW_EVIDENCE: RequirementsReviewEvidence = {
   images: [], frontend: { applicable: false, routes: [] },
   grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
@@ -225,7 +234,7 @@ describe('G11 bug — blocking issues apply to bug too', () => {
   });
   it('passes bug 测试中->待发布 when blocking issues verified', () => {
     const p: Payload = { type: 'bug', from: '测试中', to: '待发布',
-      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' }, testPlan: TEST_PLAN,
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', ...PUBLIC_RELEASE_FIELDS }, testPlan: TEST_PLAN,
       assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p, TEST_NOTES);
     expect(r.ok).toBe(true);
@@ -233,7 +242,7 @@ describe('G11 bug — blocking issues apply to bug too', () => {
 });
 
 describe('G11 normalization — accepts affirmative synonyms, rejects the rest', () => {
-  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过' };
+  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过', ...PUBLIC_RELEASE_FIELDS };
   const run = (val: string) => validateTransition(model, facts(['type::story', 'story-status::测试中']), {
     type: 'story', from: '测试中', to: '待发布',
     fields: { ...baseFields, 阻塞发布问题均已验证通过: val }, testPlan: TEST_PLAN, assigneeUser: '@dev', datesConfirmed: true,

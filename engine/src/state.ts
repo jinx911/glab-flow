@@ -1,4 +1,4 @@
-import type { IssueType, RunMode, RunModeSelection } from './types.js';
+import type { InternalEvidenceReceipt, IssueType, RunMode, RunModeSelection } from './types.js';
 
 export type WritebackAuditTarget = 'issue' | `mr:${string}!${number}`;
 export type WritebackAuditStage = 'metadata' | 'state-comment' | 'readback' | 'week-milestone-sync';
@@ -29,6 +29,11 @@ export interface RunState {
   lessonsCaptured: number;
   /** 串行写回阶段的本地审计尾迹，供 resume 重新对账后恢复。 */
   writebackAudit: WritebackAuditEntry[];
+  /**
+   * 本 Issue 的内部测试门禁证据。仅供引擎恢复和校验，绝不写入父 Issue 评论。
+   * 证据缺失时必须重跑相关环境，不得降级为自由文本结论。
+   */
+  evidence: InternalEvidenceReceipt[];
   /** 节点内子步骤进度（层 2）：node = 这批 done 所属节点；换节点时 reset。 */
   progress: { node: string; done: string[] };
   updatedAt: string;
@@ -50,8 +55,9 @@ export interface InitStateInput {
  */
 export function normalizeRunState(state: RunState): RunState {
   const writebackAudit = Array.isArray(state.writebackAudit) ? state.writebackAudit : [];
-  if (writebackAudit === state.writebackAudit) return state;
-  return { ...state, writebackAudit };
+  const evidence = Array.isArray(state.evidence) ? state.evidence : [];
+  if (writebackAudit === state.writebackAudit && evidence === state.evidence) return state;
+  return { ...state, writebackAudit, evidence };
 }
 
 /** The Issue-level selection takes precedence over the legacy config/state mode. */
@@ -85,8 +91,26 @@ export function initState(input: InitStateInput): RunState {
     spawnedAgents: [],
     lessonsCaptured: 0,
     writebackAudit: [],
+    evidence: [],
     progress: { node: '', done: [] },
     updatedAt: input.now,
+  };
+}
+
+/**
+ * Stores a validated machine receipt in the run state. Re-recording the exact
+ * same receipt is idempotent; a later receipt remains later in the ledger so
+ * the existing latest-receipt parsers keep their deterministic semantics.
+ */
+export function recordInternalEvidence(state: RunState, receipt: InternalEvidenceReceipt): RunState {
+  const normalized = normalizeRunState(state);
+  const existing = normalized.evidence.find((item) => item.kind === receipt.kind && item.receipt === receipt.receipt);
+  if (existing) return normalized;
+  return {
+    ...normalized,
+    evidence: [...normalized.evidence, { ...receipt }],
+    lastActions: clampLastActions(normalized.lastActions, `recorded internal ${receipt.kind} evidence`),
+    updatedAt: receipt.recordedAt,
   };
 }
 

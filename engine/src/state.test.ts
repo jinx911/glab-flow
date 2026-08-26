@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { effectiveRunMode, initState, markProgressDone, normalizeRunState, recordWritebackAudit, resetProgress, addLastAction, MAX_LAST_ACTIONS, selectRunMode } from './state.js';
+import { effectiveRunMode, initState, markProgressDone, normalizeRunState, recordInternalEvidence, recordWritebackAudit, resetProgress, addLastAction, MAX_LAST_ACTIONS, selectRunMode } from './state.js';
 
 describe('initState', () => {
   it('builds initial state with defaults', () => {
@@ -14,6 +14,7 @@ describe('initState', () => {
     expect(s.spawnedAgents).toEqual([]);
     expect(s.progress).toEqual({ node: '', done: [] });
     expect(s.writebackAudit).toEqual([]);
+    expect(s.evidence).toEqual([]);
     expect(s.specDir).toBe('/tmp/workspace/.glab-flow/123/spec');
     expect(s.runMode).toBe('semi-auto');
     expect(s.cachedNodeAt).toBe('2026-07-29T00:00:00Z');
@@ -29,6 +30,24 @@ describe('initState', () => {
   it('derives specDir from workspaceRoot and iid', () => {
     const s = initState({ iid: '456', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/var/oa', now: 't' });
     expect(s.specDir).toBe('/var/oa/.glab-flow/456/spec');
+  });
+});
+
+describe('internal evidence ledger', () => {
+  const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
+  const receipt = '<!-- glab-flow:test-run:v1\nenvironment: local\n-->';
+
+  it('persists a receipt for cross-session gate recovery without Issue writeback', () => {
+    const next = recordInternalEvidence(base, { kind: 'test-run', receipt, recordedAt: 't1' });
+    expect(next.evidence).toEqual([{ kind: 'test-run', receipt, recordedAt: 't1' }]);
+    expect(next.writebackAudit).toEqual([]);
+    expect(recordInternalEvidence(next, { kind: 'test-run', receipt, recordedAt: 't2' })).toBe(next);
+  });
+
+  it('normalizes a pre-ledger state without losing existing state data', () => {
+    const legacy = { ...base } as Partial<typeof base>;
+    delete legacy.evidence;
+    expect(normalizeRunState(legacy as typeof base)).toMatchObject({ evidence: [], writebackAudit: [] });
   });
 });
 

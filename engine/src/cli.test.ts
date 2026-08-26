@@ -13,13 +13,33 @@ const VALID_REVIEW_EVIDENCE = {
 };
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan' | 'transition' | 'test-run' | 'asset-audit' | 'run-mode-select' | 'automation-decision', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'plan' | 'transition' | 'test-run' | 'asset-audit' | 'run-mode-select' | 'automation-decision' | 'evidence-record', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
   });
   return { json: r.stdout ? JSON.parse(r.stdout) : null, status: r.status, stderr: r.stderr ?? '' };
 }
+
+describe('cli render — 团队交接评论白名单', () => {
+  it('uses the same whitelist renderer as the Issue writeback', () => {
+    const result = spawnSync(process.execPath, [TSX_CLI, CLI, 'render'], {
+      input: JSON.stringify({
+        type: 'story', from: '开发中', to: '测试中', assigneeUser: '@qa',
+        fields: {
+          涉及项目与提测分支: 'service:test', 可测试版本: 'release-candidate-1', 本次改动: '完成主流程',
+          Apifox资产审计记录: 'internal-only', local测试执行记录: 'internal-only',
+        },
+      }),
+      encoding: 'utf8',
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('## 提测说明');
+    expect(result.stdout).toContain('涉及项目与提测分支：service:test');
+    expect(result.stdout).not.toContain('Apifox');
+    expect(result.stdout).not.toContain('internal-only');
+  });
+});
 
 describe('cli automation-decision', () => {
   it('prints a decision as JSON', () => {
@@ -99,6 +119,9 @@ describe('cli transition — persisted development-entry mode selection', () => 
     fields: {
       技术方案评审通过记录或免评审结论: '通过', 实际开始日期: '2026-08-07', 研发Assignee: '@dev',
       计划提测时间: '2026-08-08', 计划上线时间: '2026-08-09',
+      技术方案版本: 'v1', 方案概述: '按已评审需求实施', 影响模块: '服务与前端', 数据模型变更: '新增字段', API契约: '兼容现有接口',
+      前端页面与路由: '现有页面扩展', 权限与安全: '复用现有权限', 迁移与配置: '纳入发布', 测试计划摘要: '覆盖多环境',
+      风险与对策: '灰度验证', 回滚方案: '回滚版本',
     },
     datesConfirmed: true,
   };
@@ -220,17 +243,17 @@ asset: TP-001 | scenario | scenario-101 | reuse
 -->`;
   const submit = {
     type: 'story' as const, from: '开发中', to: '测试中',
-    fields: { 代码评审结论: '通过', 提测日期: '2026-08-24', 研发Assignee: '@dev', 可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对' },
+    fields: { 代码评审结论: '通过', 提测日期: '2026-08-24', 研发Assignee: '@dev', 涉及项目与提测分支: 'service:test', 可测试版本: 'release-candidate-1', 本次改动: '完成需求', 测试范围: '核心业务流程', 环境准备与配置: '完成配置', 测试重点: '边界', 已知限制: '无阻塞限制' },
     assigneeUser: '@qa', datesConfirmed: true,
   };
   const accept = {
     type: 'story' as const, from: '测试中', to: '待发布',
-    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'report', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
+    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: '业务回归完成', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 业务覆盖范围: '核心业务流程', 缺陷处理结果: '阻塞问题已关闭', 遗留风险: '无阻塞遗留风险', 上线步骤: '按发布计划执行', 配置清单: '配置已核对', 回滚方案: '按发布计划回滚', 发布建议: '建议发布' },
     assigneeUser: '@dev', datesConfirmed: true,
   };
 
   it('enforces the same plan through legacy validate and plan commands', () => {
-    expect(cli('validate', { type: 'story', labels: ['type::story', 'story-status::开发中'], payload: submit }).json).toMatchObject({ ok: false, missing: ['testPlan'] });
+    expect(cli('validate', { type: 'story', labels: ['type::story', 'story-status::开发中'], payload: submit }).json).toMatchObject({ ok: false, missing: expect.arrayContaining(['testPlan']) });
     expect(cli('plan', { payload: submit, testPlan: plan, notes: [{ body: localAudit }, { body: localRun }] })).toMatchObject({ status: 0, json: { ops: expect.any(Array) } });
     expect(cli('validate', { type: 'story', labels: ['type::story', 'story-status::测试中'], payload: accept, testPlan: plan, notes: [{ body: localAudit }, { body: localRun }] }).json)
       .toMatchObject({ ok: false, missing: expect.arrayContaining(['testAssetAudit', 'testTestRun']) });
@@ -243,7 +266,7 @@ asset: TP-001 | scenario | scenario-101 | reuse
       run: { environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'passed', assetAudit: 'v3/local', cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/local' } },
     });
     expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:test-run:v1') });
+    expect(result.json).toMatchObject({ validate: { ok: true }, receipt: expect.stringContaining('glab-flow:test-run:v1') });
   });
 
   it('renders a parseable asset-audit preview without I/O', () => {
@@ -252,7 +275,7 @@ asset: TP-001 | scenario | scenario-101 | reuse
       audit: { environment: 'local', planVersion: 'v3', project: '8731182', branch: 'main', unresolvedFindings: 0, evidence: 'list-get:https://apifox.example/local', assets: [{ caseId: 'TP-001', type: 'scenario', id: 'scenario-101', action: 'reuse' }] },
     });
     expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:apifox-asset-audit:v1') });
+    expect(result.json).toMatchObject({ validate: { ok: true }, receipt: expect.stringContaining('glab-flow:apifox-asset-audit:v1') });
   });
 
   it('renders a v2 presentation and AuthProfile audit without credential values', () => {
@@ -268,7 +291,7 @@ asset: TP-001 | scenario | scenario-101 | reuse
       },
     });
     expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:apifox-asset-audit:v2') });
+    expect(result.json).toMatchObject({ validate: { ok: true }, receipt: expect.stringContaining('glab-flow:apifox-asset-audit:v2') });
     expect(JSON.stringify(result.json)).not.toContain('password');
   });
 });
@@ -285,6 +308,9 @@ describe('cli Week Plan contract — legacy direct paths', () => {
     fields: {
       技术方案评审通过记录或免评审结论: '通过', 实际开始日期: '2026-08-07', 研发Assignee: '@dev',
       计划提测时间: '2026-08-08', 计划上线时间: '2026-08-09',
+      技术方案版本: 'v1', 方案概述: '按已评审需求实施', 影响模块: '服务与前端', 数据模型变更: '新增字段', API契约: '兼容现有接口',
+      前端页面与路由: '现有页面扩展', 权限与安全: '复用现有权限', 迁移与配置: '纳入发布', 测试计划摘要: '覆盖多环境',
+      风险与对策: '灰度验证', 回滚方案: '回滚版本',
     },
     assigneeUser: '@dev', datesConfirmed: true,
   };
@@ -324,7 +350,7 @@ describe('cli Week Plan contract — legacy direct paths', () => {
 
   it('validate rejects Story development entry with no latest Week Plan, while plan rejects the unsafe legacy path', () => {
     const input = { type: 'story', labels: ['type::story', 'story-status::已评审'], payload: developmentPayload };
-    expect(cli('validate', input)).toMatchObject({ status: 0, json: { ok: false, missing: ['latestWeekPlan'] } });
+    expect(cli('validate', input)).toMatchObject({ status: 0, json: { ok: false, missing: expect.arrayContaining(['latestWeekPlan']) } });
     expect(cli('plan', { payload: developmentPayload })).toMatchObject({
       status: 1,
       json: { error: expect.stringContaining('transition') },
