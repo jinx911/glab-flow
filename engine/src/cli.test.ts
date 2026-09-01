@@ -13,7 +13,7 @@ const VALID_REVIEW_EVIDENCE = {
 };
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit' | 'resource', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
@@ -222,5 +222,30 @@ describe('cli Week Plan contract — legacy direct paths', () => {
     expect(status).toBe(1);
     expect(json).toMatchObject({ ok: false, reasons: [expect.stringContaining('not allowed')] });
     expect(json).not.toHaveProperty('ops');
+  });
+});
+
+describe('cli resource — boundary validation', () => {
+  const du = {
+    iid: 88, type: 'story', cachedNode: '', affectedScopes: [], evidence: [],
+    resources: [], metricEvents: [], updatedAt: '2026-09-01T00:00:00Z',
+  };
+
+  it('exits non-zero when register is missing entry (no silent {} garbage)', () => {
+    const { status, stderr } = cli('resource', { du, op: 'register', now: '2026-09-01T00:00:00Z' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('register requires entry');
+  });
+
+  it('exits non-zero when dispose targets an unknown resourceId (no silent no-op)', () => {
+    const { status, stderr } = cli('resource', { du, op: 'dispose', resourceId: 'nope', disposal: 'deleted', now: '2026-09-01T00:00:00Z' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('unknown resourceId');
+  });
+
+  it('exits non-zero when op is not one of register|check|cleanup|dispose', () => {
+    const { status, stderr } = cli('resource', { du, op: 'purge', now: '2026-09-01T00:00:00Z' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('resource:');
   });
 });

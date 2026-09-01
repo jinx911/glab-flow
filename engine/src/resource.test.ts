@@ -14,12 +14,21 @@ describe('resource registry', () => {
   });
   it('flags temporary apifox resource without TMP prefix', () => {
     const du = registerResource(base(), { id: 'members-data', kind: 'apifox-test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T }, T);
-    expect(checkResources(du, 88)).toHaveLength(1);
-    expect(checkResources(du, 88)[0]?.issue).toContain('TMP-88-');
+    expect(checkResources(du)).toHaveLength(1);
+    expect(checkResources(du)[0]?.issue).toContain('TMP-88-');
   });
   it('flags prod resource with temporary lifecycle', () => {
     const du = registerResource(base(), { id: 'prod-config', kind: 'test-data', scope: 'prod', lifecycle: 'temporary', createdAt: T }, T);
-    expect(checkResources(du, 88).some((i) => i.issue.includes('生产资源'))).toBe(true);
+    expect(checkResources(du).some((i) => i.issue.includes('生产资源'))).toBe(true);
+  });
+  it.each(['id', 'kind', 'scope', 'lifecycle', 'createdAt'])('throws when entry misses required field %s (no garbage {} entries)', (field) => {
+    const entry = { id: 'TMP-88-members', kind: 'apifox-test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T };
+    const malformed = { ...entry, [field]: undefined } as unknown as Parameters<typeof registerResource>[1];
+    expect(() => registerResource(base(), malformed, T)).toThrow(field);
+  });
+  it('throws when entry id is an empty string', () => {
+    const malformed = { kind: 'test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T, id: '' } as unknown as Parameters<typeof registerResource>[1];
+    expect(() => registerResource(base(), malformed, T)).toThrow('id');
   });
   it('cleanup checklist lists undisposed only, with lifecycle-based suggestion', () => {
     let du = registerResource(base(), { id: 'TMP-88-a', kind: 'apifox-test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T }, T);
