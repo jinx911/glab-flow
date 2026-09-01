@@ -1,4 +1,4 @@
-import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput, TestRun, TestPlan, ApifoxAssetAudit, ApifoxAssetRecord, LatestTestRun, LatestApifoxAssetAudit, TestMethod, DuState } from './types.js';
+import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput, TestRun, TestPlan, ApifoxAssetAudit, ApifoxAssetRecord, LatestTestRun, LatestApifoxAssetAudit, TestMethod, DuState, Transition, GateSet } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
@@ -7,6 +7,7 @@ import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.j
 import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
 import { validateChangeImpactClosure } from './change-impact.js';
+import { isWaivedByGateSet } from './gate-set.js';
 import { latestEvidence } from './du.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
@@ -187,6 +188,15 @@ export function isAffirmative(v: string | undefined): boolean {
   return AFFIRMATIVE_NOTE_PREFIX.some((p) => raw.startsWith(p));
 }
 
+/**
+ * G1/G14 联合口径：转换必填字段中 GateSet 实际要求的部分（MR 评审字段在
+ * GateSet 关闭 mrReview 时豁免）。guard 校验与 transition 缺口提示共用，
+ * 避免「校验过、提示仍要补」的幽灵缺口（I3）。
+ */
+export function effectiveRequiredFields(t: Pick<Transition, 'requiredFields'>, gateSet: GateSet | undefined): string[] {
+  return t.requiredFields.filter((f) => !isWaivedByGateSet(gateSet, f));
+}
+
 export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: IssueNote[] = []): GuardResult {
   const t = transitionFor(model, payload.type, payload.from, payload.to);
   if (!t) return fail([`transition ${payload.from}->${payload.to} not allowed`]);
@@ -200,13 +210,9 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (statusLabels.length !== 1) return fail([`脏状态：期望 1 个 ${prefix}* 标签，实际 ${statusLabels.length} 个（人工修复后继续）`]);
   if (facts.labels.filter((l) => l.startsWith('type::')).length !== 1) return fail(['脏状态：期望 1 个 type::* 标签']);
 
-  // G14: MR 评审仅在 GateSet 要求时为必填字段（skipStates 含 测试中 的路线永远不触发本转换）
-  const gateSet = payload.du?.gateSet;
-  const effectiveRequired = t.requiredFields.filter((f) =>
-    !(gateSet && gateSet.mrReview === false && f === 'feature分支MR评审结论'));
-
-  // G1 required fields (G9: no placeholder 待确认)
-  for (const f of effectiveRequired) {
+  // G1 required fields (G9: no placeholder 待确认); G14 waives MR review per GateSet
+  // （skipStates 含 测试中 的路线永远不触发 测试中→待发布 本转换）
+  for (const f of effectiveRequiredFields(t, payload.du?.gateSet)) {
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push(f);
   }

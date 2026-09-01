@@ -3,6 +3,10 @@ import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 import { loadModel } from './model.js';
+import { SCOPE_RANK } from './gate-set.js';
+import type { ChangeScope } from './types.js';
+
+const ALL_SCOPES: ChangeScope[] = ['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release'];
 
 const PROJECT_ROOT = process.cwd();
 const ENGINE_SRC = 'engine/src';
@@ -93,7 +97,7 @@ describe('glab-flow process contracts', () => {
     const matrix = loadModel().gateMatrix;
     expect(matrix?.rules?.length).toBeGreaterThan(0);
     // defaults 必须齐备：deriveGateSet 未命中规则时以其为基准
-    expect(matrix?.defaults).toMatchObject({ mrReview: true, regression: 'full' });
+    expect(matrix?.defaults).toMatchObject({ mrReview: true, regression: 'full', rollbackPlan: false });
     expect(matrix?.defaults.environments.length).toBeGreaterThan(0);
     // frontend-copy 规则必须可跳过测试中并免 MR 评审（轻量需求直达待发布）
     const frontendCopy = matrix?.rules.find((rule) => rule.scopes.includes('frontend-copy'));
@@ -102,6 +106,19 @@ describe('glab-flow process contracts', () => {
     // 高危维度必须全量回归 + 回滚方案
     const dataModel = matrix?.rules.find((rule) => rule.scopes.includes('data-model'));
     expect(dataModel).toMatchObject({ mrReview: true, regression: 'full', rollbackPlan: true });
+  });
+
+  it('keeps gate-matrix scopes aligned with the ChangeScope union and SCOPE_RANK (I5)', () => {
+    const matrix = loadModel().gateMatrix;
+    expect(matrix).toBeDefined();
+    const ruleScopes = matrix!.rules.flatMap((rule) => rule.scopes);
+    // 1) rules 中每个 scope 都是合法 ChangeScope（yaml 手写不漂移）
+    expect(ruleScopes.every((scope) => ALL_SCOPES.includes(scope as ChangeScope))).toBe(true);
+    // 2) SCOPE_RANK 编译期穷尽 ChangeScope；运行时同样核对无遗漏/无多余
+    expect(Object.keys(SCOPE_RANK).sort()).toEqual([...ALL_SCOPES].sort());
+    // 3) 同一 scope 不得出现在两条 rule（否则最高档命中哪条取决于 rules 顺序，破坏确定性）
+    const duplicated = ruleScopes.filter((scope, index) => ruleScopes.indexOf(scope) !== index);
+    expect(duplicated).toEqual([]);
   });
 
   it('keeps the engine free of GitLab writeback and shell/network side effects', () => {

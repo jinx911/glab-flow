@@ -1,6 +1,6 @@
 import type { ActionTier, StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep } from './types.js';
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
-import { validateTransition } from './guard.js';
+import { validateTransition, effectiveRequiredFields } from './guard.js';
 import { deriveGateSet } from './gate-set.js';
 import { classifyAction, shouldConfirmFor } from './action-policy.js';
 import { parseAssigneeTable } from './parse.js';
@@ -270,12 +270,12 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     ? deriveGateSet(model.gateMatrix, input.declaredScopes)
     : undefined;
 
-  // 缺口（必填未填）带 hint
+  // 缺口（必填未填）带 hint；豁免口径与 guard 一致（G14 按 GateSet），避免幽灵缺口（I3）
   const missing: MissingItem[] = [];
   if (!assigneeUser) {
     missing.push({ field: 'assigneeUser', hint: `@用户（角色=${role}）——来自交付协同表 / config.roles / 显式传入` });
   }
-  for (const f of tr.requiredFields) {
+  for (const f of effectiveRequiredFields(tr, input.du?.gateSet)) {
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
   }

@@ -578,6 +578,20 @@ describe('GateSet skip states (P3)', () => {
     expect(r.next).toBe('待发布');
   });
 
+  it('missing hints share the guard exemption — no ghost gap for waived MR review (I3)', () => {
+    // functional GateSet（mrReview=false）：测试中→待发布 缺全部字段时，
+    // 缺口提示也不得出现 feature分支MR评审结论（与 guard 豁免口径一致）
+    const du: DuState = { ...initDu({ iid: 42, type: 'story', now: DU_NOW }), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['functional']), DU_NOW) };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: {}, datesConfirmed: true,
+      notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((m) => m.field)).not.toContain('feature分支MR评审结论');
+    expect(r.missing.map((m) => m.field)).toContain('阻塞发布问题均已验证通过');
+  });
+
   it('no GateSet bound → no projection at all (存量行为不变)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,

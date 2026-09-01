@@ -470,6 +470,6 @@ export interface GateMatrixRule {
 }
 
 export interface GateMatrix {
-  defaults: Required<Pick<GateMatrixRule, 'environments' | 'mrReview' | 'regression'>> & GateMatrixRule;
+  defaults: Required<Pick<GateMatrixRule, 'environments' | 'mrReview' | 'regression' | 'rollbackPlan'>> & GateMatrixRule;
   rules: GateMatrixRule[];
 }

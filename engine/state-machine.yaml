@@ -73,6 +73,7 @@ gateMatrix:
     environments: [local, test]
     mrReview: true
     regression: full
+    rollbackPlan: false
   rules:
     - scopes: [frontend-copy]
       skipStates: [测试中]
