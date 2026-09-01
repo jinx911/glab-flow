@@ -106,6 +106,7 @@ export function renderChangeImpact(impact: ChangeImpact, input: Pick<ChangeImpac
     '',
     '### 闭环规则',
     '',
+    '- 本单适用于产物层偏差（proposal/design/test-plan 有话变假）；纯实现缺陷修复请走测试问题评论+复测，勿开单。',
     '- 先按本单更新全部受影响产物；需要回退时用 plan-return，禁止直接改标签。',
     '- 测试计划受影响时必须递增 plan-version；旧环境测试证据随即失效。',
     '- 本单未关闭前，任何正向状态流转都会被阻断。',

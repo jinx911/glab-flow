@@ -43,7 +43,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
    门禁**二值**（G2）——通过走 `transition`/`plan`，退回走 `plan-return`，没有"附带条件通过"；`hard_gate`（待发布 / 生产验收中 / 已完成）必须 `humanConfirmed`（G3，恒 L3），无论何种动作分层都要人工拍板，这是不可关闭的红线。
 
-4. **变更闭环**（G16）。实施中发现需求、技术方案或既有实现错误，Leader 先回读 Issue notes 和当前 `test-plan.md`，以 `change`（首选；含 T1–T4 自动定级与 GateSet 棘轮扩容）预览并确认新增 open 影响单。按其 `requiredArtifacts` 更新所有关联产物；需要返回评审/开发节点时用 `plan-return`，排期变化另走 `week-plan-change`。全部完成、按定级满足关闭要求（T3+ 须测试计划版本递增）及受影响环境重测后，使用刚回读的 notes 调 `change-close` 写 closed 回执。open 单存在时不允许调用普通 `transition` 继续推进。
+4. **变更闭环**（G16）。**先过「三类改」判据：改完后，proposal / design / test-plan 里有没有任何一句话变成假的？** 没有一句话变假 → 这不是变更，是**实施调整**，不开影响单——开发中=自测迭代重跑 local（节点内循环）；测试中=测试问题评论（renderTestIssue）+ 阻塞修复 + 复测，G11 收口。**有话变假**（偏差在产物层）才走本闭环：Leader 回读 Issue notes 和当前 `test-plan.md`，以 `change`（含 T1–T4 自动定级与 GateSet 棘轮扩容）预览并确认新增 open 影响单——`source` 表达「谁发现的偏差」（requirement=需求口径假 / technical-design=方案契约假 / implementation·test=实现或测试时才发现方案不可行，分别建议回退 待评审/已评审/开发中）。按其 `requiredArtifacts` 更新所有关联产物；需要返回评审/开发节点时用 `plan-return`，排期变化另走 `week-plan-change`。全部完成、按定级满足关闭要求（T3+ 须测试计划版本递增）及受影响环境重测后，使用刚回读的 notes 调 `change-close` 写 closed 回执。open 单存在时不允许调用普通 `transition` 继续推进。
 
 ### 脏状态（`transition.dirty=true` 直接识别）
 

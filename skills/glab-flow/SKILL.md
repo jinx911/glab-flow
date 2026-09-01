@@ -159,9 +159,18 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 `transition` 内部确定性编排 = 推导节点 + 评论字段扫描预填（`scanFieldsFromNotes`：精确 key 优先，缺失则按「实际日期 / 确认人 / 结论 / 依据」语义槽位回填，兼容 `render` 归一化评论）+ `validate` + `plan` + `render` + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。`evidence` 命令是独立的结构化取证工具（从 `## 状态变更` 块抽固定语义槽位，供 G1/G3/G11 人工排障），不参与 transition 内部预填。
 
-### 需求/方案变更闭环
+### 需求/方案变更闭环（区别于实施调整）
 
-实施、联调或测试中发现需求、技术方案、接口契约、数据模型、权限或页面路由有误时，禁止仅改代码/文档后继续推进。Leader 先回读 Issue 和当前 `test-plan.md`，调用 `change`（首选；等价于 `change-impact` + 自动定级）预览并经确认新增不可变的 `glab-flow:change-impact:v1 status: open` 评论。输出的 `requiredArtifacts` 是最小闭环清单：按影响更新 proposal/design/test-plan、Apifox 资产、代码、周排期或发布材料；需要状态回退时再调用既有 `plan-return`，不得由变更单暗改标签。tier 由引擎从 open 单 scopes 重推导（禁自报）；若扩容实质改变门禁，`expandedGateSet` 经确认后写回 DU（棘轮只升不降）。
+**「三类改」决策树——改完后，proposal / design / test-plan 里有没有任何一句话变成假的？**
+
+- **没有一句话变假 → 实施调整，不开影响单**：行为本应符合已确认方案，只是从错误实现改为正确实现。开发中=自测迭代（节点内循环，修复后重跑 local，TestRun 最新事实覆盖）；测试中=测试问题评论（renderTestIssue）挂父需求 + 阻塞修复 + 复测，G11 收口，不退回节点。
+- **需求口径变假（范围/规则/验收变了）→ 变更**：`change` source=requirement（建议回退 待评审）。
+- **技术方案/契约变假（接口、数据模型、权限、路由与 design 不符）→ 变更**：`change` source=technical-design（建议回退 已评审）。
+- **实现/测试时才发现方案不可行 → 变更**：`change` source=implementation/test（建议回退 开发中）——注意这是「方案层偏差从实现侧暴露」，不是实现层 bug。
+
+`source` 表达「谁发现的偏差」，`scopes` 表达「什么维度错了」——两者正交；tier 由 scopes 定级，与 source 无关。
+
+发现产物层偏差（后三类）时，禁止仅改代码/文档后继续推进。Leader 先回读 Issue 和当前 `test-plan.md`，调用 `change`（首选；等价于 `change-impact` + 自动定级）预览并经确认新增不可变的 `glab-flow:change-impact:v1 status: open` 评论。输出的 `requiredArtifacts` 是最小闭环清单：按影响更新 proposal/design/test-plan、Apifox 资产、代码、周排期或发布材料；需要状态回退时再调用既有 `plan-return`，不得由变更单暗改标签。tier 由引擎从 open 单 scopes 重推导（禁自报）；若扩容实质改变门禁，`expandedGateSet` 经确认后写回 DU（棘轮只升不降）。
 
 变更影响到测试计划且定级为 T3/T4 时，必须递增 `plan-version`（`closeRequiresPlanVersionBump`）；既有 local/test AssetAudit 与 TestRun 会因版本不一致自动失效。T1/T2 轻量档关闭时豁免版本严格递增检查。完成所有清单项及相应环境重测后，Leader 以刚回读的 notes 调用 `change-close` 生成 `status: closed` 回执。每一次 `transition`/`validate` 都检查未关闭影响单（G16）；任何 open 单都会阻断正向流转。排期维度仍须另走 `week-plan-change` 并将其回读证据写入 close；关闭单不能替代周排期评论或 Milestone 同步。
 
