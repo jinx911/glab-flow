@@ -21,4 +21,13 @@ describe('du evidence', () => {
     expect(latestEvidence(du, 'asset-audit', 'test')?.planVersion).toBe('v2');
     expect(latestEvidence(du, 'asset-audit', 'local')).toBeUndefined();
   });
+  it('keeps both entries sharing a timestamp with different outcomes, latest by append order', () => {
+    // 同刻不同 outcome：幂等键不含 outcome，两条共存；latest 取追加序最后一条
+    // （「按时间序追加」是调用方契约，引擎不读时钟不排序）。
+    let du = initDu(base);
+    du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v1', outcome: 'failed', recordedAt: base.now }, base.now);
+    du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v1', outcome: 'passed', recordedAt: base.now }, base.now);
+    expect(du.evidence).toHaveLength(2);
+    expect(latestEvidence(du, 'test-run', 'local')?.outcome).toBe('passed');
+  });
 });

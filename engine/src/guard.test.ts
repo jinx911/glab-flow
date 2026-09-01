@@ -319,7 +319,7 @@ describe('DU-first evidence (P2)', () => {
     const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }]);
     expect(r.ok).toBe(true);
   });
-  it('rejects when DU records failed test-run', () => {
+  it('rejects when DU records failed test-run, surfacing the rerun root cause', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
       { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'failed', recordedAt: DU_NOW },
@@ -331,7 +331,48 @@ describe('DU-first evidence (P2)', () => {
     };
     const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
     expect(r.ok).toBe(false);
-    expect(r.reasons.some((x) => x.includes('缺通过 case') || x.includes('outcome'))).toBe(true);
+    expect(r.reasons.some((x) => x.includes('DU 记录 outcome=failed，须重跑后再记录'))).toBe(true);
+  });
+  it('rejects a non-numeric DU asset-audit outcome instead of coercing it to zero (fail-closed)', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: 'abc', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('DU asset-audit outcome 无效（须为非负整数）：abc'))).toBe(true);
+  });
+  it('rejects a negative or fractional DU asset-audit outcome (fail-closed)', () => {
+    for (const outcome of ['-1', '1.5', '']) {
+      const du = duWith([{ kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome, recordedAt: DU_NOW }]);
+      const p: Payload = {
+        type: 'story', from: '开发中', to: '测试中',
+        fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+        assigneeUser: '@qa', datesConfirmed: true,
+      };
+      const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+      expect(r.ok).toBe(false);
+      expect(r.reasons.some((x) => x.includes('DU asset-audit outcome 无效'))).toBe(true);
+    }
+  });
+  it('surfaces a positive DU unresolved-findings count instead of zeroing it', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '2', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('仍有 2 个未处置问题'))).toBe(true);
   });
   it('rejects when DU evidence plan version drifts from the current test plan', () => {
     const du = duWith([
@@ -346,5 +387,38 @@ describe('DU-first evidence (P2)', () => {
     const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
     expect(r.ok).toBe(false);
     expect(r.reasons.some((x) => x.includes('版本不匹配'))).toBe(true);
+  });
+  it('falls back to a valid v2 Issue comment when the plan requires presentation/auth-profile evidence', () => {
+    // 计划声明 presentation/auth-profile → 必须走 v2 审计；DU 合成对象无法承载，
+    // 适配器回落评论路径，合法 v2 评论照常通过（不被 DU-first 短路卡死）。
+    const governedPlan = `<!-- glab-flow:test-plan:v1
+plan-version: v3
+case: TP-001 | local,test | api,e2e
+asset: TP-001 | scenario
+presentation: TP-001 | scenario
+auth-profile: TP-001 | client-user
+-->`;
+    const v2Audit = `<!-- glab-flow:apifox-asset-audit:v2
+environment: local
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/local
+asset: TP-001 | scenario | scenario-101 | reuse
+presentation: TP-001 | scenario | local | local | local
+auth-profile: TP-001 | client-user | auth_token
+-->`;
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: governedPlan, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: v2Audit }, { body: LOCAL_RUN }]);
+    expect(r.ok).toBe(true);
   });
 });
