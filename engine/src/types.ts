@@ -30,6 +30,8 @@ export interface Payload {
   fields: Record<string, string>;
   /** Current contents of the Issue-scoped, versioned test-plan.md. */
   testPlan?: string;
+  /** DU 本地事实（P2 起：TestRun/AssetAudit 证据优先取本地，不再要求 Issue 评论）。 */
+  du?: DuState;
   /** Structured schedule input; rendering derives coverage only after validation. */
   weekPlan?: WeekPlanInput;
   /** Evidence completed before a Story requirement review can be approved. */
@@ -256,6 +258,8 @@ export interface TransitionInput {
   fields?: Record<string, string>;
   /** Current contents of .glab-flow/<iid>/spec/test-plan.md, read by Leader. */
   testPlan?: string;
+  /** DU 本地事实（P2 起：TestRun/AssetAudit 证据优先取本地，Issue 评论仅兜底）。 */
+  du?: DuState;
   /** Structured schedule supplied when approving a Story. */
   weekPlan?: WeekPlanInput;
   /** Completed image/OCR, frontend-route and grilling evidence for Story review approval. */

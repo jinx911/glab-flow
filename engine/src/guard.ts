@@ -1,4 +1,4 @@
-import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput } from './types.js';
+import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput, TestRun, ApifoxAssetAudit, ApifoxAssetRecord, LatestTestRun, LatestApifoxAssetAudit, TestMethod } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
@@ -7,6 +7,7 @@ import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.j
 import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
 import { validateChangeImpactClosure } from './change-impact.js';
+import { latestEvidence } from './du.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
@@ -64,6 +65,66 @@ export function validateWeekPlanTransition(payload: Payload, notes: IssueNote[] 
   return ok();
 }
 
+/**
+ * DU 本地证据 → TestRun 形状（评论瘦身，P2）。
+ * version/cases/evidence 是评论格式的回读锚点，DU 明细在本地 detailRef，
+ * 故以中性占位满足结构（空 version 会缺被测版本、空 cases/evidence 触发
+ * 逐项校验）。assetAudit 拼成 `${planVersion}/${environment}`，与评论标记
+ * 约定一致，让 validateTestRun 的关联校验照常工作。
+ */
+function duTestRunFor(payload: Payload, environment: string): LatestTestRun | undefined {
+  const entry = payload.du ? latestEvidence(payload.du, 'test-run', environment) : undefined;
+  if (!entry) return undefined;
+  const passed = entry.outcome === 'passed';
+  const plan = parseTestPlan(payload.testPlan);
+  const required = plan.ok ? plan.plan.cases.filter((item) => item.environments.includes(environment)) : [];
+  const cases: Record<string, 'passed'> = {};
+  for (const item of required) cases[item.id] = 'passed';
+  const evidence: Partial<Record<TestMethod, string>> = {};
+  for (const method of new Set(required.flatMap((item) => item.methods))) {
+    evidence[method] = `${entry.outcome === 'failed' ? 'failed' : 'ok'}:${entry.detailRef ?? 'du'}`;
+  }
+  const run: TestRun = {
+    environment: entry.environment,
+    planVersion: entry.planVersion,
+    version: passed ? 'du' : 'failed',
+    outcome: passed ? 'passed' : 'failed',
+    assetAudit: `${entry.planVersion}/${entry.environment}`,
+    cases: passed ? cases : {},
+    evidence: passed ? evidence : {},
+  };
+  return { kind: 'valid' as const, run };
+}
+
+/**
+ * DU 本地证据 → ApifoxAssetAudit 形状（评论瘦身，P2）。
+ * project/branch 是展示字段，DU 不登记（明细在本地 detailRef）；审计语义
+ * 由「计划内资产全覆盖 + 计划版本一致 + 无未处置问题 + 有本地明细指针」
+ * 表达：required 资产从当前计划推导填充，unresolvedFindings 取 DU outcome
+ * 的整数值（非整数视为 0，入口 0 正常通过）。
+ */
+function duAssetAuditFor(payload: Payload, environment: string): LatestApifoxAssetAudit | undefined {
+  const entry = payload.du ? latestEvidence(payload.du, 'asset-audit', environment) : undefined;
+  if (!entry) return undefined;
+  const unresolved = Number(entry.outcome);
+  const plan = parseTestPlan(payload.testPlan);
+  const assets = plan.ok
+    ? plan.plan.cases
+      .filter((item) => item.environments.includes(environment))
+      .flatMap((item) => item.assets.map((type): ApifoxAssetRecord => ({ caseId: item.id, type, id: entry.detailRef ?? 'du', action: 'reuse' })))
+    : [];
+  const audit: ApifoxAssetAudit = {
+    environment: entry.environment,
+    planVersion: entry.planVersion,
+    project: '',
+    branch: '',
+    unresolvedFindings: Number.isInteger(unresolved) && unresolved > 0 ? unresolved : 0,
+    evidence: entry.detailRef ?? 'du',
+    assets,
+  };
+  return { kind: 'valid' as const, audit };
+}
+
 /** Applies one versioned test plan to the local and test acceptance gates. */
 export function validateTestRunTransition(payload: Payload, notes: IssueNote[] = []): GuardResult {
   const environment = payload.from === '开发中' && payload.to === '测试中'
@@ -75,7 +136,10 @@ export function validateTestRunTransition(payload: Payload, notes: IssueNote[] =
 
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
-  const validation = validateTestRun(parsedPlan.plan, environment, parseLatestTestRun(notes, environment));
+  // DU 优先：本地有该环境事实就不看评论（存量 Issue 无 DU 仍走评论兜底）。
+  const fromDu = duTestRunFor(payload, environment);
+  const parsedLatest = fromDu ?? parseLatestTestRun(notes, environment);
+  const validation = validateTestRun(parsedPlan.plan, environment, parsedLatest);
   return validation.ok ? ok() : fail(validation.errors, [`${environment}TestRun`]);
 }
 
@@ -89,7 +153,10 @@ export function validateApifoxAssetAuditTransition(payload: Payload, notes: Issu
   if (!environment) return ok();
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
-  const validation = validateApifoxAssetAudit(parsedPlan.plan, environment, parseLatestApifoxAssetAudit(notes, environment));
+  // DU 优先（同上）：明细归 DU，Issue 评论仅兜底。
+  const fromDu = duAssetAuditFor(payload, environment);
+  const parsedLatest = fromDu ?? parseLatestApifoxAssetAudit(notes, environment);
+  const validation = validateApifoxAssetAudit(parsedPlan.plan, environment, parsedLatest);
   return validation.ok ? ok() : fail(validation.errors, [`${environment}AssetAudit`]);
 }
 

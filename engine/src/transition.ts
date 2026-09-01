@@ -231,6 +231,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     to: tr.to,
     fields: { ...prefillFields, ...input.fields },
     ...(input.testPlan !== undefined ? { testPlan: input.testPlan } : {}),
+    ...(input.du ? { du: input.du } : {}),
     ...(input.gateOutcome ? { gateOutcome: input.gateOutcome } : {}),
     ...(input.reviewType ? { reviewType: input.reviewType } : {}),
     ...(input.reviewEvidence ? { reviewEvidence: input.reviewEvidence } : {}),

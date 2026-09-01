@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
 import { validateTransition, validateWritePlan, isAffirmative } from './guard.js';
-import type { IssueFacts, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
+import { initDu, recordEvidence } from './du.js';
+import type { DuState, IssueFacts, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
 
 describe('isAffirmative — tight prefix (excludes 是否/是吗)', () => {
   it.each(['是', '是(无阻塞)', '是。详细说明…', '是，无问题', '已验证', 'true', ' 是 '])('accepts %s', (v) => {
@@ -282,5 +283,68 @@ describe('G6b role cross-check (when 交付协同 table present)', () => {
     const p: Payload = { type: 'story', from: '草稿中', to: '待评审', fields: {}, assigneeUser: '@anyone' };
     const r = validateTransition(model, facts(['type::story', 'story-status::草稿中']), p);
     expect(r.ok).toBe(true);
+  });
+});
+
+// —— P2 评论瘦身：证据双源（DU 本地事实优先，Issue 评论兜底）——
+// DU 登记只影响证据读取来源；版本一致性仍以 testPlan 为准（DU 里 planVersion 必须与当前计划一致）。
+const DU_NOW = '2026-09-01T00:00:00Z';
+const duWith = (entries: Parameters<typeof recordEvidence>[1][]): DuState =>
+  entries.reduce((du, entry) => recordEvidence(du, entry, DU_NOW), initDu({ iid: 88, type: 'story', now: DU_NOW }));
+const DU_SUBMIT_FIELDS = {
+  代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev',
+  可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对',
+};
+
+describe('DU-first evidence (P2)', () => {
+  it('accepts local TestRun+AssetAudit from DU evidence without Issue comments', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(true);
+  });
+  it('falls back to Issue comment evidence when DU absent', () => {
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }]);
+    expect(r.ok).toBe(true);
+  });
+  it('rejects when DU records failed test-run', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'failed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('缺通过 case') || x.includes('outcome'))).toBe(true);
+  });
+  it('rejects when DU evidence plan version drifts from the current test plan', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v2', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v2', outcome: 'passed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('版本不匹配'))).toBe(true);
   });
 });
