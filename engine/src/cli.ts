@@ -16,6 +16,8 @@ import type { ChangeCloseInput, ChangeImpactInput } from './types.js';
 import { buildChangeClosePlan, buildChangeImpactPlan, validateChangeClose, validateChangeImpactInput } from './change-impact.js';
 import { planChange } from './change.js';
 import type { ChangePlanInput } from './change.js';
+import { reconcileLabels } from './reconcile.js';
+import type { ReconcileInput } from './reconcile.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
@@ -268,8 +270,14 @@ async function main() {
       if (!result.ok) process.exitCode = 1;
       break;
     }
+    case 'reconcile': {
+      // P5 对账：labels 与 DU cachedNode 漂移时给出二选一处理方向，不再当脏状态异常。
+      const input = JSON.parse(readStdin()) as ReconcileInput;
+      console.log(JSON.stringify(reconcileLabels(model, input)));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | evidence | config | version | test-config | state-init | state-writeback | progress | resource');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource');
       process.exit(1);
   }
 }
