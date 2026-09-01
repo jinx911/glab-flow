@@ -286,6 +286,10 @@ export interface TransitionOutput {
   nodeProgress: string[];
   preview: string;
   shouldConfirm: boolean;
+  /** 动作分层（spec §3.3）：L1 自动 / L2 批量确认 / L3 硬门。 */
+  actionTier: 'L1' | 'L2' | 'L3';
+  /** L2/L3 的批量确认标题；L1 为空串。 */
+  confirmBatchTitle: string;
   applied: false;
 }
 

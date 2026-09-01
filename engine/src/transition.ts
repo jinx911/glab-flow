@@ -1,6 +1,7 @@
 import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep } from './types.js';
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
 import { validateTransition } from './guard.js';
+import { classifyAction, shouldConfirmFor } from './action-policy.js';
 import { parseAssigneeTable } from './parse.js';
 import { buildForwardPlan, buildWeekMilestoneSyncIntent } from './plan.js';
 import { parseLatestWeekPlan } from './week-plan.js';
@@ -140,7 +141,7 @@ const FIELD_TO_SLOT: ReadonlyMap<string, string> = (() => {
   return m;
 })();
 
-function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, tier: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
   const code = playbook.filter((s) => s.phase === 'pre-writeback');
@@ -158,7 +159,7 @@ function previewText(from: string, to: string, payload: Payload, validateOk: boo
   if (postReadback.length) {
     lines.push(`回读后动作（不得与状态写回并行）：\n${postReadback.map((s, i) => `  ${i + 1}. ${s.desc}`).join('\n')}`);
   }
-  lines.push(`run 模式：${runMode} → ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
+  lines.push(`动作分层：${tier} → ${shouldConfirm ? '批量确认后写回（Jenkins 参数并入本次确认）' : '自动写回（可逆/非门禁流转）'}；run 模式 ${runMode} 仅作审计记录`);
   return lines.join('\n');
 }
 
@@ -180,6 +181,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     return {
       node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
       validate: { ok: false, missing: [], reasons: [dirtyReason] },      preview: dirtyReason, shouldConfirm: true, applied: false,
+      actionTier: 'L2', confirmBatchTitle: '',
     };
   }
 
@@ -192,6 +194,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     return {
       node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
       validate: { ok: false, missing: [], reasons: [msg] },      preview: msg, shouldConfirm: true, applied: false,
+      actionTier: 'L2', confirmBatchTitle: '',
     };
   }
 
@@ -274,6 +277,8 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     missing.push({ field: 'reviewEvidence', hint: '补齐图片 OCR/视觉摘要、页面地址的路由代码证据和 grilling 决策账本；页面地址无法确认或存在未决问题时，先在同一批评审问题中向产品确认' });
   }
   const runMode = input.runMode ?? 'semi-auto';
+  const action = classifyAction(tr);
+  const shouldConfirm = shouldConfirmFor(tr, validate.ok);
   const plan = validate.ok
     ? buildForwardPlan(
       weekMilestoneSync && payload.type === 'bug' ? { ...payload, weekPlan: weekMilestoneSync.plan } : payload,
@@ -281,8 +286,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     )
     : undefined;
   const nodeProgress = progressStepsFor(model, current);
-  const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);
+  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, action.tier, playbook, nodeProgress);
 
   return {
     node: current,
@@ -299,6 +303,8 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     nodeProgress,
     preview,
     shouldConfirm,
+    actionTier: action.tier,
+    confirmBatchTitle: action.batchTitle,
     applied: false,
   };
 }

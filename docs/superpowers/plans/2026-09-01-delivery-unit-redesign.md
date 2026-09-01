@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript (Node 20+, ESM)、yaml、vitest、tsx CLI。spec 见 `docs/superpowers/specs/2026-09-01-delivery-unit-redesign.md`。
 
-**验证方式（用户明确不要 TDD）:** 每任务先写实现，再写验证测试（实现后验证），跑定向测试 + `pnpm test` 全量 + `pnpm typecheck`，绿了才 commit。禁止测试先行仪式。
+**验证方式（用户明确不要测试先行）:** 每任务先写实现，再写验证测试（实现后验证），跑定向测试 + `pnpm test` 全量 + `pnpm typecheck`，绿了才 commit。禁止测试先行仪式。
 
 **术语:** DU = DeliveryUnit 交付工作包；DU 本地文件 = `<workspace.root>/.glab-flow/<iid>/du.json`（Leader 落盘，引擎只算，与 state 文件同目录同模式）。
 

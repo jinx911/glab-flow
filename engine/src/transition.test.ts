@@ -227,10 +227,11 @@ describe('transition — plan + preview + shouldConfirm', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true, runMode: 'semi-auto' }));
     expect(r.shouldConfirm).toBe(true);
   });
-  it('full-auto skips confirm when ok and not hardGate', () => {
+  it('full-auto still confirms gated transition (L2 业务判断与 run 模式无关)', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true, runMode: 'full-auto' }));
     expect(r.validate.ok).toBe(true);
-    expect(r.shouldConfirm).toBe(false);
+    expect(r.actionTier).toBe('L2');
+    expect(r.shouldConfirm).toBe(true);
   });
   it('full-auto still confirms hardGate (待发布→生产验收中)', () => {
     const r = runTransition(model, baseInput({
@@ -500,5 +501,29 @@ describe('transition — prefill from render-normalized comments (semantic slot 
       gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
     }));
     expect(r.payload?.fields.评审日期).toBe('2026-08-09');
+  });
+});
+
+describe('action tier (P1)', () => {
+  it('marks gateless bug transition L1 with shouldConfirm=false when validation passes', () => {
+    const out = runTransition(loadModel(), {
+      type: 'bug', iid: 1, labels: ['type::bug', 'status::已确认缺陷'],
+      body: '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n', state: 'opened',
+      notes: [], fields: {}, datesConfirmed: true,
+    });
+    expect(out.validate.ok).toBe(true);
+    expect(out.actionTier).toBe('L1');
+    expect(out.shouldConfirm).toBe(false);
+  });
+  it('marks hard gate L3 and requires confirmation even when validation passes', () => {
+    const out = runTransition(loadModel(), {
+      type: 'bug', iid: 1, labels: ['type::bug', 'status::待发布'],
+      body: '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n', state: 'opened',
+      notes: [], datesConfirmed: true, humanConfirmed: true,
+      fields: { 发布日期: '2026-09-01', 研发Assignee: '@dev', 生产版本: 'v1.0', 发布记录或回滚信息: '见 release-check' },
+    });
+    expect(out.validate.ok).toBe(true);
+    expect(out.actionTier).toBe('L3');
+    expect(out.shouldConfirm).toBe(true);
   });
 });
