@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { loadModel } from './model.js';
 import { computeNextStep } from './next-step.js';
 import { initDu } from './du.js';
+import { deriveGateSet, freezeGateSet } from './gate-set.js';
 import { disposeResource, registerResource } from './resource.js';
 
 const body = '## 交付协同\n\n|角色|用户|\n|--|--|\n|产品|@pm|\n|研发|@dev|\n|测试|@qa|';
@@ -59,5 +60,20 @@ describe('computeNextStep', () => {
     expect(out.where).toBe('开发中');
     expect(out.blockedOn).toHaveLength(0);
     expect(out.summary).toContain('可推进到「测试中」');
+  });
+});
+
+describe('fastestPath 感知 GateSet.skipStates（与 transition 投影同口径）', () => {
+  it('frontend-copy DU 在开发中：fastestPath 直推待发布，不含测试中', () => {
+    const gs = freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), 'T0');
+    const du = { ...initDu({ iid: 88, type: 'story', now: 'T0' }), gateSet: gs };
+    const out = computeNextStep(loadModel(), { ...base, du });
+    expect(out.fastestPath).not.toContain('测试中');
+    expect(out.fastestPath[0]).toBe('待发布');
+    expect(out.fastestPath).toContain('已完成');
+  });
+  it('无 GateSet 的存量路径不变（含测试中）', () => {
+    const out = computeNextStep(loadModel(), base);
+    expect(out.fastestPath[0]).toBe('测试中');
   });
 });

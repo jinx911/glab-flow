@@ -24,15 +24,24 @@ const FIELD_ROLE_KEYWORDS: { role: Role; pattern: RegExp }[] = [
   { role: '测试', pattern: /测试|复测|用例/ },
 ];
 
-/** 主链最快路径：每节点取首条出边，直到终态或无出边；跳数上限=该类型状态数。 */
-function fastestChain(model: StateMachine, type: TransitionInput['type'], from: string): string[] {
+/**
+ * 主链最快路径：每节点取首条出边，直到终态或无出边；跳数上限=该类型状态数。
+ * 感知 GateSet.skipStates（与 transition 投影同口径）：被跳节点不出现在路径里，
+ * 显示「这次真实会走的路」——frontend-copy 需求在开发中即显示直推待发布。
+ */
+function fastestChain(model: StateMachine, type: TransitionInput['type'], from: string, skipStates: string[] = []): string[] {
   const chain: string[] = [];
   let cur = from;
   for (let i = 0; i < model[type].states.length; i++) {
     const trs = model[type].transitions.filter((t) => t.from === cur);
     if (!trs.length) break;
-    chain.push(trs[0]!.to);
-    cur = trs[0]!.to;
+    let next = trs[0]!.to;
+    if (skipStates.includes(next)) {
+      const beyond = model[type].transitions.filter((t) => t.from === next);
+      if (beyond.length) next = beyond[0]!.to; // 只跳一层，与 transition 投影一致
+    }
+    chain.push(next);
+    cur = next;
     if (TERMINAL.has(cur)) break;
   }
   return chain;
@@ -78,7 +87,7 @@ export function computeNextStep(model: StateMachine, input: NextStepInput): Next
         : '已完成（终态），无待清理资源。',
     };
   }
-  const fastestPath = fastestChain(model, input.type, node);
+  const fastestPath = fastestChain(model, input.type, node, input.du?.gateSet?.skipStates);
   const owedBy = groupOwedBy(model, out.missing);
   const nextAction = out.validate.ok
     ? `可推进到「${out.next}」（${out.actionTier}：${out.actionTier === 'L1' ? '自动执行' : '批量确认'}）`
