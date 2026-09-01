@@ -89,6 +89,8 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `reconcile` | 外部事实对账：stdin `{type,labels,state,du}` → 5 种 verdict（`in-sync`/`label-ahead`/`du-ahead`/`external-close`/`dirty-labels`+`unknown-node`），人工改标签/手动关闭不再当脏状态推倒重来 |
 | `resource` | DU 资源登记表：stdin `{du,now,op}`，op=`register`/`check`/`cleanup`/`dispose`；创建即登记、终态出清理清单、处置后回写；临时 Apifox 资源强制 `TMP-<iid>-` 前缀 |
 | `metrics` | 交付指标：stdin `{du,event?}`；event 存在记一条指标事件返回新 DU（Leader 落盘），否则纯汇总（确认/流转/重测/环境阻塞/返工/人工介入次数 + 周期） |
+| `du` | DU 写入面：stdin `{op,...}`，op=`init`（iid+type）/`record`（du+entry 执行事实）/`bind-gateset`（du+scopes，推导+冻结门禁单，已冻结拒重绑）/`cached-node`（du+node，流转成功后更新对账基准）；返回新 DU 对象，落盘归 Leader |
+| `review-pack` | 评审上下文包：stdin 同 `next` → spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令段；与 diff 一起注入 reviewer，标准化 feeding 材料（开发中代码评审 / MR 评审共用） |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `version` | 运行时版本守卫（issue 22）：`--fetched` 表示 Skill 已先 `git fetch origin`；输出 `{commit, upToDate, remoteCommit, capability, notes}`；落后即阻断 |

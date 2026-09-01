@@ -22,7 +22,7 @@ MR 评审优先用 **`mr-review-lite`**（外部运行时 skill，见 `../tools.
 调用约定（与 `test-flow-apifox.md` 一致）：
 
 - **同步取结果**：拿到结构化问题清单（严重度/文件/行/问题/建议）再判定，不异步丢任务。
-- **对齐需求**：把父 Issue 正文 + proposal.md/design.md 喂给评审，让它对齐需求目标。
+- **对齐需求**：把父 Issue 正文 + proposal.md/design.md 喂给评审，让它对齐需求目标。标准化材料用 `review-pack` 命令产出（spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令），与 MR diff 一起注入，不手工拼。
 - **降级标注**：用 `code-review` 降级时，结论里标注「未用 mr-review-lite，code-review 评审」。
 
 ## 评审维度（MR 专属，区别于开发期代码评审）

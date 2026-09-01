@@ -24,6 +24,8 @@ import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { initDu, recordEvidence, bindGateSet, setCachedNode } from './du.js';
+import { buildReviewPack } from './review-pack.js';
+import type { ReviewPackInput } from './review-pack.js';
 import { checkResources, cleanupChecklist, disposeResource, registerResource } from './resource.js';
 import { recordMetric, summarizeMetrics } from './metrics.js';
 import type { DuMetricEvent, DuResourceEntry, DuState, TestRun } from './types.js';
@@ -344,8 +346,19 @@ async function main() {
       }
       break;
     }
+    case 'review-pack': {
+      // 评审上下文包：spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令，标准化喂给 reviewer。
+      const input = JSON.parse(readStdin()) as ReviewPackInput;
+      const result = buildReviewPack(model, input);
+      if ('error' in result) {
+        console.error(`review-pack: ${result.error}`);
+        process.exit(1);
+      }
+      console.log(JSON.stringify(result));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics | du');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics | du | review-pack');
       process.exit(1);
   }
 }
