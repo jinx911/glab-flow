@@ -5,6 +5,8 @@ import { toFacts } from './gitlab.js';
 import { renderStatusChange } from './render.js';
 import { buildReturnPlan, buildForwardPlan, buildWeekPlanChangePlan } from './plan.js';
 import { runTransition } from './transition.js';
+import { computeNextStep } from './next-step.js';
+import type { NextStepInput } from './next-step.js';
 import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
@@ -68,6 +70,11 @@ async function main() {
     case 'transition': {
       const input = JSON.parse(readStdin()) as TransitionInput;
       console.log(JSON.stringify(runTransition(model, input)));
+      break;
+    }
+    case 'next': {
+      const input = JSON.parse(readStdin()) as NextStepInput;
+      console.log(JSON.stringify(computeNextStep(model, input)));
       break;
     }
     case 'test-run': {
@@ -210,7 +217,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress');
       process.exit(1);
   }
 }
