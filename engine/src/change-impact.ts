@@ -12,7 +12,7 @@ import type {
 import { parseTestPlan } from './test-run.js';
 import { chronologicalNotes } from './notes.js';
 
-const SCOPES = new Set<ChangeScope>(['functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release']);
+const SCOPES = new Set<ChangeScope>(['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release']);
 const SOURCES = new Set<ChangeSource>(['requirement', 'technical-design', 'implementation', 'test']);
 const ARTIFACTS = new Set<ChangeArtifact>(['proposal', 'design', 'test-plan', 'apifox-assets', 'implementation', 'local-rerun', 'test-rerun', 'week-plan', 'release-check']);
 const DEVELOPMENT_SCOPES = new Set<ChangeScope>(['functional', 'api-contract', 'data-model', 'permission', 'frontend-route']);

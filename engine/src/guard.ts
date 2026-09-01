@@ -200,8 +200,13 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (statusLabels.length !== 1) return fail([`脏状态：期望 1 个 ${prefix}* 标签，实际 ${statusLabels.length} 个（人工修复后继续）`]);
   if (facts.labels.filter((l) => l.startsWith('type::')).length !== 1) return fail(['脏状态：期望 1 个 type::* 标签']);
 
+  // G14: MR 评审仅在 GateSet 要求时为必填字段（skipStates 含 测试中 的路线永远不触发本转换）
+  const gateSet = payload.du?.gateSet;
+  const effectiveRequired = t.requiredFields.filter((f) =>
+    !(gateSet && gateSet.mrReview === false && f === 'feature分支MR评审结论'));
+
   // G1 required fields (G9: no placeholder 待确认)
-  for (const f of t.requiredFields) {
+  for (const f of effectiveRequired) {
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push(f);
   }

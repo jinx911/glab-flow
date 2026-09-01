@@ -21,6 +21,8 @@ export interface StateMachine {
   reviews: Record<string, string>;
   roleFields: Record<Role, string[]>;
   progressSteps?: Record<string, string[]>;
+  /** 维度 → 门禁推导矩阵（spec §3.2，P3）；GateSet 由声明的受影响维度确定性推导。 */
+  gateMatrix?: GateMatrix;
 }
 
 export interface Payload {
@@ -108,8 +110,8 @@ export interface WeekPlanChangeInput {
 
 /** 变更闭环的来源；它决定建议回退节点，不会直接修改 Issue 状态。 */
 export type ChangeSource = 'requirement' | 'technical-design' | 'implementation' | 'test';
-/** 变更影响的业务维度；由引擎推导需要同步的产物与重测范围。 */
-export type ChangeScope = 'functional' | 'api-contract' | 'data-model' | 'permission' | 'frontend-route' | 'schedule' | 'release';
+/** 变更影响的业务维度；由引擎推导需要同步的产物与重测范围。frontend-copy（纯文案/展示微调）是最低风险档。 */
+export type ChangeScope = 'frontend-copy' | 'functional' | 'api-contract' | 'data-model' | 'permission' | 'frontend-route' | 'schedule' | 'release';
 export type ChangeArtifact =
   | 'proposal'
   | 'design'
@@ -260,6 +262,8 @@ export interface TransitionInput {
   testPlan?: string;
   /** DU 本地事实（P2 起：TestRun/AssetAudit 证据优先取本地，Issue 评论仅兜底）。 */
   du?: DuState;
+  /** 技术方案声明的受影响维度；已评审→开发中 时用于推导 proposedGateSet（引擎不写 DU）。 */
+  declaredScopes?: ChangeScope[];
   /** Structured schedule supplied when approving a Story. */
   weekPlan?: WeekPlanInput;
   /** Completed image/OCR, frontend-route and grilling evidence for Story review approval. */
@@ -297,6 +301,8 @@ export interface TransitionOutput {
   actionTier?: ActionTier;
   /** L2/L3 的批量确认标题；L1 为空串；dirty/无转换时为 undefined。 */
   confirmBatchTitle?: string;
+  /** 已评审→开发中 且提供 declaredScopes 时推导的门禁单提案（供 Leader 批量确认过目，写入 du 由 Leader 落盘——引擎不写）。 */
+  proposedGateSet?: GateSet;
   applied: false;
 }
 
@@ -422,13 +428,13 @@ export interface DuMetricEvent {
   detail?: string;
 }
 
-/** 交付工作包本地主档（spec §3.1）。GateSet P3 再加。 */
+/** 交付工作包本地主档（spec §3.1）。 */
 export interface DuState {
   iid: number;
   type: IssueType;
   /** DU 记录的最近节点（对账用，P5 reconcile）；Leader 每次流转成功后写回。 */
   cachedNode: string;
-  /** 技术方案声明的受影响维度（GateSet 输入，P3 使用）。 */
+  /** 技术方案声明的受影响维度（GateSet 输入）。 */
   affectedScopes: ChangeScope[];
   /** 执行事实流水（append-only，引擎只算不写盘）。 */
   evidence: DuEvidenceEntry[];
@@ -436,5 +442,34 @@ export interface DuState {
   resources: DuResourceEntry[];
   /** 指标事件（P6 使用）。 */
   metricEvents: DuMetricEvent[];
+  /** 维度推导出的门禁单（spec §3.2）；已评审→开发中 绑定并冻结（P3）。 */
+  gateSet?: GateSet;
   updatedAt: string;
+}
+
+/** 维度推导出的门禁单（spec §3.2）；已评审→开发中 绑定并冻结。 */
+export interface GateSet {
+  scopes: ChangeScope[];
+  skipStates: string[];
+  environments: TestEnvironment[];
+  mrReview: boolean;
+  regression: 'affected-cases' | 'full';
+  rollbackPlan: boolean;
+  /** 显式改判记录（增/删门禁都留痕）。 */
+  overrides: { field: string; from: string; to: string; by: string; at: string }[];
+  frozenAt?: string;
+}
+
+export interface GateMatrixRule {
+  scopes: string[];
+  skipStates?: string[];
+  environments?: string[];
+  mrReview?: boolean;
+  regression?: 'affected-cases' | 'full';
+  rollbackPlan?: boolean;
+}
+
+export interface GateMatrix {
+  defaults: Required<Pick<GateMatrixRule, 'environments' | 'mrReview' | 'regression'>> & GateMatrixRule;
+  rules: GateMatrixRule[];
 }
