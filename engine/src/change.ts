@@ -1,28 +1,13 @@
-import type { ChangeImpact, ChangeImpactInput, ChangeScope, ChangeTier, DuState, GateSet, GuardResult, StateMachine } from './types.js';
+import type { ChangeImpact, ChangeImpactInput, ChangeTier, DuState, GateSet, GuardResult, StateMachine } from './types.js';
 import { deriveChangeImpact, validateChangeImpactInput } from './change-impact.js';
 import { ratchetGateSet } from './gate-set.js';
+import { classifyChangeTier, isLightTier, TIER_BY_SCOPE } from './tier.js';
 
-/** 维度 → 级别映射；Record<ChangeScope, ChangeTier> 让新增维度在编译期强制补档。 */
-const TIER_BY_SCOPE: Record<ChangeScope, ChangeTier> = {
-  'frontend-copy': 'T1',
-  functional: 'T2',
-  'frontend-route': 'T2',
-  'api-contract': 'T3',
-  'data-model': 'T4',
-  permission: 'T4',
-  schedule: 'T1',
-  release: 'T4',
-};
-
-const TIER_RANK: Record<ChangeTier, number> = { T1: 0, T2: 1, T3: 2, T4: 3 };
-
-/** 变化分级（spec §4.3）：多维度取最高档；空集兜底 T1（validate 已拦空 scopes）。 */
-export function classifyChangeTier(scopes: ChangeScope[]): ChangeTier {
-  return scopes.reduce<ChangeTier>(
-    (acc, scope) => (TIER_RANK[TIER_BY_SCOPE[scope]] > TIER_RANK[acc] ? TIER_BY_SCOPE[scope] : acc),
-    'T1',
-  );
-}
+/**
+ * 分级内核已移至 tier.ts：change.ts → change-impact.ts 的既有依赖方向不允许
+ * change-impact.ts 反向 import change.js（会成环）；re-export 保住既有 API。
+ */
+export { classifyChangeTier, isLightTier, TIER_BY_SCOPE };
 
 export interface ChangePlanInput extends ChangeImpactInput {
   du: DuState;
@@ -37,10 +22,16 @@ export interface ChangePlanOutput {
   closeRequiresPlanVersionBump: boolean;
 }
 
-/** 判断棘轮扩容是否实质改变门禁（mrReview/skipStates/regression/rollbackPlan 任一变化）。 */
-function gateSetMateriallyChanged(a: GateSet, b: GateSet): boolean {
+/** planChange 的判别联合结果（照 WeekPlanValidation 先例：ok=true 必带 plan）。 */
+export type ChangePlanResult =
+  | (GuardResult & { ok: true; missing: []; reasons: []; plan: ChangePlanOutput })
+  | (GuardResult & { ok: false; plan?: undefined });
+
+/** 判断棘轮扩容是否实质改变门禁（mrReview/skipStates/environments/regression/rollbackPlan 任一变化）。 */
+export function gateSetMateriallyChanged(a: GateSet, b: GateSet): boolean {
   return a.mrReview !== b.mrReview
     || a.skipStates.join() !== b.skipStates.join()
+    || a.environments.join() !== b.environments.join()
     || a.regression !== b.regression
     || a.rollbackPlan !== b.rollbackPlan;
 }
@@ -50,14 +41,15 @@ function gateSetMateriallyChanged(a: GateSet, b: GateSet): boolean {
  * 只推导不落盘——expandedGateSet 由 Leader 过目后写回 DU。无 gateMatrix
  * 或 DU 尚未绑定 GateSet 时不做扩容（保持既有推导路径）。
  */
-export function planChange(model: StateMachine, input: ChangePlanInput): GuardResult & { plan?: ChangePlanOutput } {
+export function planChange(model: StateMachine, input: ChangePlanInput): ChangePlanResult {
   const base = validateChangeImpactInput(input);
-  if (!base.ok) return base;
+  if (!base.ok) return base as Extract<ChangePlanResult, { ok: false }>;
   const tier = classifyChangeTier(input.scopes);
   const impact = deriveChangeImpact(input);
   const current = input.du.gateSet;
-  const expanded = model.gateMatrix && current ? ratchetGateSet(current, model.gateMatrix, input.scopes) : undefined;
-  const changed = expanded !== undefined && current !== undefined && gateSetMateriallyChanged(current, expanded);
+  // current 存在时 expanded 才可能有值；扩容未实质改变门禁时不下发 expandedGateSet。
+  const expanded = current && model.gateMatrix ? ratchetGateSet(current, model.gateMatrix, input.scopes) : undefined;
+  const nextGateSet = expanded !== undefined && current !== undefined && gateSetMateriallyChanged(current, expanded) ? expanded : undefined;
   return {
     ok: true,
     missing: [],
@@ -65,8 +57,8 @@ export function planChange(model: StateMachine, input: ChangePlanInput): GuardRe
     plan: {
       tier,
       impact,
-      ...(changed && expanded ? { expandedGateSet: expanded } : {}),
-      closeRequiresPlanVersionBump: TIER_RANK[tier] >= TIER_RANK['T3'],
+      ...(nextGateSet ? { expandedGateSet: nextGateSet } : {}),
+      closeRequiresPlanVersionBump: !isLightTier(tier),
     },
   };
 }

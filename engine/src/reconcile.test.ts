@@ -66,4 +66,17 @@ describe('reconcileLabels', () => {
     expect(ahead.labelNode).toBe('开发中');
     expect(ahead.duNode).toBe('已评审');
   });
+
+  it('unknown-node (not du-ahead) when label has trailing whitespace', () => {
+    const verdict = reconcileLabels(model, input({
+      labels: ['type::story', 'story-status::开发中 '],
+      du: duAt('开发中'),
+    }));
+    expect(verdict.kind).toBe('unknown-node');
+  });
+
+  it('unknown-node when the DU cached node is a typo outside the state machine', () => {
+    const verdict = reconcileLabels(model, input({ du: duAt('开发 中') }));
+    expect(verdict.kind).toBe('unknown-node');
+  });
 });

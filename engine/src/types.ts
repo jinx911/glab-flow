@@ -163,8 +163,8 @@ export interface ChangeCloseInput {
   /** 更新后的 test-plan.md；当 open 单要求 test-plan 时必填且版本必须前进。 */
   testPlan?: string;
   /**
-   * 变化级别（spec §4.3 轻量关闭）：T1/T2 跳过「测试计划版本严格递增」检查。
-   * 未传（legacy 客户端）时行为不变——仍要求版本前进。
+   * 变化级别（spec §4.3 轻量关闭）的交叉核对字段：引擎以 open 回执里的 scopes
+   * 重推导 tier 为准，传入值与推导不符时拒绝；未传则直接用推导值。
    */
   tier?: ChangeTier;
 }

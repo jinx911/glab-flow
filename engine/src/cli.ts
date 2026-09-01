@@ -265,6 +265,9 @@ async function main() {
     case 'change': {
       // P5 变化分级：change-impact 闭环 + 定级 T1-T4 + GateSet 棘轮扩容（expandedGateSet 由 Leader 写回 DU）。
       const input = JSON.parse(readStdin()) as ChangePlanInput;
+      if (!input.du || typeof input.du !== 'object') {
+        throw new Error('change: du required');
+      }
       const result = planChange(model, input);
       console.log(JSON.stringify(result));
       if (!result.ok) process.exitCode = 1;
@@ -273,6 +276,9 @@ async function main() {
     case 'reconcile': {
       // P5 对账：labels 与 DU cachedNode 漂移时给出二选一处理方向，不再当脏状态异常。
       const input = JSON.parse(readStdin()) as ReconcileInput;
+      if ((input.type !== 'story' && input.type !== 'bug') || !Array.isArray(input.labels) || (input.state !== 'opened' && input.state !== 'closed') || !input.du || typeof input.du !== 'object') {
+        throw new Error('reconcile: stdin requires type (story|bug), labels (array), state (opened|closed), du');
+      }
       console.log(JSON.stringify(reconcileLabels(model, input)));
       break;
     }

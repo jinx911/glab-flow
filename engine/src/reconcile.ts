@@ -1,5 +1,4 @@
 import type { DuState, IssueType, StateMachine } from './types.js';
-import { currentNode } from './model.js';
 import { STATUS_PREFIX, TERMINAL } from './constants.js';
 
 export interface ReconcileInput {
@@ -14,6 +13,7 @@ export type ReconcileVerdict =
   | { kind: 'label-ahead'; labelNode: string; duNode: string; resolution: string }
   | { kind: 'du-ahead'; duNode: string; labelNode: string; resolution: string }
   | { kind: 'external-close'; resolution: string }
+  | { kind: 'unknown-node'; labelNode?: string; duNode?: string; resolution: string }
   | { kind: 'dirty-labels'; resolution: string };
 
 function modelIndex(model: StateMachine, type: IssueType, node: string): number {
@@ -31,14 +31,23 @@ export function reconcileLabels(model: StateMachine, input: ReconcileInput): Rec
   if (status.length !== 1) {
     return { kind: 'dirty-labels', resolution: `状态标签缺失/冲突（期望 1 个 ${prefix}*，实际 ${status.length} 个）：人工修标签后重跑` };
   }
-  const labelNode = currentNode(model, input.type, input.labels) as string;
+  const labelNode = status[0]!.slice(prefix.length);
   const duNode = input.du.cachedNode ?? '';
   if (input.state === 'closed' && !TERMINAL.has(labelNode)) {
     return { kind: 'external-close', resolution: 'Issue 被人工关闭：确认验收事实后补终态评论，或 reopen' };
   }
   if (!duNode || labelNode === duNode) return { kind: 'in-sync' };
-  const labelAhead = modelIndex(model, input.type, labelNode) > modelIndex(model, input.type, duNode);
-  if (labelAhead) {
+  // 方向比较有意义的前提是双方都在状态机里；不在的先按 unknown-node 报，
+  // 否则 indexOf 的 -1 会把「标签尾随空格/笔误」误判成 label-ahead。
+  const labelIndex = modelIndex(model, input.type, labelNode);
+  if (labelIndex === -1) {
+    return { kind: 'unknown-node', labelNode, duNode, resolution: `标签节点 ${labelNode} 不在状态机 states 中——标签/DU 是否被手改` };
+  }
+  const duIndex = modelIndex(model, input.type, duNode);
+  if (duIndex === -1) {
+    return { kind: 'unknown-node', duNode, resolution: `DU 节点 ${duNode} 不在状态机 states 中——标签/DU 是否被手改` };
+  }
+  if (labelIndex > duIndex) {
     return { kind: 'label-ahead', labelNode, duNode, resolution: '人工推进了标签：将 DU 对齐到标签（接受人工推进）或回改标签（以 DU 为准）——一次 L2 确认' };
   }
   return { kind: 'du-ahead', duNode, labelNode, resolution: 'DU 领先：补发流转评论并写回标签（上次写回可能中断，见 writebackAudit）' };

@@ -4,6 +4,7 @@ import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadModel } from './model.js';
 import { SCOPE_RANK } from './gate-set.js';
+import { TIER_BY_SCOPE } from './tier.js';
 import type { ChangeScope } from './types.js';
 
 const ALL_SCOPES: ChangeScope[] = ['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release'];
@@ -119,6 +120,13 @@ describe('glab-flow process contracts', () => {
     // 3) 同一 scope 不得出现在两条 rule（否则最高档命中哪条取决于 rules 顺序，破坏确定性）
     const duplicated = ruleScopes.filter((scope, index) => ruleScopes.indexOf(scope) !== index);
     expect(duplicated).toEqual([]);
+  });
+
+  it('keeps TIER_BY_SCOPE exhaustive over the ChangeScope union (P5 定级)', () => {
+    // 编译期 Record<ChangeScope, ChangeTier> 已强制穷尽；运行时同样核对无遗漏/无多余。
+    expect(Object.keys(TIER_BY_SCOPE).sort()).toEqual([...ALL_SCOPES].sort());
+    // 每个维度都必须落在合法档位（yaml/手写漂移防呆）。
+    expect(Object.values(TIER_BY_SCOPE).every((tier) => ['T1', 'T2', 'T3', 'T4'].includes(tier))).toBe(true);
   });
 
   it('keeps the engine free of GitLab writeback and shell/network side effects', () => {
