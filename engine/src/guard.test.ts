@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
 import { validateTransition, validateWritePlan, isAffirmative } from './guard.js';
 import { initDu, recordEvidence } from './du.js';
-import type { DuState, IssueFacts, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
+import { deriveGateSet } from './gate-set.js';
+import type { DuState, GateSet, IssueFacts, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
 
 describe('isAffirmative — tight prefix (excludes 是否/是吗)', () => {
   it.each(['是', '是(无阻塞)', '是。详细说明…', '是，无问题', '已验证', 'true', ' 是 '])('accepts %s', (v) => {
@@ -295,6 +296,54 @@ const DU_SUBMIT_FIELDS = {
   代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev',
   可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对',
 };
+
+// —— P3 GateSet-scoped guards：G14 仅在 GateSet 要求 MR 评审时必填 ——
+const GATESET_TEST_DONE_FIELDS = {
+  测试完成日期: '2026-09-01',
+  测试Assignee: '@qa',
+  测试结论: '通过',
+  回归范围或证据: 'r',
+  阻塞发布问题均已验证通过: '是',
+};
+const duWithGateSet = (gateSet: GateSet): DuState => {
+  const du = initDu({ iid: 88, type: 'story', now: DU_NOW });
+  return { ...du, gateSet };
+};
+
+describe('GateSet-scoped guards (P3)', () => {
+  it('drops MR-review requirement when GateSet disables mrReview', () => {
+    const p: Payload = {
+      type: 'story', from: '测试中', to: '待发布',
+      fields: GATESET_TEST_DONE_FIELDS, testPlan: TEST_PLAN,
+      du: duWithGateSet(deriveGateSet(loadModel().gateMatrix!, ['functional'])),
+      assigneeUser: '@dev', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p, TEST_NOTES);
+    expect(r.missing).not.toContain('feature分支MR评审结论');
+    expect(r.ok).toBe(true);
+  });
+  it('still requires MR-review when GateSet keeps default', () => {
+    const p: Payload = {
+      type: 'story', from: '测试中', to: '待发布',
+      fields: GATESET_TEST_DONE_FIELDS, testPlan: TEST_PLAN,
+      du: duWithGateSet(deriveGateSet(loadModel().gateMatrix!, ['api-contract'])),
+      assigneeUser: '@dev', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p, TEST_NOTES);
+    expect(r.missing).toContain('feature分支MR评审结论');
+    expect(r.ok).toBe(false);
+  });
+  it('keeps MR-review required when no GateSet is bound at all (存量 DU / 无 DU 不放松)', () => {
+    const p: Payload = {
+      type: 'story', from: '测试中', to: '待发布',
+      fields: GATESET_TEST_DONE_FIELDS, testPlan: TEST_PLAN,
+      assigneeUser: '@dev', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p, TEST_NOTES);
+    expect(r.missing).toContain('feature分支MR评审结论');
+    expect(r.ok).toBe(false);
+  });
+});
 
 describe('DU-first evidence (P2)', () => {
   it('accepts local TestRun+AssetAudit from DU evidence without Issue comments', () => {

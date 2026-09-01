@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { loadModel } from './model.js';
 
 const PROJECT_ROOT = process.cwd();
 const ENGINE_SRC = 'engine/src';
@@ -88,6 +89,21 @@ function assertNoPattern(text: string, patterns: RegExp[]): void {
 }
 
 describe('glab-flow process contracts', () => {
+  it('state machine carries the gate matrix (P3 维度→门禁推导)', () => {
+    const matrix = loadModel().gateMatrix;
+    expect(matrix?.rules?.length).toBeGreaterThan(0);
+    // defaults 必须齐备：deriveGateSet 未命中规则时以其为基准
+    expect(matrix?.defaults).toMatchObject({ mrReview: true, regression: 'full' });
+    expect(matrix?.defaults.environments.length).toBeGreaterThan(0);
+    // frontend-copy 规则必须可跳过测试中并免 MR 评审（轻量需求直达待发布）
+    const frontendCopy = matrix?.rules.find((rule) => rule.scopes.includes('frontend-copy'));
+    expect(frontendCopy).toMatchObject({ mrReview: false, regression: 'affected-cases' });
+    expect(frontendCopy?.skipStates).toContain('测试中');
+    // 高危维度必须全量回归 + 回滚方案
+    const dataModel = matrix?.rules.find((rule) => rule.scopes.includes('data-model'));
+    expect(dataModel).toMatchObject({ mrReview: true, regression: 'full', rollbackPlan: true });
+  });
+
   it('keeps the engine free of GitLab writeback and shell/network side effects', () => {
     // issue 22 豁免:version.ts 用 execFileSync 只读本地 git ref(零网络/零写入),
     // 用于运行时版本守卫——检测本地副本是否落后 origin/master,防静默漂移(issue 22)。

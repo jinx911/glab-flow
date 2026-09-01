@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
 import { runTransition } from './transition.js';
 import { renderStatusChange } from './render.js';
-import type { RequirementsReviewEvidence, TransitionInput } from './types.js';
+import { deriveGateSet, freezeGateSet } from './gate-set.js';
+import { initDu, recordEvidence } from './du.js';
+import type { DuState, RequirementsReviewEvidence, TransitionInput } from './types.js';
 
 const model = loadModel();
 const TEST_PLAN = `<!-- glab-flow:test-plan:v1
@@ -503,6 +505,122 @@ describe('transition — prefill from render-normalized comments (semantic slot 
       gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
     }));
     expect(r.payload?.fields.评审日期).toBe('2026-08-09');
+  });
+});
+
+describe('GateSet skip states (P3)', () => {
+  const DU_NOW = '2026-09-01T00:00:00Z';
+  const frontendCopyDu = (): DuState => {
+    const base = initDu({ iid: 42, type: 'story', now: DU_NOW });
+    // local TestRun + AssetAudit 证据（frontend-copy environments=[local]，validateTestRunTransition 固定查 local）
+    const withAudit = recordEvidence(base, { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' }, DU_NOW);
+    const withRun = recordEvidence(withAudit, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW }, DU_NOW);
+    return { ...withRun, gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
+  };
+
+  it('frontend-copy DU advances 开发中 straight to 待发布 while validating original transition fields', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      notes: [], du: frontendCopyDu(),
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.next).toBe('待发布');
+    // 校验/必填按原转换（开发中→测试中），payload 不撒谎
+    expect(r.payload?.to).toBe('测试中');
+    expect(r.transition?.from).toBe('开发中');
+    expect(r.transition?.to).toBe('测试中');
+    // 标签写回与评论头用 effectiveTarget（跳过 测试中）
+    const addLabel = r.plan?.ops.find((o) => o.kind === 'add_label');
+    expect(addLabel).toMatchObject({ value: 'story-status::待发布' });
+    expect(r.comment).toContain('`开发中` → `待发布`');
+    expect(r.comment).not.toContain('`开发中` → `测试中`');
+    // playbook 沿用原转换（提测动作照做）
+    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'issue_writeback']);
+  });
+
+  it('skips nothing when GateSet has no skipStates (functional)', () => {
+    const du: DuState = { ...frontendCopyDu(), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['functional']), DU_NOW) };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.next).toBe('测试中');
+    expect(r.payload?.to).toBe('测试中');
+    expect(r.plan?.ops).toContainEqual(expect.objectContaining({ kind: 'add_label', value: 'story-status::测试中' }));
+  });
+
+  it('skip projection still fails closed on missing original-transition fields', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: {}, datesConfirmed: true,
+      notes: [], du: frontendCopyDu(),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((m) => m.field)).toContain('代码评审结论');
+    expect(r.plan).toBeUndefined();
+    // 校验未过时不落计划；next 仍展示投影目标（写回以 plan 为准，未过则不写）
+    expect(r.next).toBe('待发布');
+  });
+
+  it('skip projection still fails closed without local test evidence', () => {
+    const du: DuState = { ...initDu({ iid: 42, type: 'story', now: DU_NOW }), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.validate.missing).toContain('localAssetAudit');
+    expect(r.plan).toBeUndefined();
+    expect(r.next).toBe('待发布');
+  });
+
+  it('no GateSet bound → no projection at all (存量行为不变)', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      notes: [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }],
+    }));
+    expect(r.next).toBe('测试中');
+    expect(r.validate.ok).toBe(true);
+  });
+});
+
+describe('GateSet proposal on 已评审→开发中 (P3)', () => {
+  it('declaredScopes on 已评审→开发中 proposes GateSet', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
+      declaredScopes: ['frontend-copy'],
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.proposedGateSet?.skipStates).toContain('测试中');
+    expect(r.proposedGateSet?.mrReview).toBe(false);
+    expect(r.proposedGateSet?.environments).toEqual(['local']);
+    expect(r.proposedGateSet?.frozenAt).toBeUndefined();
+  });
+  it('does not propose on other transitions even with declaredScopes', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
+      fields: REVIEW_FIELDS, gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
+      weekPlan: VALID_WEEK_PLAN, reviewEvidence: VALID_REVIEW_EVIDENCE,
+      declaredScopes: ['frontend-copy'],
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.proposedGateSet).toBeUndefined();
+  });
+  it('does not propose when declaredScopes omitted', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.proposedGateSet).toBeUndefined();
   });
 });
 
