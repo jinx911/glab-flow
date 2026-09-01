@@ -213,17 +213,18 @@ export function validateChangeClose(input: unknown): GuardResult {
   const incomplete = target.requiredArtifacts.filter((artifact) => !nonEmpty(value.completed?.[artifact]));
   if (incomplete.length) return fail([...errors, `变更单 ${value.changeId} 尚未提供完成证据：${incomplete.join('、')}`], incomplete);
 
+  // 定级以 open 回执里冻结的 scopes 重推导为准（回读事实优先）；客户端 tier 仅交叉核对。
+  // 放在 test-plan 分支之外：tier 若获得块外效果，谎报不得因无 test-plan 要求而免检。
+  const derivedTier = classifyChangeTier(target.scopes);
+  if (value.tier !== undefined && value.tier !== derivedTier) {
+    return fail(
+      [`close tier 与 open 单 scopes 推导不符：open 单 ${value.changeId} 按 scopes（${target.scopes.join('、')}）推导为 ${derivedTier}，收到 ${value.tier}`],
+      ['tier'],
+    );
+  }
   if (target.requiredArtifacts.includes('test-plan')) {
     const parsed = parseTestPlan(value.testPlan);
     if (!parsed.ok) return fail([`变更单 ${value.changeId} 要求更新测试计划：${parsed.errors.join('；')}`], ['testPlan']);
-    // 定级以 open 回执里冻结的 scopes 重推导为准（回读事实优先）；客户端 tier 仅交叉核对。
-    const derivedTier = classifyChangeTier(target.scopes);
-    if (value.tier !== undefined && value.tier !== derivedTier) {
-      return fail(
-        [`close tier 与 open 单 scopes 推导不符：open 单 ${value.changeId} 按 scopes（${target.scopes.join('、')}）推导为 ${derivedTier}，收到 ${value.tier}`],
-        ['tier'],
-      );
-    }
     // 轻量关闭（spec §4.3）：T1/T2 无测试计划深度要求，跳过版本严格递增；未传 tier 按推导档执行。
     if (!isLightTier(derivedTier) && target.previousPlanVersion) {
       const before = parseVersionOrdinal(target.previousPlanVersion);
