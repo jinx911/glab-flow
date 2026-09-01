@@ -36,9 +36,9 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 ### Story 周排期契约（Harness 读取）
 
 - **待评审→已评审**：在同一条「状态变更头 + 内容体」合并评论中追加一次完整 `## 周排期` 与 `## 需求评审取证` 区块。有效的 `weekPlan` 和 `reviewEvidence` 是需求评审通过的前置条件；后者逐图证明 OCR/视觉核查，前端需求证明页面地址的路由/组件/分流代码证据，并证明 grilling 五类分支已覆盖且无未决项。`计划覆盖周`由引擎推导，Leader 不手填或推测。
-- **已评审→开发中**：除技术方案与既有计划提测/上线字段外，必须从刚回读的 Issue notes 验证**最新** `## 周排期` 区块。最新区块可为「启用」或「暂停」，但必须完整有效；最新无效或缺失就停止，不能用旧排期回退放行。
+- **已评审→开发中**：除技术方案与既有计划提测/上线字段外，必须从刚回读的 Issue notes 验证**最新** `## 周排期` 区块。最新区块可为「启用」或「暂停」，但必须完整有效；最新无效或缺失就停止，不能用旧排期回退放行。同时把技术方案声明的受影响维度传入 `transition` 的 `declaredScopes`，引擎返回 `proposedGateSet`（skipStates/environments/mrReview/regression/rollbackPlan，由 `state-machine.yaml` 的 `gateMatrix` 按声明维度最高风险档推导）——与计划提测/上线日期**同一次 L2 批量确认**后冻结写回 DU（`gateSet.frozenAt`）。此后 G14 等门禁按该 GateSet 生效，变化只经 `change` 棘轮扩容（只升不降）或显式改判（`overrides` 留痕）。
 - **排期变更**：不推进节点。用 `week-plan-change` 只新增一条 `## 排期变更` + replacement `## 周排期` 评论，不改标签、Assignee、Issue 正文或历史评论；评论回读成功后，再执行一次 Week Milestone 同步。
-- **需求/方案变更**：不直接改旧提案、设计评论或状态标签。先调用 `change-impact` 新增 open 的变更影响单，按 `requiredArtifacts` 同步 proposal/design/test-plan/Apifox 资产、代码、环境重测、排期或发布材料；需要回退时走 `plan-return`。所有证据齐全后调用 `change-close` 新增 closed 回执。open 单存在时 G16 阻断一切正向状态流转；测试计划变更必须递增 `plan-version`，旧 local/test 证据自动失效。
+- **需求/方案变更**：不直接改旧提案、设计评论或状态标签。先调用 `change`（首选；T1–T4 自动定级 + GateSet 棘轮扩容）新增 open 的变更影响单，按 `requiredArtifacts` 同步 proposal/design/test-plan/Apifox 资产、代码、环境重测、排期或发布材料；需要回退时走 `plan-return`。所有证据齐全后调用 `change-close` 新增 closed 回执。open 单存在时 G16 阻断一切正向状态流转；T3+ 测试计划变更必须递增 `plan-version`，旧 local/test 证据自动失效（T1/T2 轻量档豁免版本严格递增）。
 
 **初始挂载与 rollover 分工**：Leader 是周内初始挂载的执行者，Harness 周一任务是后续跨周 rollover 的执行者。引擎只在 `plan.postWriteback` 声明 `sync_week_milestone`，没有 GitLab I/O 或 Milestone `WriteOp`。Leader 只能在状态/排期评论已回读后，按最新有效且启用的计划幂等创建目标 Week Milestone 或关联 Issue；标题遵循 Harness 的 `Week YYYY-Www`，其起止日期为目标 ISO 周的周一/周日。不得修改 Issue 状态、Assignee、正文或评论。同步失败只记 `week-milestone-sync` 审计并重试，不回滚已确认的状态或排期。
 
@@ -76,7 +76,7 @@ asset: TP-001 | suite-or-group
 
 ### 开发中→测试中：local 完整业务闭环（门禁强制）
 
-提测前必须完成代码评审、当前 test-plan 的 local Apifox 资产审计，并对所有标记 `local` 的用例在本地环境实际执行。引擎从刚回读的 Issue 评论读取**最新**审计与 local TestRun；缺失、格式错误、计划版本不一致、资源未回读、存在未处置问题、用例未通过或缺少任一要求方法的证据，均不得进入测试中。不得用“单测/构建通过”“P0 冒烟”或自由文本结论代替闭环执行记录。
+提测前必须完成代码评审、当前 test-plan 的 local Apifox 资产审计，并对所有标记 `local` 的用例在本地环境实际执行。**证据优先记 DU**（`transition`/`validate` 传 `payload.du`，引擎取该环境最新执行事实），Issue 评论 marker 仅作存量 Issue 的兜底解析；执行明细不进 Issue（评论瘦身）。缺失、格式错误、计划版本不一致、资源未回读、存在未处置问题、用例未通过或缺少任一要求方法的证据，均不得进入测试中。不得用“单测/构建通过”“P0 冒烟”或自由文本结论代替闭环执行记录。
 
 0. **接口同步 Apifox**：若本次改动新增/修改了接口，**先更新 Apifox 的接口定义再往下走**——确保自测和后续测试用的是最新接口定义，而不是过时的旧版。当前方式：IDEA Apifox 插件手动更新上传（Leader 主动提醒，不靠自觉记忆）；长期方向：后端加 springdoc/scribe 生成 OpenAPI + Apifox CLI `auto-import` 定期自动拉取。
 0.5. **测试上下文注入（配置送到脸上，不靠找）**：自测开始前跑一次，环境/账号/Apifox 项目/环境 ID/数据库/前端构建/测试数据前缀**一次拿全**：
@@ -88,8 +88,8 @@ asset: TP-001 | suite-or-group
    - 文件不存在 → 引导用户按 `test-config.example.md` 建一次（每项目一次），**不让自测在无测试配置下裸跑**。字段细节见 `test-config.example.md`。
 1. **接口/API、E2E、数据、手工验证**：仅执行 test-plan 中对 local 声明的方法。接口和 E2E 均被计划要求时，两者都要完成；纯后端需求没有 e2e 用例时才不执行 E2E。
 2. **执行环境与版本**：先执行 `test-config --env local`，完成三段链路健康检查和本地运行版本校验；API 与 E2E 执行细节分别遵循 `sub-skills/test-flow-apifox.md` / `sub-skills/test-flow-e2e.md`。
-3. **资产盘点并回读**：先查现有场景、套件/场景分组、测试数据和场景实例；复用优先，只有业务步骤/断言确有差异才新建。场景按“业务域/功能能力”命名，套件/分组仅承载稳定的冒烟/模块回归/发布回归入口；环境差异用 Profile、数据集或场景实例，不复制场景。临时数据使用 `TMP-<iid>-` 前缀，需求结束前清理或升级为共享资产。对计划声明 `presentation:` 的入口，额外回读 Apifox 页面名称、目录、标签和运行环境，并与报告 `environmentName` 核对；对 `auth-profile:`，回读登录后置临时变量和统一鉴权引用，但不记录任何凭据/token 值。以 `asset-audit` 生成并回读当前环境审计，空场景、空套件/分组、空数据集、重复/孤儿资产、展示漂移或未清理临时数据均停止。
-4. **生成并回读 TestRun**：将每个计划用例的 `passed`、代码版本、`asset-audit: v3/local` 和 API/E2E/数据/手工证据生成 marker，新增到 Issue 后立刻回读；只认可最新 local marker：
+3. **资产盘点并回读**：先查现有场景、套件/场景分组、测试数据和场景实例；复用优先，只有业务步骤/断言确有差异才新建。场景按“业务域/功能能力”命名，套件/分组仅承载稳定的冒烟/模块回归/发布回归入口；环境差异用 Profile、数据集或场景实例，不复制场景。临时数据使用 `TMP-<iid>-` 前缀（`resource --op check` 强制校验），创建即 `resource --op register` 登记，需求结束前清理或升级为共享资产。对计划声明 `presentation:` 的入口，额外回读 Apifox 页面名称、目录、标签和运行环境，并与报告 `environmentName` 核对；对 `auth-profile:`，回读登录后置临时变量和统一鉴权引用，但不记录任何凭据/token 值。以 `asset-audit` 生成并回读当前环境审计（事实记 DU），空场景、空套件/分组、空数据集、重复/孤儿资产、展示漂移或未清理临时数据均停止。
+4. **生成 TestRun 事实**：将每个计划用例的 `passed`、代码版本、`asset-audit: v3/local` 和 API/E2E/数据/手工证据记入 DU（`kind: test-run`、`environment: local`、`planVersion`、`outcome`、`detailRef` 指向报告/明细）；存量 Issue 也可发评论 marker 后回读。门禁只认该环境最新事实：
 
    ```text
    <!-- glab-flow:test-run:v1
@@ -126,14 +126,18 @@ asset: TP-001 | suite-or-group
 2. `apifox.envId` 直接作为 Apifox CLI 的 `--environment`；`databases.*` 查 `config.md` 的 databases 得 MCP 名；`credentials` 为本轮测试账号，写进测试报告（见内容体 keys）。
 3. **区分三个入口**（配错则请求落错站）：登录入口 / 接口网关（API base 以 Apifox 环境的 baseUrls 为准，不复制进本地配置）/ 前端入口（`webUrl`，E2E 浏览器用）。
 4. **test-config.md 不存在或缺字段** → 停下引导按 `test-config.example.md` 补（每项目一次），不臆造地址、不用本地环境冒充测试环境。
-5. 以同一份当前 test-plan 盘点、回读 test 环境的资产后执行所有标记 `test` 的用例，并新增且回读 `environment: test` 的 AssetAudit 与 TestRun。`测试中→待发布` 只读取最新 test 记录；不得拿 local 结果、旧计划版本或自由文本测试报告替代。
+5. 以同一份当前 test-plan 盘点、回读 test 环境的资产后执行所有标记 `test` 的用例，并将 `environment: test` 的 AssetAudit 与 TestRun 事实记入 DU（存量 Issue 也可发评论 marker）。`测试中→待发布` 只读取最新 test 记录；不得拿 local 结果、旧计划版本或自由文本测试报告替代。
 6. 测试环境执行前的预检（三段链路健康 / 运行版本）与凭据注入规则见 `sub-skills/test-flow-apifox.md`。
 
-### 测试中→待发布：MR 评审前置（G14）+ 提前产出发布计划
+### 测试中→待发布：MR 评审前置（G14，按 GateSet）+ 提前产出发布计划
 
-进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」。
+进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」。G14 的必填字段 `feature分支MR评审结论` 只在 DU GateSet 的 `mrReview=true` 时强制；`mrReview=false`（如 frontend-copy）豁免。
 
 进入发布转换后，Leader 在**待发布→生产验收中/生产验证中**的合并评论里给出**上线操作手册**（部署顺序 / migration / 配置 / 验证 / 回滚）；这是首次要求上线步骤对团队可见的节点。
+
+### 跳状态投影（GateSet.skipStates）
+
+GateSet 含 `skipStates` 时，命中节点被直接投影到其下一节点（只跳一层）：如 frontend-copy 类文案需求的 GateSet `skipStates=[测试中]`，`开发中→测试中` 的转换直接落到**待发布**。**校验不放松**——必填字段与门禁仍按原转换（开发中→测试中）fail-closed 判定，评论头与标签写回用投影后的目标节点；环境门禁按 GateSet.environments（frontend-copy 只 local）。
 
 ### 转换副作用 playbook（推进节点 = 完整动作包，不只是改 Issue）
 
@@ -142,7 +146,7 @@ asset: TP-001 | suite-or-group
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|
 | 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → **触发 Jenkins 构建（交互问 job/分支/test_version/DEPLOY_ENV/force_package 等参数 → 清单确认）** → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins`；**参数确认独立于 run_mode** |
-| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check 产生 release-plan**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | G14 必填 `feature分支MR评审结论` |
+| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check 产生 release-plan**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | G14 必填 `feature分支MR评审结论`，仅 GateSet `mrReview=true` 时 |
 | 待发布→生产验收中/生产验证中（发布） | **执行生产部署**（当前手动点击；按 release-check 上线步骤）→ 确认部署版本 → 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 生产部署恒存在（手动优先，无 Jenkins 条件） |
 | 其它转换 | 仅写 Issue | — |
 

@@ -5,11 +5,11 @@ description: 从 .glab-flow/*-state.json 恢复未完成 flow；GitLab 标签为
 
 # glab-flow 恢复（resume）
 
-glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<workspace.root>/.glab-flow/<iid>-state.json`，让用户回到工作区或新开会话时能续上未完成的 flow。但这条缓存只是**派生数据**——流程的权威状态永远在 GitLab Issue 的标签上。本文件规定恢复入口、与 GitLab 的对账逻辑、state 持久化时机与脏状态处理。
+glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<workspace.root>/.glab-flow/<iid>-state.json` 与交付工作包 `<workspace.root>/.glab-flow/<iid>/du.json`，让用户回到工作区或新开会话时能续上未完成的 flow。但这两条缓存只是**派生数据**——流程的权威状态永远在 GitLab Issue 的标签上。本文件规定恢复入口、与 GitLab 的对账逻辑、state 持久化时机与脏状态处理。
 
 ## 真理源声明
 
-**GitLab Issue 标签为唯一真理。** Issue 上的 `story-status::*` / `status::*` 状态标签代表流程真正所在节点，由 `pnpm cli node <type> <labels...>` 推导（见 SKILL.md）。`<workspace.root>/.glab-flow/<iid>-state.json` 里的 `cachedNode` 是上次本地写回后留下的快照，仅用于"快速展示进度 + 缩短恢复查询"，**不**是状态机本身。
+**GitLab Issue 标签为唯一真理。** Issue 上的 `story-status::*` / `status::*` 状态标签代表流程真正所在节点，由 `pnpm cli node <type> <labels...>` 推导（见 SKILL.md）。`<workspace.root>/.glab-flow/<iid>-state.json` 里的 `cachedNode` 与 DU 的 `cachedNode` 是上次本地写回后留下的快照，仅用于"快速展示进度 + 缩短恢复查询 + 对账"，**不**是状态机本身。
 
 这意味着：(a) 任何时候本地缓存与 GitLab 标签不一致，以 GitLab 为准；(b) 删掉 state 文件不会丢流程进度，只会让下次恢复多做一次 `glab issue view`；(c) state 文件可跨会话、跨机器重建，只要 Issue 还在。这一约定对应规格 §8 的"GitLab 单一真理 + 本地缓存"。
 
@@ -45,7 +45,7 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
 
 选定要恢复的 `<iid>` 后，Leader 严格按下面 5 步执行。核心是"先问 GitLab，再对账本地"——顺序不能反。
 
-1. **读 `<iid>-state.json`**。`cat <workspace.root>/.glab-flow/<iid>-state.json` 拿到 `RunState`，从中取 `type`（`story`/`bug`）、`project`（`{host, id}`）、`runMode`、`specDir`。这些决定后续用哪套状态机（story vs bug）、去哪个 GitLab 实例查、以及恢复后门禁按哪种 run 模式走。
+1. **读 `<iid>-state.json`（及 DU）**。`cat <workspace.root>/.glab-flow/<iid>-state.json` 拿到 `RunState`，从中取 `type`（`story`/`bug`）、`project`（`{host, id}`）、`runMode`、`specDir`；同目录有 `<iid>/du.json` 时一并读出 DU（执行事实/资源/GateSet/指标所在）。这些决定后续用哪套状态机（story vs bug）、去哪个 GitLab 实例查、以及恢复后按 DU 供证据与门禁。
 
 2. **从 GitLab 重推导当前节点**。这是真理源查询，不能跳：
    - 取最新 Issue：`glab issue view <iid> --output json`。若**配置**里有 `gitlab.harness_clone`（`config.gitlab.harnessClone`），在该克隆目录跑（glab 自动识别 remote）；否则用 `glab api --hostname <host> "projects/<id>/issues/<iid>"`。
@@ -56,7 +56,7 @@ glab-flow 在 Issue 流转过程中会把"上次到哪一步"缓存到本地 `<w
 
 3. **对比 `cachedNode` vs GitLab 节点**。把 state 里的 `cachedNode` 与上一步 GitLab 推导出的节点字符串比较：
    - **一致** → 本地缓存有效，直接续；`cachedNodeAt` 不变。
-   - **不一致** → **GitLab 为准**。Leader 停下来给用户一句明确提示：
+   - **不一致** → 先跑 `pnpm cli reconcile`（stdin `{type, labels, state, du}`）拿 verdict 与处理方向（见下文「脏状态与对账」），按方向处置后再续。Leader 给用户一句明确提示：
 
      > 标签在 flow 外被改过（本地缓存=<cachedNode>，GitLab=<gitlabNode>），以 GitLab 为准。
 
@@ -86,7 +86,7 @@ state 文件的 TypeScript 权威定义在 `engine/src/state.ts` 的 `RunState` 
 | `cachedNodeAt` | string (ISO) | `cachedNode` 最后刷新时间 |
 | `docVersion` | number | spec 文档版本号，初值 1 |
 | `specDir` | string | spec 文档目录绝对路径（`<root>/.glab-flow/<iid>/spec`） |
-| `runMode` | `'semi-auto' \| 'full-auto'` | 门禁执行模式 |
+| `runMode` | `'semi-auto' \| 'full-auto'` | 审计字段：记录运行模式偏好，不参与确认判定（确认由动作分层决定，见 `gate.md`） |
 | `lastActions[]` | string[] | 最近动作审计尾迹（用于续接与回看） |
 | `spawnedAgents[]` | string[] | 本 flow 已委派过的 agent 名单（去重/记账） |
 | `writebackAudit[]` | 审计阶段数组 | `metadata` / `state-comment` / `readback` 的串行成功/失败记录，以及独立 `week-milestone-sync` 记录，用于恢复定位首个未完成阶段或同步重试 |
@@ -104,13 +104,26 @@ state 文件不是每条命令都写，只在以下时机落盘：
 
 `spawnedAgents` 在每次 Leader 委派 agent（intake / spec-author / 各 reviewer 等）后追加去重。
 
-## 脏状态
+## 脏状态与对账（先 reconcile）
 
-脏状态指 Issue 上的状态标签/状态无法推导出唯一、合法的当前节点。`pnpm cli transition`（或 `node`）在下列情况返回脏信号（`transition.dirty=true`）：
+投影（GitLab labels）与本地事实（DU `cachedNode`）不一致时，**先 `pnpm cli reconcile` 对账**，不再一律当异常推倒重来。stdin `{type, labels, state, du}`，输出 5 种 verdict 及处理方向：
+
+| verdict | 含义 | 处理方向 |
+|---|---|---|
+| `in-sync` | 标签与 DU 一致 | 直接续跑，无事发生 |
+| `label-ahead` | 人工推进了标签（label 节点在 DU 之前） | 二选一（一次 L2 确认）：将 DU 对齐到标签（接受人工推进）或回改标签（以 DU 为准） |
+| `du-ahead` | DU 领先标签（上次写回可能中断） | 补发流转评论并写回标签；先查 `writebackAudit` 定位首个未完成阶段，不得重发已回读评论 |
+| `external-close` | Issue 被人工关闭但标签非终态 | 确认验收事实后补终态评论，或 reopen |
+| `dirty-labels` / `unknown-node` | 标签 0/≥2 个、或节点名不在状态机 states 中 | 引擎无法裁决 → 走下方人工修标签兜底 |
+
+对账不写回 GitLab、不更新 `cachedNode`——引擎只裁决方向，执行仍走 Leader 的预览确认。
+
+**人工修标签兜底（dirty-labels / unknown-node）**：`pnpm cli transition`（或 `node`）在下列情况返回脏信号（`transition.dirty=true`）：
 
 - **0 个状态标签**：Issue 上既无 `story-status::*` 也无 `status::*`（被全部清掉）。
 - **≥2 个状态标签**：同时挂着两个冲突的状态（如 `story-status::待评审` 和 `story-status::开发中`）。引擎无法判断真实节点。
-- **已关闭但非终态**：Issue `state=closed` 但状态标签 ≠ `已完成`（如挂着 `待发布` 却被提前 close）。`transition` 在入口检测到此组合即标脏。
+- **已关闭但非终态**：Issue `state=closed` 但状态标签 ≠ `已完成`（如挂着 `待发布` 却被提前 close）——reconcile 侧对应 `external-close`。
+- **节点名不在状态机**：标签或 DU 的节点名拼错/被手改（`unknown-node`）。
 
 任何一种 → Leader **停**，不做推测性流转。把 GitLab 推导结果与 Issue 链接列给人工：
 
