@@ -1,6 +1,6 @@
 # Apifox 资产治理实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement task-by-task. Per user instruction, implement each task first, then add or update focused tests and run verification.
+> **For agentic workers:** 逐任务执行本计划。 Per user instruction, implement each task first, then add or update focused tests and run verification.
 
 **Goal:** 让场景、套件/场景分组、测试数据和场景实例成为可复用、可回读、可审计的 Apifox 测试资产，并使有效资产审计成为 local/test TestRun 的前置。
 
