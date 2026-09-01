@@ -60,8 +60,8 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 
 | 分层 | 定义 | 例子 | 确认行为 |
 |---|---|---|---|
-| `L1`（gate===null） | 无业务判断的机械流转 | 草稿中→待评审、已评审→开发中 | `validate.ok` 即自动执行，不打断 |
-| `L2`（gate!==null） | 带业务评审/放行判断的流转 | 待评审→已评审、开发中→测试中、测试中→待发布 | 以 `confirmBatchTitle` 为题做**一次** `AskUserQuestion` 批量确认 |
+| `L1`（gate===null） | 无业务判断的机械流转 | 草稿中→待评审、bug 已确认缺陷→开发中 | `validate.ok` 即自动执行，不打断 |
+| `L2`（gate!==null） | 带业务评审/放行判断的流转 | 待评审→已评审、已评审→开发中、开发中→测试中、测试中→待发布 | 以 `confirmBatchTitle` 为题做**一次** `AskUserQuestion` 批量确认 |
 | `L3`（hardGate） | 不可逆动作，恒人工 | 待发布→生产验收中、生产验收中→已完成 | 必须 `humanConfirmed`（G3），任何配置不可豁免 |
 
 **Jenkins 参数确认并入同一次 L2 批量对话**：提测的 job/分支/`test_version`/`DEPLOY_ENV` 等参数与流转结论、计划日期、GateSet 提案在**同一次**批量确认里问完，不再逐参数单独发起多轮对话（展示部署清单确认的动作本身不变，见 `sub-skills/jenkins-deploy.md`）。
