@@ -5,9 +5,11 @@ describe('classifyAction', () => {
   it('classifies hardGate as L3 regardless of gate', () => {
     expect(classifyAction({ gate: '发布', hardGate: true }).tier).toBe('L3');
     expect(classifyAction({ gate: '产品验收', hardGate: true }).tier).toBe('L3');
+    expect(classifyAction({ gate: '发布', hardGate: true }).batchTitle).toContain('硬门放行');
   });
   it('classifies gated transition as L2', () => {
     expect(classifyAction({ gate: '需求评审', hardGate: false }).tier).toBe('L2');
+    expect(classifyAction({ gate: '需求评审', hardGate: false }).batchTitle).toContain('需求评审');
   });
   it('classifies gateless transition as L1', () => {
     expect(classifyAction({ gate: null, hardGate: false }).tier).toBe('L1');

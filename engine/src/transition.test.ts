@@ -106,6 +106,8 @@ describe('transition — dirty detection', () => {
     expect(r.dirty).toBe(true);
     expect(r.validate.ok).toBe(false);
     expect(r.preview).toContain('脏状态');
+    expect(r.actionTier).toBeUndefined();
+    expect(r.confirmBatchTitle).toBeUndefined();
   });
   it('flags ≥2 status labels', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中', 'story-status::待发布'] }));

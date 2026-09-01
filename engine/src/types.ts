@@ -224,6 +224,9 @@ export type LatestWeekPlan =
 
 export type RunMode = 'semi-auto' | 'full-auto';
 
+/** 动作分层（spec §3.3）：L1 可逆/非生产自动执行；L2 业务判断批量确认；L3 不可逆恒人工。 */
+export type ActionTier = 'L1' | 'L2' | 'L3';
+
 export interface MissingItem {
   field: string;
   hint: string;
@@ -286,10 +289,10 @@ export interface TransitionOutput {
   nodeProgress: string[];
   preview: string;
   shouldConfirm: boolean;
-  /** 动作分层（spec §3.3）：L1 自动 / L2 批量确认 / L3 硬门。 */
-  actionTier: 'L1' | 'L2' | 'L3';
-  /** L2/L3 的批量确认标题；L1 为空串。 */
-  confirmBatchTitle: string;
+  /** 动作分层（spec §3.3）：L1 自动 / L2 批量确认 / L3 硬门；dirty/无转换时为 undefined（无动作）。 */
+  actionTier?: ActionTier;
+  /** L2/L3 的批量确认标题；L1 为空串；dirty/无转换时为 undefined。 */
+  confirmBatchTitle?: string;
   applied: false;
 }
 

@@ -1,8 +1,6 @@
-// engine/src/action-policy.ts
-import type { Transition } from './types.js';
+import type { ActionTier, Transition } from './types.js';
 
-/** 动作分层（spec §3.3）：L1 可逆/非生产自动执行；L2 业务判断批量确认；L3 不可逆恒人工。 */
-export type ActionTier = 'L1' | 'L2' | 'L3';
+export type { ActionTier };
 
 export interface ActionDecision {
   tier: ActionTier;
