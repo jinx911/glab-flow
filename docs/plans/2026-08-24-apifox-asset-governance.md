@@ -63,7 +63,7 @@
 
 **Files:**
 - Modify: `engine/src/process-contract.test.ts`
-- Modify: `docs/superpowers/plans/2026-08-24-multi-environment-test-runs.md`
+- Modify: `docs/plans/2026-08-24-multi-environment-test-runs.md`
 
 - [x] 增加流程契约断言：资产审计 marker、四类资产、套件能力发现、临时数据生命周期、无审计则不能 TestRun、Apifox I/O 仍由 Leader 负责。
 - [x] 将前一份多环境计划标记为已完成，并在本计划完成后标记本计划全部步骤。

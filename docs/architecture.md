@@ -1,6 +1,6 @@
 # glab-flow Architecture
 
-> Operator reference, copied from the design spec (`docs/superpowers/specs/2026-07-28-glab-flow-design.md` §4 + §7.2).
+> Operator reference, copied from the design spec (`docs/specs/2026-07-28-glab-flow-design.md` §4 + §7.2).
 
 ## Seven layers
 

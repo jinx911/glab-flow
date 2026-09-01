@@ -6,7 +6,7 @@
 
 **Architecture:** 引擎保持纯计算（零 I/O、GitLab 写回仍由 Leader 跑 glab）。新增 `DuState`（本地主档：事实/门禁集/资源/指标）；`transition` 输入接入 DU 后按 GateSet 跳状态、按动作分层决定确认；Issue 评论只保留状态流转。护栏 G1–G16 不删，改为按 GateSet 生效。
 
-**Tech Stack:** TypeScript (Node 20+, ESM)、yaml、vitest、tsx CLI。spec 见 `docs/superpowers/specs/2026-09-01-delivery-unit-redesign.md`。
+**Tech Stack:** TypeScript (Node 20+, ESM)、yaml、vitest、tsx CLI。spec 见 `docs/specs/2026-09-01-delivery-unit-redesign.md`。
 
 **验证方式（用户明确不要测试先行）:** 每任务先写实现，再写验证测试（实现后验证），跑定向测试 + `pnpm test` 全量 + `pnpm typecheck`，绿了才 commit。禁止测试先行仪式。
 

@@ -65,7 +65,7 @@
 ### Task 5: 模拟走查和交付
 
 **Files:**
-- Modify: `docs/superpowers/plans/2026-08-24-apifox-presentation-auth.md`
+- Modify: `docs/plans/2026-08-24-apifox-presentation-auth.md`
 
 - [x] 用 CLI 输入模拟 local/test 的 v2 资产审计和 TestRun，并确认有效记录可推进、Stage 显示 local 的记录被阻断。
 - [x] 重新运行全量测试、类型检查、`git diff --check`、文档/凭据扫描和变更清单检查。
