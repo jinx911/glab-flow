@@ -1,6 +1,6 @@
 # 交付工作包核心模型重设计 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** 逐任务执行本计划（每任务派独立实现 agent + 规格审查 + 质量审查，或本会话内按序执行）。Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把 glab-flow 从「状态机中心」重构为「交付工作包（DU）中心」：动作分层（L1/L2/L3）、维度推导门禁集（GateSet）、资源一等模型、最短路径视图、变化分级与对账。
 
