@@ -24,7 +24,8 @@ import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { checkResources, cleanupChecklist, disposeResource, registerResource } from './resource.js';
-import type { DuResourceEntry, DuState, TestRun } from './types.js';
+import { recordMetric, summarizeMetrics } from './metrics.js';
+import type { DuMetricEvent, DuResourceEntry, DuState, TestRun } from './types.js';
 
 const model = loadModel();
 
@@ -282,8 +283,17 @@ async function main() {
       console.log(JSON.stringify(reconcileLabels(model, input)));
       break;
     }
+    case 'metrics': {
+      // P6 交付指标：event 存在 → 记事件返回新 du（Leader 落盘）；否则纯汇总。
+      const input = JSON.parse(readStdin()) as { du: DuState; event?: DuMetricEvent };
+      if (!input.du || typeof input.du !== 'object') {
+        throw new Error('metrics: du required');
+      }
+      console.log(JSON.stringify(input.event ? recordMetric(input.du, input.event) : summarizeMetrics(input.du)));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics');
       process.exit(1);
   }
 }
