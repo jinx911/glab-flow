@@ -387,3 +387,50 @@ export type LatestApifoxAssetAudit =
 export type ApifoxAssetAuditValidation =
   | { ok: true; errors: [] }
   | { ok: false; errors: string[] };
+
+/** DU 本地执行事实（spec §3.1）：Issue 只留流转评论，明细归 DU。 */
+export interface DuEvidenceEntry {
+  kind: 'test-run' | 'asset-audit';
+  environment: TestEnvironment;
+  planVersion: string;
+  outcome: string;
+  recordedAt: string;
+  /** 本地明细文件/报告指针（报告 ID、链接）。 */
+  detailRef?: string;
+}
+
+/** DU 资源登记项（spec §3.4，P4 使用）：创建即登记，终态出清理清单。 */
+export interface DuResourceEntry {
+  id: string;
+  kind: 'branch' | 'worktree' | 'apifox-scenario' | 'apifox-suite' | 'apifox-test-data' | 'apifox-scenario-instance' | 'auth-profile-ref' | 'test-data' | 'report' | 'deploy-version';
+  scope: 'non-prod' | 'prod';
+  lifecycle: 'temporary' | 'shared-candidate' | 'permanent';
+  createdAt: string;
+  detail?: string;
+  disposedAt?: string;
+  disposal?: 'deleted' | 'promoted-shared' | 'kept';
+}
+
+/** DU 指标事件（spec §7，P6 使用）：Leader 记事件，引擎终态算汇总。 */
+export interface DuMetricEvent {
+  at: string;
+  kind: 'confirm' | 'transition' | 'rerun' | 'env-block' | 'rework' | 'manual-intervention';
+  detail?: string;
+}
+
+/** 交付工作包本地主档（spec §3.1）。GateSet P3 再加。 */
+export interface DuState {
+  iid: number;
+  type: IssueType;
+  /** DU 记录的最近节点（对账用，P5 reconcile）；Leader 每次流转成功后写回。 */
+  cachedNode: string;
+  /** 技术方案声明的受影响维度（GateSet 输入，P3 使用）。 */
+  affectedScopes: ChangeScope[];
+  /** 执行事实流水（append-only，引擎只算不写盘）。 */
+  evidence: DuEvidenceEntry[];
+  /** 资源登记表（P4 使用）。 */
+  resources: DuResourceEntry[];
+  /** 指标事件（P6 使用）。 */
+  metricEvents: DuMetricEvent[];
+  updatedAt: string;
+}
