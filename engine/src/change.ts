@@ -48,7 +48,10 @@ export function planChange(model: StateMachine, input: ChangePlanInput): ChangeP
   const impact = deriveChangeImpact(input);
   const current = input.du.gateSet;
   // current 存在时 expanded 才可能有值；扩容未实质改变门禁时不下发 expandedGateSet。
-  const expanded = current && model.gateMatrix ? ratchetGateSet(current, model.gateMatrix, input.scopes) : undefined;
+  // 棘轮种子含 DU.affectedScopes（bindGateSet 播种的声明集，防旧 DU 手工 gateSet 丢维度）。
+  const expanded = current && model.gateMatrix
+    ? ratchetGateSet(current, model.gateMatrix, input.scopes, input.du.affectedScopes)
+    : undefined;
   const nextGateSet = expanded !== undefined && current !== undefined && gateSetMateriallyChanged(current, expanded) ? expanded : undefined;
   return {
     ok: true,

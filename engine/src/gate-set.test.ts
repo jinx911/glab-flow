@@ -149,3 +149,13 @@ describe('ratchet & override', () => {
     expect(overrideGateSet(gs, 'rollbackPlan', true, '@pm', 'T1').rollbackPlan).toBe(true);
   });
 });
+
+describe('ratchet seed includes declaredScopes (du.affectedScopes)', () => {
+  it('hand-built narrow gateSet still ratchets from declared scopes', () => {
+    // 旧 DU：gateSet 手工构造缺维度，但 affectedScopes 已声明 data-model
+    const narrow = deriveGateSet(matrix, ['frontend-copy']);
+    const up = ratchetGateSet(narrow, matrix, ['functional'], ['data-model']);
+    expect(up.rollbackPlan).toBe(true); // data-model 种子保住回滚门禁
+    expect(up.scopes).toContain('data-model');
+  });
+});

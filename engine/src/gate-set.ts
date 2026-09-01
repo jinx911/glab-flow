@@ -83,8 +83,11 @@ function parseOverrideValue(field: string, raw: string): boolean | 'affected-cas
  * 让账本最后一笔与实际值一致（I2）：显式降级是唯一合法的降级路径，经
  * overrideGateSet 落账后在后续维度扩张中存活；已冻结的保持冻结，账本原样保留。
  */
-export function ratchetGateSet(current: GateSet, matrix: GateMatrix, newScopes: ChangeScope[]): GateSet {
-  const merged = [...new Set([...current.scopes, ...newScopes])];
+export function ratchetGateSet(current: GateSet, matrix: GateMatrix, newScopes: ChangeScope[], declaredScopes: ChangeScope[] = []): GateSet {
+  // 种子 = 冻结的 gateSet.scopes ∪ DU.affectedScopes（bindGateSet 播种的声明集）∪ 本次新维度。
+  // gateSet.scopes 与 affectedScopes 通常同源；并集保证旧 DU（affectedScopes 已播种但
+  // gateSet 曾被手工构造）不丢维度——棘轮只升不降的前提是种子不缺。
+  const merged = [...new Set([...current.scopes, ...declaredScopes, ...newScopes])];
   const derived = deriveGateSet(matrix, merged);
   const replayed = new Map([...lastOverridePerField(current.overrides)].flatMap(([field, raw]) => {
     const value = parseOverrideValue(field, raw);
