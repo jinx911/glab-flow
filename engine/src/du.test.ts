@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { initDu, recordEvidence, latestEvidence } from './du.js';
+import { initDu, recordEvidence, latestEvidence, bindGateSet, setCachedNode } from './du.js';
+import { loadModel } from './model.js';
 
 const base = { iid: 88, type: 'story' as const, now: '2026-09-01T00:00:00Z' };
 
@@ -29,5 +30,30 @@ describe('du evidence', () => {
     du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v1', outcome: 'passed', recordedAt: base.now }, base.now);
     expect(du.evidence).toHaveLength(2);
     expect(latestEvidence(du, 'test-run', 'local')?.outcome).toBe('passed');
+  });
+});
+
+describe('bindGateSet / setCachedNode (du CLI 写入面)', () => {
+  const matrix = loadModel().gateMatrix!;
+  it('bindGateSet derives+freezes gateSet and seeds affectedScopes', () => {
+    const du = initDu(base);
+    const next = bindGateSet(du, matrix, ['api-contract', 'api-contract'], '2026-09-01T00:00:00Z');
+    expect(next.gateSet?.frozenAt).toBe('2026-09-01T00:00:00Z');
+    expect(next.gateSet?.mrReview).toBe(true);
+    expect(next.affectedScopes).toEqual(['api-contract']); // 去重
+    expect(du.gateSet).toBeUndefined(); // 不可变
+  });
+  it('bindGateSet refuses to rebind a frozen gateSet (防降级)', () => {
+    const bound = bindGateSet(initDu(base), matrix, ['api-contract'], 'T0');
+    const again = bindGateSet(bound, matrix, ['frontend-copy'], 'T1');
+    expect(again).toBe(bound); // 已冻结返回原引用
+    expect(again.gateSet?.scopes).toContain('api-contract');
+  });
+  it('setCachedNode updates immutably, same-node is identity', () => {
+    const du = initDu(base);
+    const next = setCachedNode(du, '开发中', 'T1');
+    expect(next.cachedNode).toBe('开发中');
+    expect(du.cachedNode).toBe('');
+    expect(setCachedNode(next, '开发中', 'T2')).toBe(next);
   });
 });

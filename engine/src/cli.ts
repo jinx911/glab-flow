@@ -23,6 +23,7 @@ import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
+import { initDu, recordEvidence, bindGateSet, setCachedNode } from './du.js';
 import { checkResources, cleanupChecklist, disposeResource, registerResource } from './resource.js';
 import { recordMetric, summarizeMetrics } from './metrics.js';
 import type { DuMetricEvent, DuResourceEntry, DuState, TestRun } from './types.js';
@@ -292,8 +293,59 @@ async function main() {
       console.log(JSON.stringify(input.event ? recordMetric(input.du, input.event) : summarizeMetrics(input.du)));
       break;
     }
+    case 'du': {
+      // DU 写入面（终审遗留 Medium）：init/record/bind-gateset/cached-node 消除 Leader 手写 du.json。
+      // 引擎纯计算——返回新 DU 对象，落盘仍归 Leader（与 state 文件同模式）。
+      const input = JSON.parse(readStdin()) as {
+        op: 'init' | 'record' | 'bind-gateset' | 'cached-node';
+        iid?: number;
+        type?: 'story' | 'bug';
+        now?: string;
+        du?: DuState;
+        entry?: Parameters<typeof recordEvidence>[1];
+        scopes?: Parameters<typeof bindGateSet>[2];
+        node?: string;
+      };
+      const now = input.now ?? new Date().toISOString();
+      switch (input.op) {
+        case 'init': {
+          if (!input.iid || (input.type !== 'story' && input.type !== 'bug')) {
+            throw new Error('du: init requires iid (number) and type (story|bug)');
+          }
+          console.log(JSON.stringify(initDu({ iid: input.iid, type: input.type, now })));
+          break;
+        }
+        case 'record': {
+          const entry = input.entry;
+          if (!input.du || typeof input.du !== 'object') throw new Error('du: record requires du');
+          if (!entry || typeof entry !== 'object' || !entry.kind || !entry.environment || !entry.planVersion || !entry.outcome || !entry.recordedAt) {
+            throw new Error('du: record requires entry {kind, environment, planVersion, outcome, recordedAt, detailRef?}');
+          }
+          if (entry.kind !== 'test-run' && entry.kind !== 'asset-audit') throw new Error(`du: record entry.kind must be test-run|asset-audit, got ${String(entry.kind)}`);
+          if (entry.environment !== 'local' && entry.environment !== 'test' && !entry.environment.trim()) throw new Error('du: record entry.environment must be non-empty');
+          console.log(JSON.stringify(recordEvidence(input.du, entry, now)));
+          break;
+        }
+        case 'bind-gateset': {
+          if (!input.du || typeof input.du !== 'object') throw new Error('du: bind-gateset requires du');
+          if (!Array.isArray(input.scopes) || input.scopes.length === 0) throw new Error('du: bind-gateset requires scopes (non-empty ChangeScope[])');
+          if (!model.gateMatrix) throw new Error('du: bind-gateset requires gateMatrix in state-machine.yaml');
+          console.log(JSON.stringify(bindGateSet(input.du, model.gateMatrix, input.scopes, now)));
+          break;
+        }
+        case 'cached-node': {
+          if (!input.du || typeof input.du !== 'object') throw new Error('du: cached-node requires du');
+          if (typeof input.node !== 'string' || !input.node.trim()) throw new Error('du: cached-node requires node (non-empty)');
+          console.log(JSON.stringify(setCachedNode(input.du, input.node, now)));
+          break;
+        }
+        default:
+          throw new Error(`du: unknown op ${String(input.op)}`);
+      }
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics | du');
       process.exit(1);
   }
 }
