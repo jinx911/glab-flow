@@ -1,6 +1,6 @@
 # Apifox 展示一致性与认证契约 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Per user instruction, implement each task first, then add focused tests and run verification.
+> **For agentic workers:** 逐任务执行本计划。Per user instruction, implement each task first, then add focused tests and run verification.
 
 **Goal:** 让 glab-flow 能将 Apifox 页面展示环境和可复用认证能力纳入版本化资产审计，并在 local/test TestRun 前严格校验。
 
