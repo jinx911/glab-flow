@@ -1,6 +1,43 @@
 import type { Payload } from './types.js';
 import { renderWeekPlan, validateWeekPlan } from './week-plan.js';
 import { renderRequirementsReviewEvidence } from './review-evidence.js';
+import { latestEvidence } from './du.js';
+
+/** 证据摘要里展示的环境顺序：local → test → 其余按出现序（稳定输出，团队可比对）。 */
+const DIGEST_ENV_ORDER = ['local', 'test'];
+
+/**
+ * 从 DU 本地事实渲染团队可见的证据摘要块（评论瘦身修正：明细不上传 ≠ 事实不上传）。
+ * Issue 评论是团队共享的——本地 DU 里的执行结论必须以摘要形式随流转评论上传，
+ * 云端报告指针（reportId 等）让想深挖的成员可以核对。DU 缺失返回 undefined（存量 Issue 无影响）。
+ */
+function renderEvidenceDigest(p: Payload): string | undefined {
+  const du = p.du;
+  if (!du) return undefined;
+
+  const lines: string[] = [];
+  const environments = [...DIGEST_ENV_ORDER, ...new Set(du.evidence.map((e) => e.environment).filter((e) => !DIGEST_ENV_ORDER.includes(e)))];
+  for (const env of environments) {
+    const run = latestEvidence(du, 'test-run', env);
+    const audit = latestEvidence(du, 'asset-audit', env);
+    if (!run && !audit) continue;
+    const parts: string[] = [];
+    if (run) parts.push(`执行 ${run.planVersion} / ${run.outcome}${run.detailRef ? ` / ${run.detailRef}` : ''}`);
+    if (audit) parts.push(`审计 ${audit.planVersion} / ${audit.outcome}`);
+    lines.push(`- ${env}：${parts.join('；')}`);
+  }
+
+  const undisposed = du.resources.filter((r) => !r.disposedAt);
+  if (undisposed.length) lines.push(`- 资源登记：${undisposed.length} 项在册（终态出清理清单）`);
+  if (du.gateSet) lines.push(`- 门禁单：${du.gateSet.scopes.join('、')}（${du.gateSet.environments.join('/')}，MR 评审${du.gateSet.mrReview ? '要求' : '豁免'}，回归=${du.gateSet.regression}）`);
+  if (du.metricEvents.length) {
+    const count = (kind: string): number => du.metricEvents.filter((e) => e.kind === kind).length;
+    lines.push(`- 指标：确认 ${count('confirm')} 次 / 流转 ${count('transition')} 次 / 重测 ${count('rerun')} 次 / 返工 ${count('rework')} 次`);
+  }
+
+  if (!lines.length) return undefined;
+  return ['## 证据摘要（引擎从 DU 生成；明细见云端报告与本地工作目录）', '', ...lines].join('\n');
+}
 
 export function renderStatusChange(p: Payload): string {
   const f = p.fields;
@@ -140,6 +177,11 @@ export function renderNodeComment(p: Payload): string {
   if (p.type === 'story' && p.from === '待评审' && p.to === '已评审' && p.reviewEvidence) {
     blocks.push(renderRequirementsReviewEvidence(p.reviewEvidence));
   }
+
+  // 团队共享的执行结论摘要：DU 传入即自动追加，不依赖手填（评论瘦身的正确边界——
+  // 明细留本地，结论数字上传；未传 DU 的存量调用不追加，行为不变）。
+  const digest = renderEvidenceDigest(p);
+  if (digest) blocks.push(digest);
 
   return blocks.join('\n\n');
 }

@@ -1,6 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { renderStatusChange, renderReturn, renderChangeRequest, renderTestIssue, renderCorrection, renderNodeComment } from './render.js';
 import type { Payload } from './types.js';
+import { initDu, recordEvidence } from './du.js';
+import { registerResource } from './resource.js';
+import { recordMetric } from './metrics.js';
+import { deriveGateSet, freezeGateSet } from './gate-set.js';
+import { loadModel } from './model.js';
 
 describe('render', () => {
   it('renders a 状态变更 comment from structured fields', () => {
@@ -172,5 +177,46 @@ describe('测试报告双轨证据(issue 31:执行证据 vs 资产状态)', () =
     const md = renderNodeComment({ type: 'story', from: '测试中', to: '待发布', fields: { 回归详情: 'r' }, assigneeUser: '@dev' });
     expect(md).not.toContain('Apifox资产状态：');
     expect(md).not.toContain('reportId与环境：');
+  });
+});
+
+describe('证据摘要块（DU 事实上传团队可见）', () => {
+  const T = '2026-09-01T00:00:00Z';
+  const basePayload = (du?: Payload['du']): Payload => ({
+    type: 'story', from: '开发中', to: '测试中',
+    fields: { 提测日期: '2026-09-01', 研发Assignee: '@dev', 测试说明: 's' },
+    assigneeUser: '@qa',
+    ...(du ? { du } : {}),
+  });
+
+  it('DU 传入时自动追加证据摘要（执行/审计结论 + 报告指针）', () => {
+    let du = initDu({ iid: 88, type: 'story', now: T });
+    du = recordEvidence(du, { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: 'v3-audit', recordedAt: T }, T);
+    du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: T, detailRef: 'api=report:101' }, T);
+    du = registerResource(du, { id: 'TMP-88-export', kind: 'apifox-test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T }, T);
+    du = recordMetric(du, { at: T, kind: 'confirm' });
+    du = recordMetric(du, { at: T, kind: 'confirm' });
+    const md = renderNodeComment(basePayload(du));
+    expect(md).toContain('## 证据摘要');
+    expect(md).toContain('- local：执行 v3 / passed / api=report:101；审计 v3 / v3-audit');
+    expect(md).toContain('- 资源登记：1 项在册');
+    expect(md).toContain('- 指标：确认 2 次 / 流转 0 次');
+  });
+
+  it('无 DU 时不含证据摘要（存量 Issue 行为不变）', () => {
+    const md = renderNodeComment(basePayload());
+    expect(md).not.toContain('## 证据摘要');
+  });
+
+  it('DU 无任何事实/资源/指标时也不追加空摘要块', () => {
+    const md = renderNodeComment(basePayload(initDu({ iid: 88, type: 'story', now: T })));
+    expect(md).not.toContain('## 证据摘要');
+  });
+
+  it('gateSet 存在时摘要含门禁单行（冻结的门禁对团队可见）', () => {
+    const gs = freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['api-contract']), T);
+    const du = { ...initDu({ iid: 88, type: 'story', now: T }), gateSet: gs };
+    const md = renderNodeComment(basePayload(du));
+    expect(md).toContain('- 门禁单：api-contract（local/test，MR 评审要求，回归=full）');
   });
 });

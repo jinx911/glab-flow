@@ -132,7 +132,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 每个 flow 启动时与 state 同步初始化 DU（Leader 落盘 `<workspace.root>/.glab-flow/<iid>/du.json`，模式与 state 文件一致；引擎命令产出新 DU 对象、Leader 写回）。此后：
 
-- 执行明细（TestRun/AssetAudit）优先记入 DU（`transition`/`validate` 传 `du`），不再要求发 Issue 评论——Issue 只保留状态流转评论（评论瘦身）；无 DU 的存量 Issue 自动回落评论解析，不迁移。
+- 执行明细（TestRun/AssetAudit）优先记入 DU（`transition`/`validate` 传 `du`），不再要求发独立 Issue 评论（评论瘦身）。**边界**：明细不上传 ≠ 事实不上传——Issue 评论是团队共享的，本地 DU 的执行结论由 `renderNodeComment` 在每条流转评论里**自动追加「## 证据摘要」块**（各环境执行/审计结论 + 报告指针 + 门禁单 + 指标），想深挖的成员顺 reportId 到云端核对；DU 未传入时不追加（存量 Issue 行为不变）。无 DU 的存量 Issue 自动回落评论解析，不迁移。
 - `已评审→开发中` 时把技术方案声明的受影响维度传入 `declaredScopes`，引擎返回 `proposedGateSet`（含 skipStates/environments/mrReview/regression/rollbackPlan）——与计划提测/上线日期**同一次 L2 批量确认**后冻结进 DU。
 - 随时 `pnpm cli next` 看「在哪/阻塞什么/最快下一步/谁欠什么」。
 - 人工改了标签/手动部署/外部 CI 结果：`pnpm cli reconcile` 对账（label-ahead=人工推进二选一 / du-ahead=补写回 / external-close=提前关闭处理），不推倒重来。
