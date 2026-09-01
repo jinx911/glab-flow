@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadModel } from './model.js';
 import { computeNextStep } from './next-step.js';
+import { initDu } from './du.js';
+import { disposeResource, registerResource } from './resource.js';
 
 const body = '## 交付协同\n\n|角色|用户|\n|--|--|\n|产品|@pm|\n|研发|@dev|\n|测试|@qa|';
 const base = { type: 'story' as const, iid: 88, labels: ['type::story', 'story-status::开发中'], state: 'opened' as const, notes: [], body };
@@ -20,10 +22,22 @@ describe('computeNextStep', () => {
     const out = computeNextStep(loadModel(), { ...base, labels: ['type::story'] });
     expect(out.drift).toBeDefined();
   });
-  it('terminal node reports cleanup hint', () => {
+  it('terminal node without du reports no pending cleanup', () => {
     const out = computeNextStep(loadModel(), { ...base, labels: ['type::story', 'story-status::已完成'] });
     expect(out.isTerminal).toBe(true);
-    expect(out.summary).toContain('资源清理');
+    expect(out.summary).toContain('无待清理资源');
+  });
+  it('terminal node with du lists undisposed resources as cleanup todos', () => {
+    const T = '2026-09-01T00:00:00Z';
+    let du = initDu({ iid: 88, type: 'story', now: T });
+    du = registerResource(du, { id: 'TMP-88-members', kind: 'apifox-test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T }, T);
+    du = registerResource(du, { id: 'branch-f-88', kind: 'branch', scope: 'non-prod', lifecycle: 'permanent', createdAt: T }, T);
+    du = disposeResource(du, 'branch-f-88', 'kept', T);
+    const out = computeNextStep(loadModel(), { ...base, labels: ['type::story', 'story-status::已完成'], du });
+    expect(out.isTerminal).toBe(true);
+    expect(out.summary).toContain('资源清理待办 1 项');
+    expect(out.summary).toContain('TMP-88-members');
+    expect(out.summary).toContain('删除');
   });
   it('passes DU evidence through to the submit gate', () => {
     // DU-first（P2）在 next 命令同样生效：du 证据 + 无评论即可过 local 门禁。

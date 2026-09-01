@@ -1,6 +1,7 @@
 import type { StateMachine, MissingItem, Role, TransitionInput } from './types.js';
 import { runTransition } from './transition.js';
 import { TERMINAL } from './constants.js';
+import { cleanupChecklist } from './resource.js';
 
 export type NextStepInput = Omit<TransitionInput, 'to'>;
 
@@ -65,7 +66,17 @@ export function computeNextStep(model: StateMachine, input: NextStepInput): Next
     return { where: '?', isTerminal: false, blockedOn: [], fastestPath: [], owedBy: [], drift: reason, summary: `状态标签异常，需人工对账：${reason}` };
   }
   if (TERMINAL.has(node)) {
-    return { where: node, isTerminal: true, blockedOn: [], fastestPath: [], owedBy: [], summary: '已完成（终态）。剩余动作：资源清理（P4 起由 du.resources 驱动）。' };
+    const pending = input.du ? cleanupChecklist(input.du) : [];
+    return {
+      where: node,
+      isTerminal: true,
+      blockedOn: [],
+      fastestPath: [],
+      owedBy: [],
+      summary: pending.length
+        ? `已完成（终态）。资源清理待办 ${pending.length} 项：${pending.map((p) => `${p.resourceId}(${p.suggestion})`).join('、')}`
+        : '已完成（终态），无待清理资源。',
+    };
   }
   const fastestPath = fastestChain(model, input.type, node);
   const owedBy = groupOwedBy(model, out.missing);

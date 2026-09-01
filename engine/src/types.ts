@@ -421,6 +421,12 @@ export interface DuResourceEntry {
   disposal?: 'deleted' | 'promoted-shared' | 'kept';
 }
 
+/** 资源登记校验问题（spec §3.4）：命名前缀/生产生命周期约束违例。 */
+export interface ResourceCheckIssue {
+  resourceId: string;
+  issue: string;
+}
+
 /** DU 指标事件（spec §7，P6 使用）：Leader 记事件，引擎终态算汇总。 */
 export interface DuMetricEvent {
   at: string;

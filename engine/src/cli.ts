@@ -19,7 +19,8 @@ import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
-import type { TestRun } from './types.js';
+import { checkResources, cleanupChecklist, disposeResource, registerResource } from './resource.js';
+import type { DuResourceEntry, DuState, TestRun } from './types.js';
 
 const model = loadModel();
 
@@ -216,8 +217,26 @@ async function main() {
       console.log(JSON.stringify(stateWritebackCommand(input)));
       break;
     }
+    case 'resource': {
+      // P4 资源登记表：DU 名下资源创建即登记，终态出清理清单，处置后回写。
+      const input = JSON.parse(readStdin()) as {
+        du: DuState;
+        op: 'register' | 'check' | 'cleanup' | 'dispose';
+        entry?: Omit<DuResourceEntry, 'disposedAt' | 'disposal'>;
+        resourceId?: string;
+        disposal?: 'deleted' | 'promoted-shared' | 'kept';
+        now: string;
+      };
+      switch (input.op) {
+        case 'register': console.log(JSON.stringify(registerResource(input.du, input.entry!, input.now))); break;
+        case 'check': console.log(JSON.stringify(checkResources(input.du, input.du.iid))); break;
+        case 'cleanup': console.log(JSON.stringify(cleanupChecklist(input.du))); break;
+        case 'dispose': console.log(JSON.stringify(disposeResource(input.du, input.resourceId!, input.disposal!, input.now))); break;
+      }
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress | resource');
       process.exit(1);
   }
 }
