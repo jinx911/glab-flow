@@ -207,7 +207,9 @@ export function validateChangeClose(input: unknown): GuardResult {
   if (target.requiredArtifacts.includes('test-plan')) {
     const parsed = parseTestPlan(value.testPlan);
     if (!parsed.ok) return fail([`变更单 ${value.changeId} 要求更新测试计划：${parsed.errors.join('；')}`], ['testPlan']);
-    if (target.previousPlanVersion) {
+    // 轻量关闭（spec §4.3）：T1/T2 无测试计划深度要求，跳过版本严格递增；未传 tier 保持原行为。
+    const isLightTier = value.tier === 'T1' || value.tier === 'T2';
+    if (!isLightTier && target.previousPlanVersion) {
       const before = parseVersionOrdinal(target.previousPlanVersion);
       const after = parseVersionOrdinal(parsed.plan.version);
       if (before === undefined || after === undefined || after <= before) {

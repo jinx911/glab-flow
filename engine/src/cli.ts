@@ -14,6 +14,8 @@ import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
 import type { ApifoxAssetAudit, IssueNote, Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
 import type { ChangeCloseInput, ChangeImpactInput } from './types.js';
 import { buildChangeClosePlan, buildChangeImpactPlan, validateChangeClose, validateChangeImpactInput } from './change-impact.js';
+import { planChange } from './change.js';
+import type { ChangePlanInput } from './change.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
@@ -258,8 +260,16 @@ async function main() {
       }
       break;
     }
+    case 'change': {
+      // P5 变化分级：change-impact 闭环 + 定级 T1-T4 + GateSet 棘轮扩容（expandedGateSet 由 Leader 写回 DU）。
+      const input = JSON.parse(readStdin()) as ChangePlanInput;
+      const result = planChange(model, input);
+      console.log(JSON.stringify(result));
+      if (!result.ok) process.exitCode = 1;
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress | resource');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | evidence | config | version | test-config | state-init | state-writeback | progress | resource');
       process.exit(1);
   }
 }

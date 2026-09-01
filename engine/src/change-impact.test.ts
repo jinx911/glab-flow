@@ -113,6 +113,26 @@ describe('change-impact closure', () => {
     expect(impact.returnTarget).toBe('待评审');
   });
 
+  it('lightweight close: tier T1/T2 skips the strict plan-version advance', () => {
+    const { plan } = buildChangeImpactPlan(input);
+    const notes = [{ body: (plan.ops[0] as { body: string }).body }];
+    const base = {
+      iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes, testPlan: PLAN_V3,
+      completed: {
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#unchanged', 'apifox-assets': 'audit:123',
+        'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
+      },
+    } as const;
+    // 未传 tier（legacy）：版本未前进必须拒绝——向后兼容。
+    expect(validateChangeClose(base)).toMatchObject({ ok: false, missing: ['testPlan'] });
+    // T1/T2：轻量关闭不再强制版本递增（plan 仍须有效可解析）。
+    expect(validateChangeClose({ ...base, tier: 'T1' })).toEqual({ ok: true, missing: [], reasons: [] });
+    expect(validateChangeClose({ ...base, tier: 'T2' })).toEqual({ ok: true, missing: [], reasons: [] });
+    // T3/T4：深度要求不变，版本必须前进。
+    expect(validateChangeClose({ ...base, tier: 'T3' })).toMatchObject({ ok: false, missing: ['testPlan'] });
+    expect(validateChangeClose({ ...base, tier: 'T4' })).toMatchObject({ ok: false, missing: ['testPlan'] });
+  });
+
   it('places the single shared test plan before coding and local self-test', () => {
     const model = loadModel();
     expect(progressStepsFor(model, '开发中')).toEqual(['技术方案', '测试计划', '编码实现', '本地自测', '代码评审']);

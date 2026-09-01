@@ -110,6 +110,9 @@ export interface WeekPlanChangeInput {
 
 /** 变更闭环的来源；它决定建议回退节点，不会直接修改 Issue 状态。 */
 export type ChangeSource = 'requirement' | 'technical-design' | 'implementation' | 'test';
+
+/** 变化级别（spec §4.3）：由 scopes 推导，决定关闭证据深度——T3+ 才要求测试计划版本递增。 */
+export type ChangeTier = 'T1' | 'T2' | 'T3' | 'T4';
 /** 变更影响的业务维度；由引擎推导需要同步的产物与重测范围。frontend-copy（纯文案/展示微调）是最低风险档。 */
 export type ChangeScope = 'frontend-copy' | 'functional' | 'api-contract' | 'data-model' | 'permission' | 'frontend-route' | 'schedule' | 'release';
 export type ChangeArtifact =
@@ -159,6 +162,11 @@ export interface ChangeCloseInput {
   completed: Partial<Record<ChangeArtifact, string>>;
   /** 更新后的 test-plan.md；当 open 单要求 test-plan 时必填且版本必须前进。 */
   testPlan?: string;
+  /**
+   * 变化级别（spec §4.3 轻量关闭）：T1/T2 跳过「测试计划版本严格递增」检查。
+   * 未传（legacy 客户端）时行为不变——仍要求版本前进。
+   */
+  tier?: ChangeTier;
 }
 
 /** A validated plan, including engine-derived ISO-week coverage. */
