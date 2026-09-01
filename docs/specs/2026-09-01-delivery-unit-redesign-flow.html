@@ -57,7 +57,7 @@
           <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
         </div>
       </div>
-      <p class="subtitle">模拟 #88「会员导出」需求（R3 标准路线，动接口）＋ #92「导出乱码」Bug（T2 级）— feat/delivery-unit-redesign 引擎真实行为 · 372 tests green</p>
+      <p class="subtitle">模拟 #88「会员导出」需求（R3 标准路线，动接口）＋ #92「导出乱码」Bug（T2 级实施调整）— feat/delivery-unit-redesign 引擎真实行为 · 386 tests green · 19 CLI 命令</p>
     </div>
 
     <div class="diagram-container">
@@ -128,10 +128,12 @@
         <text x="905" y="532" fill="#34d399" font-size="8">$ cli reconcile　 ← 对账 5 verdict</text>
         <text x="905" y="548" fill="#34d399" font-size="8">$ cli resource　 ← 登记/校验/清理</text>
         <text x="905" y="564" fill="#34d399" font-size="8">$ cli metrics　　← 交付指标</text>
-        <text x="905" y="586" fill="#94a3b8" font-size="7">写回 = Leader 预览确认后跑 glab CLI</text>
-        <text x="905" y="600" fill="#94a3b8" font-size="7">证据双源：DU 优先 · Issue 评论兜底</text>
-        <text x="905" y="614" fill="#94a3b8" font-size="7">（存量 Issue 无 DU 自动回落，不迁移）</text>
-        <text x="905" y="634" fill="#fbbf24" font-size="7">⚠ 铁律全保留：Issue 唯一真相 / 评论不可变</text>
+        <text x="905" y="580" fill="#34d399" font-size="8">$ cli du　　　　 ← init/record/绑门禁单/对账基准</text>
+        <text x="905" y="596" fill="#34d399" font-size="8">$ cli review-pack ← 评审 feeding 标准化材料</text>
+        <text x="905" y="614" fill="#94a3b8" font-size="7">写回 = Leader 预览确认后跑 glab CLI</text>
+        <text x="905" y="628" fill="#94a3b8" font-size="7">证据双源：DU 优先 · Issue 评论兜底</text>
+        <text x="905" y="642" fill="#94a3b8" font-size="7">（存量 Issue 无 DU 自动回落，不迁移）</text>
+        <text x="905" y="658" fill="#fbbf24" font-size="7">⚠ 铁律全保留：Issue 唯一真相 / 评论不可变</text>
 
         <!-- GitLab projection -->
         <rect x="890" y="680" width="310" height="120" rx="6" fill="#0f172a"/>
@@ -164,7 +166,7 @@
         <rect x="45" y="355" width="190" height="96" rx="6" fill="#0f172a"/>
         <rect x="45" y="355" width="190" height="96" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
         <text x="140" y="377" fill="white" font-size="11" font-weight="600" text-anchor="middle">③ 待评审 → 已评审</text>
-        <text x="140" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">review-preview 预审（自动）</text>
+        <text x="140" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">review-preview + grill-me 拷问（自动）</text>
         <text x="140" y="411" fill="#fb7185" font-size="8" text-anchor="middle">👤 L2 确认②：评审结论+周排期</text>
         <text x="140" y="427" fill="#94a3b8" font-size="7" text-anchor="middle">G15 取证齐 → 二值放行/退回</text>
         <text x="140" y="441" fill="#94a3b8" font-size="7" text-anchor="middle">周排期区块随本评论追加</text>
@@ -174,37 +176,39 @@
         <rect x="45" y="490" width="190" height="110" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
         <text x="140" y="512" fill="white" font-size="11" font-weight="600" text-anchor="middle">④ 已评审 → 开发中 ★绑定点</text>
         <text x="140" y="530" fill="#94a3b8" font-size="8" text-anchor="middle">design.md 声明维度: api-contract</text>
-        <text x="140" y="546" fill="#94a3b8" font-size="8" text-anchor="middle">engine → proposedGateSet</text>
+        <text x="140" y="546" fill="#94a3b8" font-size="8" text-anchor="middle">cli du bind-gateset 推导+冻结</text>
         <text x="140" y="562" fill="#fb7185" font-size="8" text-anchor="middle">👤 L2 确认③：方案放行+日期+门禁单</text>
-        <text x="140" y="578" fill="#94a3b8" font-size="7" text-anchor="middle">同一次批量确认后冻结进 DU</text>
+        <text x="140" y="578" fill="#94a3b8" font-size="7" text-anchor="middle">同一次批量确认后冻结进 DU（已冻结拒重绑）</text>
         <text x="140" y="592" fill="#fbbf24" font-size="7" text-anchor="middle">MR评审+双环境+全量回归（棘轮只升不降）</text>
 
         <!-- Step 5 dev -->
-        <rect x="45" y="640" width="190" height="80" rx="6" fill="#0f172a"/>
-        <rect x="45" y="640" width="190" height="80" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <rect x="45" y="640" width="190" height="96" rx="6" fill="#0f172a"/>
+        <rect x="45" y="640" width="190" height="96" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
         <text x="140" y="661" fill="white" font-size="11" font-weight="600" text-anchor="middle">⑤ 开发中（全 L1 自动）</text>
         <text x="140" y="679" fill="#94a3b8" font-size="8" text-anchor="middle">编码/分支/Apifox 资产/local 闭环</text>
-        <text x="140" y="695" fill="#94a3b8" font-size="8" text-anchor="middle">资源创建即登记 · 证据记 DU</text>
-        <text x="140" y="711" fill="#22d3ee" font-size="7" text-anchor="middle">Issue 零评论 · 随时 cli next 看进度</text>
+        <text x="140" y="695" fill="#94a3b8" font-size="8" text-anchor="middle">资源创建即登记 · 证据 cli du record 记 DU</text>
+        <text x="140" y="711" fill="#22d3ee" font-size="7" text-anchor="middle">自测 bug 修复=实施调整（节点内迭代重跑）</text>
+        <text x="140" y="727" fill="#22d3ee" font-size="7" text-anchor="middle">评审 feeding：cli review-pack 标准化材料</text>
 
         <!-- Step 6+7 test & release (right column of story lane) -->
         <rect x="300" y="105" width="240" height="300" rx="6" fill="rgba(15, 23, 42, 0.3)" stroke="#334155" stroke-width="1" stroke-dasharray="4,4"/>
         <text x="420" y="127" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle">⑥ 测试中（test 环境全 L1）</text>
         <text x="315" y="150" fill="#94a3b8" font-size="8">• test-config 注入环境/账号（自动）</text>
-        <text x="315" y="166" fill="#94a3b8" font-size="8">• test 执行 + 证据记 DU（plan-version 一致）</text>
+        <text x="315" y="166" fill="#94a3b8" font-size="8">• test 执行 + 证据 cli du record（版本一致）</text>
         <text x="315" y="182" fill="#94a3b8" font-size="8">• 建 MR feature→master（标题=#88）</text>
-        <text x="315" y="198" fill="#94a3b8" font-size="8">• mr-review 全 MR diff → 结论发 MR</text>
+        <text x="315" y="198" fill="#94a3b8" font-size="8">• mr-review + review-pack 材料注入</text>
         <text x="315" y="214" fill="#94a3b8" font-size="8">　（G14：GateSet.mrReview=true 才必填）</text>
         <text x="315" y="230" fill="#94a3b8" font-size="8">• release-check 产发布计划（提前）</text>
-        <text x="315" y="252" fill="#94a3b8" font-size="8">• #92 Bug 发现 → 挂父需求评论</text>
-        <text x="315" y="268" fill="#94a3b8" font-size="8">　修复后复测，阻塞全验证才放行（G11）</text>
+        <text x="315" y="252" fill="#34d399" font-size="8">• #92 发现 = 实施调整：测试问题评论挂父需求</text>
+        <text x="315" y="268" fill="#34d399" font-size="8">　→ 阻塞修复 → 复测 → G11 收口，不退回</text>
         <text x="420" y="298" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">👤 L2 确认④：提测放行</text>
         <text x="420" y="314" fill="#94a3b8" font-size="8" text-anchor="middle">（合并+构建参数+证据摘要 一次问）</text>
         <text x="420" y="344" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">👤 L2 确认⑤：测试验收放行</text>
         <text x="420" y="360" fill="#94a3b8" font-size="8" text-anchor="middle">→ 待发布</text>
         <text x="315" y="388" fill="#94a3b8" font-size="7">跳状态对照：frontend-copy 需求（改文案）</text>
         <text x="315" y="400" fill="#94a3b8" font-size="7">skipStates=[测试中] → 开发中直推待发布</text>
-        <text x="315" y="412" fill="#94a3b8" font-size="7">校验仍按原转换 fail-closed，全程 4 次确认</text>
+        <text x="315" y="412" fill="#94a3b8" font-size="7">校验 fail-closed · cli next 同口径显示路径</text>
+        <text x="420" y="374" fill="#a78bfa" font-size="7" text-anchor="middle">每条流转评论自动带「## 证据摘要」块（DU 事实团队可见）</text>
 
         <!-- Step 8-9 release -->
         <rect x="300" y="440" width="240" height="280" rx="6" fill="rgba(136, 19, 55, 0.08)" stroke="#fb7185" stroke-width="1.5"/>
@@ -257,18 +261,19 @@
         <!-- ================= CROSS-CUTTING LANE ================= -->
         <rect x="45" y="1180" width="240" height="256" rx="6" fill="#0f172a"/>
         <rect x="45" y="1180" width="240" height="256" rx="6" fill="rgba(136, 19, 55, 0.35)" stroke="#fb7185" stroke-width="1.5"/>
-        <text x="165" y="1204" fill="white" font-size="11" font-weight="600" text-anchor="middle">变化分级闭环 cli change</text>
-        <text x="60" y="1228" fill="#94a3b8" font-size="8">实施中发现偏差（任何阶段）：</text>
-        <text x="60" y="1248" fill="#94a3b8" font-size="8">T1 文案/UI　→ 重跑受影响 case</text>
-        <text x="60" y="1264" fill="#94a3b8" font-size="8">　　　　　　　 不动 plan-version，快速关闭</text>
-        <text x="60" y="1284" fill="#94a3b8" font-size="8">T2 局部行为 → 局部回归+代码评审</text>
-        <text x="60" y="1304" fill="#94a3b8" font-size="8">T3 接口契约 → 契约同步+双环境重测</text>
-        <text x="60" y="1320" fill="#94a3b8" font-size="8">　　　　　　　 closeRequiresPlanVersionBump</text>
-        <text x="60" y="1340" fill="#94a3b8" font-size="8">T4 数据/权限 → +全量回归+回滚预案</text>
-        <text x="60" y="1362" fill="#fbbf24" font-size="7">棘轮：GateSet 只升不降，降级须显式留痕</text>
-        <text x="60" y="1378" fill="#fbbf24" font-size="7">tier 从 open 回执 scopes 重推导，禁自报</text>
-        <text x="60" y="1398" fill="#94a3b8" font-size="7">open 单存在 → G16 阻断正向流转</text>
-        <text x="60" y="1414" fill="#94a3b8" font-size="7">变更单仍走 Issue 评论（跨会话阻断器）</text>
+        <text x="165" y="1204" fill="white" font-size="11" font-weight="600" text-anchor="middle">「三类改」决策树</text>
+        <text x="60" y="1224" fill="#34d399" font-size="8" font-weight="600">改完后 proposal/design/test-plan</text>
+        <text x="60" y="1238" fill="#34d399" font-size="8" font-weight="600">有没有话变假？</text>
+        <text x="60" y="1258" fill="#94a3b8" font-size="8">没有 → 实施调整，不开单（左图绿路径）</text>
+        <text x="60" y="1278" fill="#94a3b8" font-size="8">有 → cli change 按 source 分流：</text>
+        <text x="60" y="1296" fill="#94a3b8" font-size="8">　requirement → 回退待评审重评审</text>
+        <text x="60" y="1312" fill="#94a3b8" font-size="8">　technical-design → 回退已评审</text>
+        <text x="60" y="1328" fill="#94a3b8" font-size="8">　implementation/test → 回退开发中</text>
+        <text x="60" y="1348" fill="#94a3b8" font-size="8">定级：T1 文案/T2 行为/T3 契约/T4 数据权限</text>
+        <text x="60" y="1364" fill="#94a3b8" font-size="8">T3+ 才要求 plan-version 递增</text>
+        <text x="60" y="1384" fill="#fbbf24" font-size="7">棘轮只升不降 · tier 从 open 单重推导禁自报</text>
+        <text x="60" y="1400" fill="#fbbf24" font-size="7">变更单渲染自带「纯修复勿开单」指引</text>
+        <text x="60" y="1420" fill="#94a3b8" font-size="7">open 单存在 → G16 阻断正向流转</text>
 
         <rect x="330" y="1180" width="240" height="256" rx="6" fill="#0f172a"/>
         <rect x="330" y="1180" width="240" height="256" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
@@ -316,7 +321,7 @@
 
         <!-- dev loop back (change during dev) -->
         <path d="M 235 545 Q 292 545 292 1215 Q 292 1235 272 1235 L 289 1235" fill="none" stroke="#fb7185" stroke-width="1" stroke-dasharray="5,5" marker-end="url(#arrowrose)"/>
-        <text x="248" y="537" fill="#fb7185" font-size="7">发现偏差 → change</text>
+        <text x="248" y="537" fill="#fb7185" font-size="7">产物层偏差 → change</text>
 
         <!-- external facts into reconcile -->
         <rect x="615" y="1010" width="210" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
@@ -361,37 +366,38 @@
         <ul>
           <li>• 分诊→草稿→评审→方案(声明 api-contract)→开发→测试→发布→验收</li>
           <li>• 👤 确认 7 次：分诊/评审结论/方案放行(含门禁单)/提测/测试验收/生产部署(L3)/验收关闭(L3)</li>
-          <li>• 中间执行全 L1 自动；Issue 仅 8 条流转评论</li>
-          <li>• 测试中发现 #92 → 走 Bug 流，不退回父流程</li>
+          <li>• 中间执行全 L1 自动；Issue 仅 8 条流转评论（每条自动带证据摘要）</li>
+          <li>• 测试中发现 #92 → 实施调整路径，不退回父流程</li>
         </ul>
       </div>
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>#92 Bug（T2 级）</h3>
+          <h3>#92 Bug（T2 级·实施调整）</h3>
         </div>
         <ul>
           <li>• 6 状态线；门禁深度由根因维度推导（functional→受影响用例复测）</li>
           <li>• 👤 确认 5 次；终态责任 = 测试</li>
+          <li>• 编码缺陷修复=实施调整：测试问题评论+复测，不开变更单</li>
           <li>• 与 Story 共用 DU/GateSet/动作分层/对账机制</li>
         </ul>
       </div>
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>新引擎能力（P1-P6）</h3>
+          <h3>新引擎能力（P1-P6 + 优化轮）</h3>
         </div>
         <ul>
-          <li>• next 最短路径 / reconcile 对账 / change T1-T4 分级</li>
-          <li>• resource 登记+终态清理 / metrics 交付指标</li>
-          <li>• GateSet 维度推导 + 跳状态投影 + 棘轮只升不降</li>
-          <li>• 20 commits · 372 tests · 终审 READY_TO_MERGE</li>
+          <li>• next/reconcile/change/resource/metrics 五命令</li>
+          <li>• du 写入面（init/record/bind-gateset）+ review-pack 评审材料</li>
+          <li>• 证据摘要块自动随流转评论上传（团队共享本地结论）</li>
+          <li>• 35 commits · 386 tests · 19 CLI 命令 · 终审 READY_TO_MERGE</li>
         </ul>
       </div>
     </div>
 
     <p class="footer">
-      glab-flow feat/delivery-unit-redesign · spec 2026-09-01-delivery-unit-redesign.md · 图中行为均与引擎实现对齐
+      glab-flow feat/delivery-unit-redesign · spec 2026-09-01-delivery-unit-redesign.md · 图中行为均与引擎实现对齐（grill-me 评审拷问 / 三类改决策树 / du·review-pack 命令 / 证据摘要块 已反映）
     </p>
   </div>
 
