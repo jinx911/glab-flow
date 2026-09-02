@@ -11,7 +11,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
 仪式仍是「取证 → 校验 → 计划 → 预览 → 确认 → 应用」不可跳序的管线；前 4 步（取证/校验/计划/预览）由 `transition` **一次调用**完成，Leader 只在「确认 → 应用」那一跳介入。
 
-1. **一键 transition（取证+校验+计划+预览）**。Leader 先只读 glab：`glab issue view <iid> --output json` 取 labels/body/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论；有受影响 MR 时逐个取该 MR 的 notes。把刚回读的结果喂给：
+1. **一键 transition（取证+校验+计划+预览）**。Leader 先只读 glab：`glab issue view <iid> --output json` 取 labels/body/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100&page=1"` 取父 Issue 评论（**逐页翻到取空**——G16/G11b 依赖旧评论，单页截断=门禁失明，见 SKILL.md「notes 必须翻页取全」）；有受影响 MR 时逐个取该 MR 的 notes（同样翻页）。把刚回读的结果喂给：
 
    ```bash
    pnpm cli transition

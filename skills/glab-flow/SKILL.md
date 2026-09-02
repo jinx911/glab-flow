@@ -123,10 +123,12 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
   ```bash
   glab api --hostname <host> "projects/<id>/issues/<iid>"
-  glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"
+  glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100&page=1"
   ```
 
 `<host>` 与 `<id>` 一律从 `GlabConfig` 取，不在命令里硬编码域名或项目号。读取 notes 后传给引擎时必须保留每条原始 `body`、`created_at`、`id`；不得仅映射为 `{body}`。GitLab notes API 常按 newest-first 返回，引擎依赖时间戳与 ID 归一化后才可安全判定“最新”回执。
+
+**notes 必须翻页取全（Q6：单页截断=门禁失明）**：长 Issue 的变更影响单（G16）、测试问题评论（G11b）滚出第一页后引擎看不见——open 单不再阻断、阻塞问题漏核。取法：`page=1` 起逐页请求，**返回条数 < per_page 即停**，全部合并去重（按 `id`）后喂引擎。判断截断的捷径：某页恰好返回 100 条就必须再取下一页。MR 的 notes 同样翻页。
 
 ## Leader 每轮编排（一键流转）
 
@@ -144,7 +146,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 每个节点用 `transition` 一次算完确定性部分，Leader 只做「读 → 确认 → 写」三件事（门禁细节见 `gate.md`）：
 
-1. **读状态（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论，并将 API 原样的 `body`、`created_at`、`id` 传入引擎；有受影响 MR 时，逐个读取该 MR 的 notes。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读，不能以 state 缓存替代。
+1. **读状态（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100&page=1"` 逐页取全父 Issue 评论（见「notes 必须翻页取全」），并将 API 原样的 `body`、`created_at`、`id` 传入引擎；有受影响 MR 时，逐个读取该 MR 的 notes（同样翻页）。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读，不能以 state 缓存替代。
 2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields + 当前 `du` 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
