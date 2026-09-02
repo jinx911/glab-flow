@@ -53,13 +53,17 @@ describe('gateSetMateriallyChanged', () => {
   const variant = (patch: Partial<GateSet>): GateSet => ({ ...base, ...patch });
 
   it('flags environment-only expansion as a material change', () => {
-    expect(gateSetMateriallyChanged(base, variant({ environments: ['local', 'test', 'prod'] }))).toBe(true);
+    expect(gateSetMateriallyChanged(base, variant({ environments: ['local', 'test', 'prod'] as never }))).toBe(true);
   });
 
   it('treats identical gate sets as unchanged', () => {
     expect(gateSetMateriallyChanged(base, variant({}))).toBe(false);
-    // scopes/overrides 等留痕字段变化不属于「门禁实质变化」。
-    expect(gateSetMateriallyChanged(base, variant({ scopes: ['functional', 'api-contract'] }))).toBe(false);
+  });
+
+  it('flags scope and unit-case requirement changes', () => {
+    expect(gateSetMateriallyChanged(base, variant({ scopes: ['functional', 'api-contract'] }))).toBe(true);
+    expect(gateSetMateriallyChanged(base, variant({ minUnitCases: 3 }))).toBe(true);
+    expect(gateSetMateriallyChanged(base, variant({ scopes: ['functional'] }))).toBe(false);
   });
 });
 

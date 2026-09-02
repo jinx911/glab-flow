@@ -3,7 +3,7 @@ import { loadModel } from './model.js';
 import { runTransition } from './transition.js';
 import { renderStatusChange } from './render.js';
 import { deriveGateSet, freezeGateSet } from './gate-set.js';
-import { initDu, recordEvidence } from './du.js';
+import { initDu, recordEvidence, setCachedNode } from './du.js';
 import type { DuState, RequirementsReviewEvidence, TransitionInput } from './types.js';
 
 const model = loadModel();
@@ -343,20 +343,25 @@ describe('transition — Story Week Plan gates', () => {
     expect(r.plan).toBeDefined();
   });
 
-  it('keeps Bug transitions compatible without a Week Plan', () => {
+  it('requires GateSet binding for Bug development entry without a Week Plan', () => {
     const r = runTransition(model, baseInput({
       type: 'bug', labels: ['type::bug', 'status::已确认缺陷'], body: TABLE_BODY,
     }));
     expect(r.next).toBe('开发中');
-    expect(r.validate.ok).toBe(true);
-    expect(r.plan).toBeDefined();
-    expect(r.plan?.postWriteback).toBeUndefined();
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((item) => item.field)).toContain('gateSetBinding');
+    expect(r.plan).toBeUndefined();
   });
 
-  it('synchronizes a Bug entering development when its latest enabled Week Plan has been read back', () => {
+  it('synchronizes a Bug entering development when its frozen GateSet and latest Week Plan are read back', () => {
+    const du = setCachedNode({
+      ...initDu({ iid: 7, type: 'bug', now: '2026-09-01T00:00:00Z' }),
+      gateSet: freezeGateSet(deriveGateSet(model.gateMatrix!, ['functional']), '2026-09-01T00:00:00Z'),
+    }, '已确认缺陷', '2026-09-01T00:00:00Z');
     const r = runTransition(model, baseInput({
       type: 'bug', labels: ['type::bug', 'status::已确认缺陷'], body: TABLE_BODY,
       notes: [{ body: `## 周排期\n\n- 计划开始：2026-08-24\n- 计划完成：2026-08-31\n- 计划覆盖周：W35 ～ W36\n- 自动 rollover：启用` }],
+      du,
     }));
     expect(r.validate.ok).toBe(true);
     expect(r.plan?.postWriteback).toMatchObject({ trigger: 'bug-development-start', plan: { coverage: 'W35 ～ W36' } });
@@ -383,14 +388,15 @@ describe('transition — per-transition side-effect playbook', () => {
       config: { deployBranch: 'test', jenkins: true },
     }));
     expect(r.next).toBe('测试中');
-    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'merge_to_deploy_branch', 'trigger_jenkins', 'issue_writeback']);
-    expect(r.playbook[r.playbook.length - 1]?.isWriteback).toBe(true);
+    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'merge_to_deploy_branch', 'trigger_jenkins']);
+    expect(r.playbook.some((step) => step.isWriteback)).toBe(false);
   });
   it('提测 filters out merge/jenkins when config absent', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true,
     }));
-    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'issue_writeback']);
+    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature']);
+    expect(r.playbook.some((step) => step.isWriteback)).toBe(false);
   });
   it('发布 = 执行上线 deploy + issue writeback（生产 deploy 无条件，手动也推进 Issue）', () => {
     const r = runTransition(model, baseInput({
@@ -516,13 +522,14 @@ describe('GateSet skip states (P3)', () => {
     // local TestRun + AssetAudit 证据（frontend-copy environments=[local]，validateTestRunTransition 固定查 local）
     const withAudit = recordEvidence(base, { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' }, DU_NOW);
     const withRun = recordEvidence(withAudit, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' }, DU_NOW);
-    return { ...withRun, gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
+    const withNode = setCachedNode(withRun, '开发中', DU_NOW);
+    return { ...withNode, gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
   };
 
   it('frontend-copy DU advances 开发中 straight to 待发布 while validating original transition fields', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
-      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      fields: { ...TEST_SUBMISSION_FIELDS, ...TEST_DONE_FIELDS }, datesConfirmed: true,
       notes: [], du: frontendCopyDu(),
     }));
     expect(r.validate.ok).toBe(true);
@@ -536,8 +543,13 @@ describe('GateSet skip states (P3)', () => {
     expect(addLabel).toMatchObject({ value: 'story-status::待发布' });
     expect(r.comment).toContain('`开发中` → `待发布`');
     expect(r.comment).not.toContain('`开发中` → `测试中`');
-    // playbook 沿用原转换（提测动作照做）
-    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'issue_writeback']);
+    expect(r.comment).toContain('- 代码评审结论：通过');
+    expect(r.comment).toContain('- 可测试版本或环境：test-v1');
+    // 投影目标合并发布语义；GateSet mrReview=false 抑制 MR 创建/评审动作。
+    expect(r.projectedPayload?.to).toBe('待发布');
+    expect(r.projectedPayload?.assigneeUser).toBe('@dev');
+    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'release_check', 'issue_writeback']);
+    expect(r.playbook.find((s) => s.action === 'run_affected_regression')).toBeUndefined();
   });
 
   it('skips nothing when GateSet has no skipStates (functional)', () => {
@@ -567,7 +579,7 @@ describe('GateSet skip states (P3)', () => {
   });
 
   it('skip projection still fails closed without local test evidence', () => {
-    const du: DuState = { ...initDu({ iid: 42, type: 'story', now: DU_NOW }), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
+    const du: DuState = { ...setCachedNode(initDu({ iid: 42, type: 'story', now: DU_NOW }), '开发中', DU_NOW), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
       fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
@@ -579,10 +591,117 @@ describe('GateSet skip states (P3)', () => {
     expect(r.next).toBe('待发布');
   });
 
+  it('rejects an untrusted skip state before it can bypass a production hard gate', () => {
+    const du: DuState = {
+      ...setCachedNode(initDu({ iid: 42, type: 'story', now: DU_NOW }), '测试中', DU_NOW),
+      gateSet: {
+        scopes: ['frontend-copy'], skipStates: ['待发布'], environments: ['local'],
+        mrReview: false, regression: 'affected-cases', rollbackPlan: false,
+        minUnitCases: 0, overrides: [], frozenAt: DU_NOW,
+      },
+    };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: TEST_DONE_FIELDS, datesConfirmed: true,
+      notes, du,
+    }));
+    expect(r.next).toBeNull();
+    expect(r.dirty).toBe(true);
+    expect(r.validate.ok).toBe(false);
+    expect(r.plan).toBeUndefined();
+    expect(r.validate.reasons.join('；')).toContain('未经 gateMatrix 声明');
+  });
+
+  it('renders original and projected hard-gate facts for a trusted skip path', () => {
+    const projectionModel = {
+      ...model,
+      gateMatrix: {
+        ...model.gateMatrix!,
+        rules: model.gateMatrix!.rules.map((rule) => rule.scopes.includes('frontend-copy')
+          ? { ...rule, skipStates: ['待发布'] }
+          : rule),
+      },
+    };
+    const gateSet = freezeGateSet(deriveGateSet(projectionModel.gateMatrix!, ['frontend-copy']), DU_NOW);
+    const du: DuState = {
+      ...setCachedNode(initDu({ iid: 42, type: 'story', now: DU_NOW }), '测试中', DU_NOW),
+      gateSet,
+    };
+    const r = runTransition(projectionModel, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: {
+        ...TEST_DONE_FIELDS,
+        发布日期: '2026-08-29',
+        研发Assignee: '@dev',
+        生产版本: 'service:v2; web:v2',
+        发布记录或回滚信息: 'release-check 已完成，回滚方案已核对',
+      }, datesConfirmed: true, humanConfirmed: true,
+      notes, du,
+    }));
+    expect(r.validate.ok).toBe(true);
+    const body = r.plan?.ops.find((op) => op.kind === 'add_comment')?.body;
+    expect(body).toContain('- 测试完成日期：2026-08-07');
+    expect(body).toContain('- 生产版本：service:v2; web:v2');
+    expect(body).toContain('- 发布记录或回滚信息：release-check 已完成，回滚方案已核对');
+  });
+
+  it('GateSet environments decide which TestRun evidence gate applies', () => {
+    const du = { ...frontendCopyDu(), cachedNode: '测试中' };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: TEST_DONE_FIELDS, datesConfirmed: true, notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.validate.missing).not.toContain('testAssetAudit');
+  });
+
+  it('emits only the GateSet-enabled environment regression action when evidence is missing', () => {
+    const du: DuState = {
+      ...setCachedNode(initDu({ iid: 42, type: 'story', now: DU_NOW }), '开发中', DU_NOW),
+      gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW),
+    };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: { ...TEST_SUBMISSION_FIELDS, 回归范围或证据: '全量回归' }, datesConfirmed: true,
+      notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.playbook.map((step) => step.action)).toContain('run_affected_regression');
+    expect(r.playbook.find((step) => step.action === 'run_affected_regression')).toMatchObject({ environment: 'local', subskill: 'test-flow-e2e' });
+    expect(r.playbook.map((step) => step.action)).not.toContain('run_full_regression');
+  });
+
+  it('emits a full regression action for an enabled test environment', () => {
+    const du: DuState = {
+      ...setCachedNode(initDu({ iid: 42, type: 'story', now: DU_NOW }), '测试中', DU_NOW),
+      gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['api-contract']), DU_NOW),
+    };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: { ...TEST_DONE_FIELDS, 回归范围或证据: '全量回归' }, datesConfirmed: true, notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.playbook.find((step) => step.action === 'run_full_regression')).toMatchObject({ environment: 'test', subskill: 'test-flow-e2e' });
+  });
+
+  it('verifies rollback readiness before a production deploy when GateSet requires it', () => {
+    const du: DuState = {
+      ...setCachedNode(initDu({ iid: 42, type: 'story', now: DU_NOW }), '待发布', DU_NOW),
+      gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['data-model']), DU_NOW),
+    };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
+      fields: { 发布日期: '2026-08-29', 研发Assignee: '@dev', 生产版本: 'service:v2', 发布记录或回滚信息: '已准备回滚方案' },
+      datesConfirmed: true, humanConfirmed: true, notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.playbook.map((step) => step.action)).toEqual(['verify_rollback_ready', 'deploy', 'issue_writeback']);
+  });
+
   it('missing hints share the guard exemption — no ghost gap for waived MR review (I3)', () => {
     // functional GateSet（mrReview=false）：测试中→待发布 缺全部字段时，
     // 缺口提示也不得出现 feature分支MR评审结论（与 guard 豁免口径一致）
-    const du: DuState = { ...initDu({ iid: 42, type: 'story', now: DU_NOW }), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['functional']), DU_NOW) };
+    const du: DuState = { ...frontendCopyDu(), cachedNode: '测试中', gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['functional']), DU_NOW) };
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
       fields: {}, datesConfirmed: true,
@@ -637,18 +756,32 @@ describe('GateSet proposal on 已评审→开发中 (P3)', () => {
     expect(r.validate.ok).toBe(true);
     expect(r.proposedGateSet).toBeUndefined();
   });
+
+  it('proposes a GateSet when a Bug first enters development', () => {
+    const r = runTransition(model, baseInput({
+      type: 'bug', labels: ['type::bug', 'status::已确认缺陷'], body: TABLE_BODY,
+      declaredScopes: ['functional'],
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.plan).toBeUndefined();
+    expect(r.missing.map((item) => item.field)).toContain('gateSetBinding');
+    expect(r.proposedGateSet).toMatchObject({ scopes: ['functional'], regression: 'affected-cases' });
+    expect(r.actionTier).toBe('L2');
+    expect(r.playbook[0]).toMatchObject({ action: 'bind_gateset', subskill: 'glab-flow' });
+  });
 });
 
 describe('action tier (P1)', () => {
-  it('marks gateless bug transition L1 with shouldConfirm=false when validation passes', () => {
+  it('blocks gateless bug development entry until GateSet binding is confirmed', () => {
     const out = runTransition(loadModel(), {
       type: 'bug', iid: 1, labels: ['type::bug', 'status::已确认缺陷'],
       body: '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n', state: 'opened',
       notes: [], fields: {}, datesConfirmed: true,
     });
-    expect(out.validate.ok).toBe(true);
-    expect(out.actionTier).toBe('L1');
-    expect(out.shouldConfirm).toBe(false);
+    expect(out.validate.ok).toBe(false);
+    expect(out.missing.map((item) => item.field)).toContain('gateSetBinding');
+    expect(out.actionTier).toBe('L2');
+    expect(out.shouldConfirm).toBe(true);
   });
   it('marks hard gate L3 and requires confirmation even when validation passes', () => {
     const out = runTransition(loadModel(), {

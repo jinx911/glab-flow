@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadModel } from './model.js';
 import { buildReviewPack } from './review-pack.js';
-import { initDu, recordEvidence } from './du.js';
+import { initDu, recordEvidence, setCachedNode } from './du.js';
 import { deriveGateSet, freezeGateSet } from './gate-set.js';
 
 const T = '2026-09-01T00:00:00Z';
@@ -12,6 +12,7 @@ describe('buildReviewPack', () => {
   it('assembles spec paths, evidence digest and instructions for a mid-flight story', () => {
     let du = initDu({ iid: 88, type: 'story', now: T });
     du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: T, detailRef: 'api=report:101' }, T);
+    du = setCachedNode(du, '开发中', T);
     du = { ...du, gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['api-contract']), T) };
     const result = buildReviewPack(loadModel(), { ...base, du });
     expect('error' in result).toBe(false);

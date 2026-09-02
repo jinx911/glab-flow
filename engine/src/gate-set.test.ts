@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { loadModel } from './model.js';
-import { deriveGateSet, ratchetGateSet, overrideGateSet, freezeGateSet } from './gate-set.js';
+import { deriveGateSet, gateSetValidationErrors, ratchetGateSet, overrideGateSet, freezeGateSet } from './gate-set.js';
+import type { GateMatrix } from './types.js';
 
 const matrix = loadModel().gateMatrix!;
 
@@ -70,10 +71,51 @@ describe('deriveGateSet', () => {
     expect(gs.regression).toBe('affected-cases');
     expect(gs.skipStates).toEqual([]);
   });
+  it('inherits the default unit-case requirement when a matched rule omits it', () => {
+    expect(deriveGateSet(matrix, ['functional']).minUnitCases).toBe(matrix.defaults.minUnitCases);
+    expect(deriveGateSet(matrix, ['api-contract']).minUnitCases).toBe(matrix.defaults.minUnitCases);
+  });
+  it('inherits every sparse-rule default before combining strict requirements', () => {
+    const sparse: GateMatrix = {
+      defaults: {
+        environments: ['local'], mrReview: false, regression: 'full', rollbackPlan: true, minUnitCases: 2,
+        scopes: [],
+      },
+      rules: [{ scopes: ['functional'] }],
+    };
+    expect(deriveGateSet(sparse, ['functional'])).toMatchObject({
+      environments: ['local'], mrReview: false, regression: 'full', rollbackPlan: true, minUnitCases: 2,
+    });
+  });
   it('does not mutate the matrix arrays it borrows from (pure derivation)', () => {
     const before = JSON.stringify(matrix);
     deriveGateSet(matrix, ['frontend-copy', 'data-model']);
     expect(JSON.stringify(matrix)).toBe(before);
+  });
+});
+
+describe('GateSet runtime validation', () => {
+  it('accepts a derived GateSet', () => {
+    expect(gateSetValidationErrors(deriveGateSet(matrix, ['api-contract']))).toEqual([]);
+  });
+  it('rejects malformed dimensions, skip states, environments and override records', () => {
+    const errors = gateSetValidationErrors({
+      scopes: ['unknown'], skipStates: [null], environments: ['local', 'local', 'prod'],
+      mrReview: 'yes', regression: 'partial', rollbackPlan: 1, minUnitCases: 1.5,
+      overrides: [{ field: 'unknown', from: false, to: 'true', by: 1, at: null }], frozenAt: 42,
+    });
+    expect(errors).toEqual(expect.arrayContaining([
+      'GateSet.scopes 包含未支持的变更维度',
+      'GateSet.skipStates 必须仅包含非空字符串',
+      'GateSet.environments 不得重复',
+      'GateSet.environments 仅支持 local/test，禁止空值、重复值或未支持环境',
+      'GateSet.mrReview 必须是 boolean',
+      'GateSet.regression 必须是 affected-cases/full',
+      'GateSet.rollbackPlan 必须是 boolean',
+      'GateSet.minUnitCases 必须是非负整数',
+      'GateSet.overrides 包含非法改判记录',
+      'GateSet.frozenAt 必须是字符串',
+    ]));
   });
 });
 

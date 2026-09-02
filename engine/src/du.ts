@@ -1,5 +1,5 @@
 import type { DuState, DuEvidenceEntry, IssueType, ChangeScope, GateSet, GateMatrix } from './types.js';
-import { deriveGateSet, freezeGateSet } from './gate-set.js';
+import { deriveGateSet, freezeGateSet, gateScopeValidationErrors } from './gate-set.js';
 
 export interface InitDuInput {
   iid: number;
@@ -41,6 +41,8 @@ export function recordEvidence(du: DuState, entry: DuEvidenceEntry, now: string)
  * 已冻结过 gateSet 的 DU 拒绝重绑（防意外降级；变更走 change 棘轮）。
  */
 export function bindGateSet(du: DuState, matrix: GateMatrix, scopes: ChangeScope[], now: string): DuState {
+  const scopeErrors = gateScopeValidationErrors(scopes);
+  if (scopeErrors.length) throw new Error(`bindGateSet: ${scopeErrors.join('；')}`);
   if (du.gateSet?.frozenAt) return du;
   return {
     ...du,

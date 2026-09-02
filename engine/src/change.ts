@@ -27,13 +27,23 @@ export type ChangePlanResult =
   | (GuardResult & { ok: true; missing: []; reasons: []; plan: ChangePlanOutput })
   | (GuardResult & { ok: false; plan?: undefined });
 
-/** 判断棘轮扩容是否实质改变门禁（mrReview/skipStates/environments/regression/rollbackPlan 任一变化）。 */
+/**
+ * 判断棘轮扩容是否实质改变门禁。比较所有会改变执行约束的字段；
+ * scopes 是门禁来源审计的一部分，minUnitCases 直接改变测试计划要求。
+ * overrides/frozenAt 只记录来源与生命周期，不改变门禁约束本身。
+ */
+function sameValues(a: string[], b: string[]): boolean {
+  return [...new Set(a)].sort().join('|') === [...new Set(b)].sort().join('|');
+}
+
 export function gateSetMateriallyChanged(a: GateSet, b: GateSet): boolean {
   return a.mrReview !== b.mrReview
-    || a.skipStates.join() !== b.skipStates.join()
-    || a.environments.join() !== b.environments.join()
+    || !sameValues(a.skipStates, b.skipStates)
+    || !sameValues(a.environments, b.environments)
     || a.regression !== b.regression
-    || a.rollbackPlan !== b.rollbackPlan;
+    || a.rollbackPlan !== b.rollbackPlan
+    || a.minUnitCases !== b.minUnitCases
+    || !sameValues(a.scopes, b.scopes);
 }
 
 /**

@@ -30,6 +30,8 @@ export interface Payload {
   from: string;
   to: string;
   fields: Record<string, string>;
+  /** Canonical transition edges whose reader-facing fields must be included in a projected comment. */
+  renderTransitions?: Transition[];
   /** Current contents of the Issue-scoped, versioned test-plan.md. */
   testPlan?: string;
   /** DU 本地事实（P2 起：TestRun/AssetAudit 证据优先取本地，不再要求 Issue 评论）。 */
@@ -249,6 +251,8 @@ export interface PlaybookStep {
   action: string;
   subskill?: string;
   when?: string;
+  /** GateSet-generated execution environment, when the action is environment-scoped. */
+  environment?: TestEnvironment;
   desc: string;
   /** 执行时序：代码动作 → Issue 写回并回读 → 后置同步。 */
   phase: 'pre-writeback' | 'issue-writeback' | 'post-readback';
@@ -296,6 +300,8 @@ export interface TransitionOutput {
   prefilled: Record<string, string>;
   missing: MissingItem[];
   payload?: Payload;
+  /** Payload after an optional GateSet skip projection; explicit for plan/comment consumers. */
+  projectedPayload?: Payload;
   validate: GuardResult;
   /** 合并评论正文(状态变更头 + 内容体, renderNodeComment 生成); dirty/无转换时为 undefined。 */
   comment?: string;
@@ -314,8 +320,10 @@ export interface TransitionOutput {
   applied: false;
 }
 
-/** Environment names are configuration-owned; local/test are the current default gates. */
+/** Concrete execution environments remain configuration-owned and extensible. */
 export type TestEnvironment = string;
+/** GateSet currently binds only the two logical validation phases supported by the runtime. */
+export type GateEnvironment = 'local' | 'test';
 export type TestMethod = 'api' | 'e2e' | 'data' | 'manual' | 'unit';
 export type ApifoxAssetType = 'scenario' | 'suite-or-group' | 'test-data' | 'scenario-instance';
 export type ApifoxAssetAction = 'reuse' | 'create' | 'update' | 'retire' | 'cleanup';
@@ -467,7 +475,7 @@ export interface DuState {
 export interface GateSet {
   scopes: ChangeScope[];
   skipStates: string[];
-  environments: TestEnvironment[];
+  environments: GateEnvironment[];
   mrReview: boolean;
   regression: 'affected-cases' | 'full';
   rollbackPlan: boolean;
@@ -481,7 +489,7 @@ export interface GateSet {
 export interface GateMatrixRule {
   scopes: string[];
   skipStates?: string[];
-  environments?: string[];
+  environments?: GateEnvironment[];
   mrReview?: boolean;
   regression?: 'affected-cases' | 'full';
   rollbackPlan?: boolean;

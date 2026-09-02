@@ -13,13 +13,67 @@ const VALID_REVIEW_EVIDENCE = {
 };
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit' | 'resource' | 'change' | 'reconcile', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'render' | 'plan' | 'test-run' | 'asset-audit' | 'resource' | 'change' | 'reconcile', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
   });
   return { json: r.stdout ? JSON.parse(r.stdout) : null, status: r.status, stderr: r.stderr ?? '' };
 }
+
+describe('cli render — public comment fail-closed', () => {
+  it('does not emit unsafe comment content on stdout', () => {
+    const result = cli('render', {
+      type: 'story', from: '草稿中', to: '待评审',
+      fields: { 背景: '需求背景', 目标: '目标', 下一步: '使用 token=secret 完成验证' },
+      assigneeUser: '@pm',
+    });
+    expect(result.status).toBe(1);
+    expect(result.json).toBeNull();
+    expect(result.stderr).toContain('正式状态评论包含内部执行证据');
+  });
+});
+
+describe('cli plan — DU-aware transition projection', () => {
+  it('uses supplied labels/DU and writes the projected target for skipped states', () => {
+    const result = cli('plan', {
+      iid: 88,
+      labels: ['type::story', 'story-status::开发中'],
+      payload: {
+        type: 'story', from: '开发中', to: '测试中',
+        fields: {
+          代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev',
+          可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对',
+          测试完成日期: '2026-09-01', 测试Assignee: '@qa', 测试结论: '通过',
+          回归范围或证据: '受影响用例', 阻塞发布问题均已验证通过: '是',
+        },
+        assigneeUser: '@qa', datesConfirmed: true,
+        testPlan: '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n-->',
+      },
+      config: { roles: { 研发: '@dev' } },
+      du: {
+        iid: 88, type: 'story', cachedNode: '开发中', affectedScopes: ['frontend-copy'],
+        evidence: [
+          { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: '2026-09-01T00:00:00Z' },
+          { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: '2026-09-01T00:00:00Z', version: 'service:abc123' },
+        ], resources: [], metricEvents: [], updatedAt: '2026-09-01T00:00:00Z',
+        gateSet: {
+          scopes: ['frontend-copy'], skipStates: ['测试中'], environments: ['local'],
+          mrReview: false, regression: 'affected-cases', rollbackPlan: false, minUnitCases: 0, overrides: [],
+        },
+      },
+    });
+    expect(result.status).toBe(0);
+    expect(result.json).toMatchObject({
+      ops: expect.arrayContaining([
+        { kind: 'remove_label', value: 'story-status::开发中' },
+        { kind: 'add_label', value: 'story-status::待发布' },
+        { kind: 'set_assignee', username: '@dev' },
+      ]),
+    });
+    expect(JSON.stringify(result.json)).toContain('待发布');
+  });
+});
 
 describe('cli validate — body passthrough (G6b reachable, ⑩)', () => {
   // 待评审→已评审：requiredFields 齐 + gateOutcome 通过 + reviewType 需求评审 + 日期已确认；

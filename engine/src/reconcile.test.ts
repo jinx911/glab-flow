@@ -17,8 +17,8 @@ const input = (overrides: { labels?: string[]; state?: 'opened' | 'closed'; du: 
 });
 
 describe('reconcileLabels', () => {
-  it('in-sync when DU has no cached node yet (legacy bootstrap)', () => {
-    expect(reconcileLabels(model, input({ du: freshDu })).kind).toBe('in-sync');
+  it('fails closed when DU has no cached node baseline', () => {
+    expect(reconcileLabels(model, input({ du: freshDu })).kind).toBe('unknown-node');
   });
 
   it('detects label-ahead drift when human advanced label', () => {

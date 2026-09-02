@@ -2,6 +2,7 @@
 
 - 日期：2026-09-01
 - 状态：已确认（用户逐节认可：核心模型 / 路线推导 / 流程图 / 完整设计）
+- Last Updated：2026-09-02
 - 前置讨论：用户对 glab-flow 提出 12 条高层反馈，确认按「重新设计核心模型」处理
 
 ## 1. 问题陈述（12 条反馈的归纳）
@@ -89,13 +90,13 @@ DeliveryUnit（交付工作包）—— 唯一主档
 | 数据模型 / 权限 | 双环境 + MR 评审 + 全量回归 + 回滚预案 |
 | 生产配置 / 合规（release） | 上述 + 发布检查升级 |
 
-GateSet 决定四件事：**状态路径**（可跳过哪些状态）、**各环境执行范围**（全部/受影响 case）、**MR 评审与否**、**回归深度与回滚预案**。
+GateSet 决定四件事：**状态路径**（可跳过哪些状态）、**各环境执行范围**（全部/受影响 case）、**MR 评审与否**、**回归深度与回滚预案**。当前运行时 GateSet 的逻辑环境白名单是 **`local` / `test`**；具体地址、账号和项目映射仍由测试配置提供，不能把其它环境名写入 GateSet。
 
 **生命周期**：
 1. 分诊时：不定路线（只确认类型 + Assignee）。
 2. 待评审：评审证据积累影响维度，可显示「初步维度」，不绑定。
 3. 技术方案：design.md 必须声明受影响维度（方案本该回答的问题）。
-4. **已评审→开发中（绑定点）**：引擎从声明维度确定性推导 GateSet，与计划提测/上线日期**同一次 L2 批量确认**；人可增删门禁（显式改判），确认后冻结。
+4. **已评审→开发中（绑定点）**：Story 引擎从声明维度确定性推导 GateSet，与计划提测/上线日期**同一次 L2 批量确认**；确认后由 Leader 执行 `bind_gateset`，写入并冻结 DU。Bug 的 **`已确认缺陷→开发中`** 也是强制绑定边界：必须提供非空 `declaredScopes`，或先回读已有 frozen GateSet；否则 transition fail-closed。若 Bug 提供了 `declaredScopes` 但 DU 尚无 frozen GateSet，首次 transition 的 `validate.ok=false`、`plan` 未定义，playbook 只发出 `bind_gateset`，不发 `issue_writeback`，因此首次绑定不会写 Issue 状态。`bind_gateset` 不是引擎自动写入：Leader 落盘并冻结 DU 后重新运行 transition，GateSet 已冻结时才生成正常 `WritePlan` 与 Issue 写回。人可增删门禁（显式改判），确认后冻结。
 5. 实施中：实际改动触到未声明维度 → 变化闭环触发 GateSet 自动扩容（棘轮只升不降）；降级 = L2 显式改判留痕。
 
 ### 3.3 ActionPolicy（动作分层）
@@ -107,6 +108,8 @@ GateSet 决定四件事：**状态路径**（可跳过哪些状态）、**各环
 | L3 硬门 | 不可逆，恒人工，不可配置关闭 | 生产部署、关闭 Issue（终态原子：标签+Assignee+评论+close 同次） |
 
 **划线原则**：凭据与环境操作按「是否生产」划线，不按「是否敏感」划线——非生产账号密码是测试数据，L1 直取直用。**评论写入归 L2**（G8 评论不可变，发了不能撤），L1 覆盖本地/分支/AI 分支内动作；MR 评审结论评论发到 MR（代码域），属 L1。
+
+**发布与回滚动作**：`release-check` 在测试验收（`测试中→待发布`）阶段生成 `release-plan`，包含上线步骤、配置、注意事项和回滚方案；生产部署前不再重新生成。GateSet 要求 `rollbackPlan` 时，生产发布 playbook 只发出 `verify_rollback_ready`，由 Leader/`release-check` 核对已生成且已回读的方案，然后才执行生产部署 hard gate。
 
 ### 3.4 ResourceRegistry（资源登记表）
 
@@ -127,6 +130,7 @@ GateSet 决定四件事：**状态路径**（可跳过哪些状态）、**各环
 ### 3.5 投影与对账
 
 - **投影函数**：`DU 状态推导 × GateSet 状态路径 → labels`。对外 8 状态词汇表不变；R1 形态的 Issue 永远不会出现「测试中」标签。
+- **跳状态**：`skipStates` 只做一跳投影——命中当前转换的下一节点时，直接使用该节点的下一节点作为有效最终目标；`next`、标签和状态评论头都使用最终目标。原始转换的字段/证据门禁仍 fail-closed，若最终目标是 hard gate，还要执行投影目标的 hard-gate 校验；跳状态不能绕过生产部署或终态验收。
 - **对账（reconcile）**：人工在 GitLab 改 label 不再是「脏状态异常」而是「投影漂移」。`next` 检测到 labels 与 DU 事实不一致 → 列版本差 → 一次 L2 确认「以哪个为准」→ 更新 DU 或要求回改 label → 继续。人工发布/CI 结果同理：导入为 DU 事实。
 - **存量接入**：旧 Issue 首次被新引擎读取时，回读全部 notes + labels 推导出 DU（状态、已达标门禁、资源），历史评论只读不迁移。
 
@@ -146,7 +150,13 @@ GateSet 决定四件事：**状态路径**（可跳过哪些状态）、**各环
 
 方案声明「只改文案/局部行为」→ GateSet 跳过「测试中」等状态 → `分诊 → 方案放行 → 提测 → 生产部署+关闭`。「本地通过直接上生产」= 此路线下的最短路径（生产部署仍 L3）。
 
-### 4.3 变化分级闭环（任何阶段）
+### 4.3 环境证据与回归动作
+
+回归不是每次 transition 都无条件追加的动作。只有当前转换命中的 GateSet 逻辑环境缺少所需 AssetAudit/TestRun（或 GateSet 明确要求 full 回归而缺少对应证据）时，引擎才在 playbook 中发出 `run_affected_regression` / `run_full_regression`。该动作统一指向 `test-flow-e2e` sub-skill；执行完成后必须把该环境的 TestRun/AssetAudit 记录进 DU，并重新运行 transition，不能仅凭 sub-skill 成功或自由文本结论推进。
+
+提测顺序固定为：`commit_push_feature` → local 回归动作（若 local 证据缺失）→ `merge_to_deploy_branch` / test 构建部署；local 不能放到 merge 或部署之后。GateSet 当前只接受 `local` / `test` 两个逻辑环境，frontend-copy 等轻量路线按其 GateSet 只校验启用的环境。
+
+### 4.4 变化分级闭环（任何阶段）
 
 ```
 发现偏差 → cli change（带事实）→ 引擎定级（人可在 L2 批量确认改判）
@@ -159,9 +169,9 @@ GateSet 决定四件事：**状态路径**（可跳过哪些状态）、**各环
 
 open 变更单仍阻断正向流转（G16 语义保留），但轻量级的关闭证据要求随级别大幅减轻。
 
-### 4.4 Bug 流 — 5 次确认
+### 4.5 Bug 流 — 5 次确认
 
-`①确认缺陷+Assignee → ②提测 → ③测试验收 → ④生产部署（L3）→ ⑤生产验证+关闭（L3）`。门禁集由根因分析触碰的维度推导（文案级 bug 与数据迁移 bug 走不同深度回归）。
+`①确认缺陷+Assignee+GateSet 绑定 → ②提测 → ③测试验收 → ④生产部署（L3）→ ⑤生产验证+关闭（L3）`。Bug 进入开发前必须以非空 `declaredScopes` 或已有 frozen GateSet 完成绑定；若是首次用 `declaredScopes` 绑定，先执行仅含 `bind_gateset` 的 binding pass，落盘冻结 DU 后重新运行 transition，随后才进行正常 Issue 写回。门禁集由根因分析触碰的维度推导（文案级 bug 与数据迁移 bug 走不同深度回归）。
 
 ## 5. Issue 信息分层
 

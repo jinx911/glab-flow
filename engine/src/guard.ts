@@ -7,7 +7,7 @@ import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.j
 import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
 import { validateChangeImpactClosure } from './change-impact.js';
-import { isWaivedByGateSet } from './gate-set.js';
+import { gateSetValidationErrors, isWaivedByGateSet } from './gate-set.js';
 import { chronologicalNotes } from './notes.js';
 import { latestEvidence } from './du.js';
 
@@ -150,6 +150,7 @@ export function validateTestRunTransition(payload: Payload, notes: IssueNote[] =
       ? 'test'
       : undefined;
   if (!environment) return ok();
+  if (payload.du?.gateSet && !payload.du.gateSet.environments.includes(environment)) return ok();
 
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
@@ -176,6 +177,7 @@ export function validateApifoxAssetAuditTransition(payload: Payload, notes: Issu
       ? 'test'
       : undefined;
   if (!environment) return ok();
+  if (payload.du?.gateSet && !payload.du.gateSet.environments.includes(environment)) return ok();
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
   // DU 优先（同上）：明细归 DU，Issue 评论仅兜底；计划要求 v2 审计时适配器
@@ -254,9 +256,46 @@ export function effectiveRequiredFields(t: Pick<Transition, 'requiredFields'>, g
   return t.requiredFields.filter((f) => !isWaivedByGateSet(gateSet, f));
 }
 
+function validateGateSet(gateSet: GateSet | undefined): GuardResult {
+  if (!gateSet) return ok();
+  const errors = gateSetValidationErrors(gateSet);
+  return errors.length ? fail(errors, ['gateSet']) : ok();
+}
+
+/** GateSet fields must be consumed as executable constraints, not presentation metadata. */
+function validateGateSetRequirements(payload: Payload): GuardResult {
+  const gateSet = payload.du?.gateSet;
+  if (!gateSet) return ok();
+  const reasons: string[] = [];
+  const missing: string[] = [];
+  const isProductionReleaseTransition = payload.from === '待发布'
+    && (payload.to === '生产验收中' || payload.to === '生产验证中');
+  if (gateSet.rollbackPlan && isProductionReleaseTransition
+    && !payload.fields['回滚方案'] && !payload.fields['发布记录或回滚信息']) {
+    missing.push('回滚方案');
+    reasons.push('GateSet 要求回滚方案：填写「回滚方案」或「发布记录或回滚信息」');
+  }
+  if (gateSet.regression === 'full' && (payload.from === '开发中' || payload.from === '测试中')) {
+    const evidence = payload.fields['回归范围或证据'] ?? '';
+    const environment = payload.from === '开发中' ? 'local' : 'test';
+    const duRun = payload.du ? latestEvidence(payload.du, 'test-run', environment) : undefined;
+    const duAudit = payload.du ? latestEvidence(payload.du, 'asset-audit', environment) : undefined;
+    const hasStructuredFullEvidence = duRun?.outcome === 'passed'
+      && duAudit?.outcome === '0'
+      && duRun.planVersion === duAudit.planVersion;
+    if (!hasStructuredFullEvidence && !/全量|完整|full/i.test(evidence)) {
+      missing.push('回归范围或证据');
+      reasons.push('GateSet 要求 full 回归：提供通过的 DU TestRun/AssetAudit，或明确记录全量/完整回归');
+    }
+  }
+  return missing.length ? fail(reasons, missing) : ok();
+}
+
 export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: IssueNote[] = []): GuardResult {
   const t = transitionFor(model, payload.type, payload.from, payload.to);
   if (!t) return fail([`transition ${payload.from}->${payload.to} not allowed`]);
+  const gateSetShape = validateGateSet(payload.du?.gateSet);
+  if (!gateSetShape.ok) return gateSetShape;
 
   const missing: string[] = [];
   const reasons: string[] = [];
@@ -320,6 +359,7 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   // G12 terminal atomicity
   if (t.terminal && !payload.closeIssue) reasons.push('终态需同一次操作关闭 Issue(closeIssue)');
 
+  const gateSetRequirements = validateGateSetRequirements(payload);
   const weekPlanGate = validateWeekPlanTransition(payload, notes);
   const reviewEvidenceGate = payload.type === 'story' && payload.from === '待评审' && payload.to === '已评审'
     ? validateRequirementsReviewEvidence(facts.body, notes, payload.reviewEvidence)
@@ -327,10 +367,10 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
   const testRunGate = validateTestRunTransition(payload, notes);
   const changeImpactGate = validateChangeImpactClosure(notes);
-  if (missing.length || reasons.length || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok) {
+  if (missing.length || reasons.length || !gateSetRequirements.ok || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok) {
     return fail(
-      unique([...reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons]),
-      unique([...missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing]),
+      unique([...reasons, ...gateSetRequirements.reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons]),
+      unique([...missing, ...gateSetRequirements.missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing]),
     );
   }
   return ok();

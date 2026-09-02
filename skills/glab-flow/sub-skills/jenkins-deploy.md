@@ -1,11 +1,15 @@
 ---
 name: glab-flow-jenkins-deploy
-description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择 job 与参数、最终确认后触发构建并轮询结果。vendor 自 ~/.claude/skills/jenkins-deploy 并按 GitLab-native 适配。
+description: glab-flow 测试构建与生产部署的 Jenkins 子 skill。测试参数默认值直用；生产部署仍需 L3 逐项确认后触发并轮询结果。vendor 自 ~/.claude/skills/jenkins-deploy 并按 GitLab-native 适配。
 ---
 
 > 本文件是 glab-flow 自有子 skill（vendor 自 `~/.claude/skills/jenkins-deploy` 并按 GitLab-native 适配）。在对应节点由 Leader Read 本文件内联执行，或 spawn `general-purpose` 以其为 prompt。运行时工具依赖见 `../tools.md`。
 
 # Jenkins Deploy — 交互式部署
+
+**Last Updated:** 2026-09-02
+
+**调用边界**：本子 skill 只负责能力发现、参数解析和 Jenkins 构建/手工部署动作，不读取或写回 GitLab 状态。Leader 在调用前完成 DU-first `reconcile`，并在 Issue 最终回读后通过 `pnpm cli du` 的 `cached-node` 更新 DU `cachedNode`；本子 skill 不能绕过 GateSet 或 `hard_gate`。
 
 **配置来源**：job 名 / 分支参数名 / 默认参数来自 glab-flow 配置（见 `../config.md`）：
 - `jenkins.job_name` —— 单仓目标构建作业名
@@ -13,37 +17,43 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 - `jenkins.branch_param` —— 分支参数名，默认 `branch`
 - `jenkins.default_params` —— 默认构建参数键值表
 
-`jenkins.job_name` 与 `jenkins.jobs` 都空 → 不启用 Jenkins 能力（发布节点跳过构建触发）。
+`jenkins.job_name` 与 `jenkins.jobs` 都空 → 不启用 Jenkins 能力；引擎会从开发中→测试中的 playbook 移除 `trigger_jenkins`，不要求 Leader 临时选 job。生产发布当前是独立的手动部署动作，不因 Jenkins 配置存在而自动触发。
 
 ## 参数默认值
 
-| 参数类型 | 处理方式 | 说明 |
+| 参数类型 | test/非生产处理 | production 处理 |
 |---------|-------|------|
-| 环境类 | 使用 Jenkins Job 或配置的默认值 | 用户未指定时不得自行假设 |
-| 分支类 | 使用 Jenkins Job 或配置的默认值 | 分支参数名取 `jenkins.branch_param` |
-| Boolean | 字符串 `"true"` / `"false"` | ⚠️ MCP 工具不接受布尔值 |
-| Password / registry_* | 跳过 | 使用 Jenkins 默认值 |
+| 环境类 | Jenkins Job 或配置默认值直用 | 展示实际值并逐项确认 |
+| 分支类 | Jenkins Job 或配置默认值直用；参数名取 `jenkins.branch_param` | 展示实际值并逐项确认 |
+| Boolean | 默认值直用，传字符串 `"true"` / `"false"` | 展示实际值并逐项确认 |
+| Password / registry_* | 跳过敏感值，使用 Jenkins 默认值 | 不在文档或命令中回显；按平台安全流程确认 |
 
-未在映射表中显式列出的参数，回退到 `jenkins.default_params` 给定的默认值。
+test 构建只有在参数定义缺失且没有默认值时才一次性询问全部缺口，不逐参数打断；解析后的参数清单写入 DU/提测说明供审计。未在映射表中显式列出的参数，回退到 `jenkins.default_params` 给定的默认值。生产部署不是普通 Jenkins test 构建：即使未来配置了 prod job，也必须保留 L3 的逐项确认。
 
 ## 工作流
+
+### 0. 在 canonical playbook 中的位置
+
+- **开发中→测试中（提测）**：`commit/push` →（有 `deploy_branch` 时）合并到测试分支 →（有 `jenkins` 时）触发 test Jenkins 构建 → Issue 写回。GateSet 只在启用环境缺少证据时发出回归动作；local 回归在 feature commit 后、merge/deploy 前执行，完成后由 Leader 记录 DU 证据并重新运行 transition。test 参数默认值直用，构建结果/版本/环境记录进 DU，并由提测合并评论携带摘要。
+- **测试中→待发布（发布准备）**：`release-check` 生成 `release-plan`，包括上线步骤、配置、注意事项和回滚方案；它是生成器，不能由生产发布阶段重复生成。
+- **待发布→生产验收中/生产验证中（发布）**：生产部署是独立 `hard_gate`/L3 动作；若 GateSet `rollbackPlan=true`，先执行 `verify_rollback_ready` 核对已生成且已回读的方案，再由人工在 Jenkins/平台触发部署，Leader 只在逐项确认后推进 Issue。不要把 test 构建成功当成生产部署，也不要把 L2 流转确认当成生产参数确认。GateSet 的 `skipStates` 只影响状态投影，不会降低生产 hard gate。
 
 ### 0. 能力发现与降级判定
 
 开始前先确认 Jenkins 工具当前确实可调用、目标 job 可读取、参数定义可取得。配置或已安装 skill 只能作为线索，不能替代**能力发现**。发现结果决定 `deployment-evidence`：
 
-- **automation**：能力和 job 都可用，继续下列流程；部署结果（构建号/版本/验证）写进提测说明合并评论。
-- **manual（手工）**：工具不可调用、job 不可访问或自动化明确不可用时，停止自动触发，由人工执行；记录不可用原因、操作者、执行时间、部署版本/环境与验证结果。
+- **automation**：能力和 job 都可用，继续下列流程；面向团队的评论只写可测试版本/环境和验证结论。
+- **manual（手工）**：工具不可调用、job 不可访问或自动化明确不可用时，停止自动触发，由人工执行；详细不可用原因、操作者、执行时间、构建号等写入 DU/内部执行记录。
 
-部署结果（automation 的构建号/版本，或 manual 的操作者/时间/版本）作为「提测说明」合并评论的一部分（见 `../nodes.md`「节点内容评论」），不单独发 marker 回执。手工降级仍须对实际环境/版本征得用户确认。
+部署结果的团队可读摘要（版本/环境/验证结论）作为「提测说明」合并评论的一部分（见 `../nodes.md`「节点内容评论」），不单独发 marker 回执。构建号、报告 ID、内部 URL、账号和本地路径不得进入正式 Issue 评论；手工降级仍须对实际环境/版本征得用户确认。
 
 ### 1. 确定 Job
 
 - 编排器/用户指定 job 名 → 直接使用
 - 否则若 config 有 `jenkins.jobs` → 按当前操作仓库取对应 job
 - 否则读 glab-flow config `jenkins.job_name` → 用之
-- 都无 → AskUserQuestion multiSelect 让用户选择（支持多项目）
-- 用户说"部署 N 个项目" → 按上下文推断
+- 都无：若当前是**提测**，按 playbook 条件跳过 Jenkins，不临时编造 job；若用户明确要求手动构建，进入 manual 降级并记录原因。生产发布不在此处选择 test job。
+- 用户说"部署 N 个项目" → 按上下文推断并逐仓记录 job/参数
 
 ### 2. 参数收集（按环境分层：test 自动，生产必确认）
 
@@ -56,7 +66,7 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 
 ### 3. 触发前记录（test 环境）
 
-test 环境参数解析完成后**直接触发**，参数清单写入执行记录（构建号/版本进提测说明合并评论，事后可审计）；不再有独立的「部署清单确认」对话——提测流转的 L2 批量确认已覆盖放行判断。**生产部署**：仍必须 AskUserQuestion 展示完整清单逐项确认后触发（粗粒度授权不等于生产参数确认，L3 红线）：
+test 环境参数解析完成后**直接触发**，参数清单写入内部执行记录（版本/环境摘要可进入提测说明合并评论，构建号等内部定位信息留在 DU）；不再有独立的「部署清单确认」对话——提测流转的 L2 批量确认已覆盖放行判断。**生产部署**：仍必须 AskUserQuestion 展示完整清单逐项确认后触发（粗粒度授权不等于生产参数确认，L3 红线）：
 
 ```
 📋 生产部署清单（必须逐项确认）

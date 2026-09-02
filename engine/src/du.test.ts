@@ -37,7 +37,7 @@ describe('bindGateSet / setCachedNode (du CLI 写入面)', () => {
   const matrix = loadModel().gateMatrix!;
   it('bindGateSet derives+freezes gateSet and seeds affectedScopes', () => {
     const du = initDu(base);
-    const next = bindGateSet(du, matrix, ['api-contract', 'api-contract'], '2026-09-01T00:00:00Z');
+    const next = bindGateSet(du, matrix, ['api-contract'], '2026-09-01T00:00:00Z');
     expect(next.gateSet?.frozenAt).toBe('2026-09-01T00:00:00Z');
     expect(next.gateSet?.mrReview).toBe(true);
     expect(next.affectedScopes).toEqual(['api-contract']); // 去重

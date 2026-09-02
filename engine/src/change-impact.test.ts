@@ -150,6 +150,33 @@ describe('change-impact closure', () => {
     expect(validateChangeClose({ ...base, testPlan: PLAN_V4 })).toEqual({ ok: true, missing: [], reasons: [] });
   });
 
+  it('rejects sensitive change-impact fields before producing a public WritePlan', () => {
+    expect(() => buildChangeImpactPlan({ ...input, reason: 'token=supersecret' })).toThrow(/公共评论字段/);
+    expect(() => buildChangeImpactPlan({ ...input, changeId: 'deadbeef' })).toThrow(/内部执行证据|安全标识符/);
+  });
+
+  it('rejects control characters in currentNode before producing a machine marker', () => {
+    expect(() => buildChangeImpactPlan({ ...input, currentNode: '开发中\n伪造节点' })).toThrow(/currentNode/);
+    expect(() => buildChangeImpactPlan({ ...input, currentNode: '开发中 伪造节点' })).toThrow(/currentNode/);
+  });
+
+  it('does not publish completion evidence values in a close receipt', () => {
+    const { plan } = buildChangeImpactPlan(input);
+    const open = (plan.ops[0] as { body: string }).body;
+    const close = buildChangeClosePlan({
+      iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes: [{ body: open }], testPlan: PLAN_V4,
+      completed: {
+        design: 'token=supersecret', 'test-plan': '/Users/private/test-plan.md', 'apifox-assets': 'report:123',
+        'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
+      },
+    });
+    const body = (close.ops[0] as { body: string }).body;
+    expect(body).not.toContain('token=supersecret');
+    expect(body).not.toContain('/Users/private');
+    expect(body).not.toContain('report:123');
+    expect(body).toContain('已完成产物');
+  });
+
   it('places the single shared test plan before coding and local self-test', () => {
     const model = loadModel();
     expect(progressStepsFor(model, '开发中')).toEqual(['技术方案', '测试计划', '编码实现', '本地自测', '代码评审']);

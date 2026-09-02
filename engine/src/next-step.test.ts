@@ -30,7 +30,7 @@ describe('computeNextStep', () => {
   });
   it('terminal node with du lists undisposed resources as cleanup todos', () => {
     const T = '2026-09-01T00:00:00Z';
-    let du = initDu({ iid: 88, type: 'story', now: T });
+    let du = { ...initDu({ iid: 88, type: 'story', now: T }), cachedNode: '已完成' };
     du = registerResource(du, { id: 'TMP-88-members', kind: 'apifox-test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T }, T);
     du = registerResource(du, { id: 'branch-f-88', kind: 'branch', scope: 'non-prod', lifecycle: 'permanent', createdAt: T }, T);
     du = disposeResource(du, 'branch-f-88', 'kept', T);
@@ -66,7 +66,7 @@ describe('computeNextStep', () => {
 describe('fastestPath 感知 GateSet.skipStates（与 transition 投影同口径）', () => {
   it('frontend-copy DU 在开发中：fastestPath 直推待发布，不含测试中', () => {
     const gs = freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), 'T0');
-    const du = { ...initDu({ iid: 88, type: 'story', now: 'T0' }), gateSet: gs };
+    const du = { ...initDu({ iid: 88, type: 'story', now: 'T0' }), cachedNode: '开发中', gateSet: gs };
     const out = computeNextStep(loadModel(), { ...base, du });
     expect(out.fastestPath).not.toContain('测试中');
     expect(out.fastestPath[0]).toBe('待发布');

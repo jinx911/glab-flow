@@ -1,15 +1,17 @@
 ---
 name: glab-flow
-description: 当用户提供 GitLab Issue URL/编号，需要按 harness 状态机驱动需求从分诊到上线/验收时使用。引擎只做确定性计算（节点/校验/计划/渲染/配置/状态），GitLab 读写由 Leader 直接用 glab CLI 完成，每次写回前预览确认。自有配置与状态缓存，不依赖任何外部 skill。
+description: 当用户提供 GitLab Issue URL/编号，需要按 DeliveryUnit 驱动的 harness 流程从分诊到上线/验收时使用。引擎只做确定性计算（节点/校验/计划/渲染/配置/状态投影），GitLab 读写由 Leader 直接用 glab CLI 完成，每次写回前预览确认。自有配置与状态缓存，不依赖任何外部 skill。
 ---
 
-# glab-flow：harness GitLab 状态机驱动引擎
+# glab-flow：harness DeliveryUnit 驱动引擎
 
-glab-flow 是 GitLab-native、自包含的流程引擎：引擎只做确定性计算（节点推导 / 护栏校验 / 计划构建 / 文本渲染 / 配置解析 / 状态初始化），所有 GitLab 读写由 Leader 直接用 glab CLI 完成，每次写回前预览确认。项目参数走配置文件，不在代码里硬编码；文档落自有工作目录，不进代码仓。
+**Last Updated:** 2026-09-02
+
+glab-flow 是 GitLab-native、自包含的交付引擎：DeliveryUnit（DU）保存交付事实与执行证据，状态机只负责确定性校验和 GitLab 状态投影。引擎只做确定性计算（节点推导 / 护栏校验 / 计划构建 / 文本渲染 / 配置解析 / 状态初始化），所有 GitLab 读写由 Leader 直接用 glab CLI 完成，每次写回前预览确认。项目参数走配置文件，不在代码里硬编码；文档落自有工作目录，不进代码仓。
 
 ## 权威来源
 
-业务规则权威来自目标项目已确认的状态机与团队交付规范；glab-flow 的 `state-machine.yaml`、护栏和节点文档是其可执行投影。运行时状态权威是 GitLab Issue 的 labels/comments；执行明细（TestRun/AssetAudit）权威是 DU 本地主档（见下文「交付工作包（DU）」），Issue 评论仅作存量兜底；本地 state 与 lessons 都是派生缓存或经验材料。
+业务规则权威来自目标项目已确认的状态机与团队交付规范；glab-flow 的 `state-machine.yaml`、护栏和节点文档是其可执行投影。运行时交付事实权威是 DU 本地主档（GateSet、TestRun/AssetAudit、资源与指标）；GitLab Issue 的 labels/comments 是团队共享的状态投影与协调面，Issue 评论仅作存量证据兜底；本地 state 与 lessons 都是派生缓存或经验材料。
 
 ## 输入
 
@@ -74,10 +76,10 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | 命令 | 作用 |
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
-| `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 当前 `testPlan` 全文 + 已知 `fields` + 可选 `du`/`declaredScopes`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm,actionTier,confirmBatchTitle}`（`已评审→开发中` 传 `declaredScopes` 时另出 `proposedGateSet`）。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
+| `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 当前 `testPlan` 全文 + 已知 `fields` + 可选 `du`/`declaredScopes`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm,actionTier,confirmBatchTitle}`（Story `已评审→开发中` 与 Bug `已确认缺陷→开发中` 传 `declaredScopes` 时另出 `proposedGateSet`；Bug 无声明且无 frozen GateSet 时 fail-closed；Bug 有声明但 DU 未冻结时 `validate=false`、`plan` 未定义、playbook 仅含 `bind_gateset`，冻结后重跑才生成正常 WritePlan/Issue 写回）。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
 | `next` | 最短路径速览：stdin 同 `transition` → `{where,isTerminal,blockedOn,fastestPath,owedBy,summary}`——在哪/阻塞什么/最快下一步/谁欠什么；终态自动带资源清理清单 |
-| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?}` → `{ok,missing,reasons}`；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与刚回读 `notes`，以验证当前环境资产审计和 TestRun |
-| `render` | 渲染评论正文 |
+| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?}` → `{ok,missing,reasons}`；同时执行正式评论的公共隔离校验；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与刚回读 `notes`，以验证当前环境资产审计和 TestRun |
+| `render` | 渲染公共状态评论正文（状态头 + 节点交接内容 + 下一步；DU 证据摘要单独隔离） |
 | `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?}`；周排期和 local/test TestRun 门禁均需传刚回读 `notes`，否则拒绝建计划 |
 | `test-run` | 预览/校验一条环境执行记录：stdin `{plan,run}` → `{validate,comment}`；只产出评论草稿，不执行测试或写 GitLab |
 | `asset-audit` | 预览/校验一条 Apifox 资产审计：stdin `{plan,audit}` → `{validate,comment}`；只解析计划与回读事实，不调用 Apifox 或写 GitLab |
@@ -89,7 +91,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `reconcile` | 外部事实对账：stdin `{type,labels,state,du}` → 5 种 verdict（`in-sync`/`label-ahead`/`du-ahead`/`external-close`/`dirty-labels`+`unknown-node`），人工改标签/手动关闭不再当脏状态推倒重来 |
 | `resource` | DU 资源登记表：stdin `{du,now,op}`，op=`register`/`check`/`cleanup`/`dispose`；创建即登记、终态出清理清单、处置后回写；临时 Apifox 资源强制 `TMP-<iid>-` 前缀 |
 | `metrics` | 交付指标：stdin `{du,event?}`；event 存在记一条指标事件返回新 DU（Leader 落盘），否则纯汇总（确认/流转/重测/环境阻塞/返工/人工介入次数 + 周期） |
-| `du` | DU 写入面：stdin `{op,...}`，op=`init`（iid+type）/`record`（du+entry 执行事实）/`bind-gateset`（du+scopes，推导+冻结门禁单，已冻结拒重绑）/`cached-node`（du+node，流转成功后更新对账基准）；返回新 DU 对象，落盘归 Leader |
+| `du` | DU 写入面：stdin `{op,...}`，op=`init`（iid+type）/`bootstrap`（iid+type+从当前 Issue 标签回读的 node，初始化对账基准）/`record`（du+entry 执行事实）/`bind-gateset`（du+scopes，推导+冻结门禁单，已冻结拒重绑）/`cached-node`（du+node，流转成功后更新对账基准）；返回新 DU 对象，落盘归 Leader。`bind-gateset` 由 Leader 执行：绑定首轮只写入并冻结 DU，不写 Issue 状态；落盘后重新运行 `transition`，待正常 `WritePlan` 生成后再执行 Issue 写回与最终回读 |
 | `catalog` | workspace 资产目录（R1：复用从「全量 list+人肉比对」变检索）：stdin `{op,...}`，op=`search`（catalog 文本+domain/keyword → 匹配条目）/`upsert`（登记/更新共享资产，按 apifoxId 幂等）/`from-disposal`（du → 终态升级共享的目录条目）；目录文件 `.glab-flow/asset-catalog.md` 由 Leader 落盘——test-design 检索现有资产先查目录，终态 TMP→共享升级时登记 |
 | `review-pack` | 评审上下文包：stdin 同 `next` → spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令段；与 diff 一起注入 reviewer，标准化 feeding 材料（开发中代码评审 / MR 评审共用） |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
@@ -135,10 +137,10 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 ### 交付工作包（DU）
 
-每个 flow 启动时与 state 同步初始化 DU（Leader 落盘 `<workspace.root>/.glab-flow/<iid>/du.json`，模式与 state 文件一致；引擎命令产出新 DU 对象、Leader 写回）。此后：
+每个 flow 启动时分别初始化 state 与 DU：Leader 调 `state-init` 生成 `<workspace.root>/.glab-flow/<iid>-state.json`，首次读取 Issue 状态标签后调 `pnpm cli du` 的 `bootstrap` 生成带 `cachedNode` 的 `<workspace.root>/.glab-flow/<iid>/du.json`，两者均由 Leader 落盘。引擎命令只返回不可变的新 DU；Leader 在每次 `record`、`bind-gateset`、`cached-node` 后写回。此后：
 
-- 执行明细（TestRun/AssetAudit）优先记入 DU（`transition`/`validate` 传 `du`），不再要求发独立 Issue 评论（评论瘦身）。**边界**：明细不上传 ≠ 事实不上传——Issue 评论是团队共享的，本地 DU 的执行结论由 `renderNodeComment` 在每条流转评论里**自动追加「## 证据摘要」块**（各环境执行/审计结论 + 报告指针 + 门禁单 + 指标），想深挖的成员顺 reportId 到云端核对；DU 未传入时不追加（存量 Issue 行为不变）。无 DU 的存量 Issue 自动回落评论解析，不迁移。
-- `已评审→开发中` 时把技术方案声明的受影响维度传入 `declaredScopes`，引擎返回 `proposedGateSet`（含 skipStates/environments/mrReview/regression/rollbackPlan）——与计划提测/上线日期**同一次 L2 批量确认**后冻结进 DU。
+- 执行明细（TestRun/AssetAudit）优先记入 DU（`transition`/`validate` 传 `du`），不再要求发独立 Issue 评论（评论瘦身）。**边界**：明细不上传 ≠ 事实不记录——Issue 公共评论的「## 证据摘要」只追加安全的计划版本与通过/失败结论；报告指针、执行明细、内部标识和凭据只留在 DU/内部记录，不能要求成员从公共评论获取。DU 未传入时不追加（存量 Issue 行为不变）。无 DU 的存量 Issue 自动回落评论解析，不迁移。
+- Story `已评审→开发中` 与 Bug `已确认缺陷→开发中` 都是 GateSet 绑定边界：传入技术方案声明的 `declaredScopes` 后引擎返回 `proposedGateSet`（含 `skipStates`/`environments`/`mrReview`/`regression`/`rollbackPlan`/`minUnitCases`）。Bug 没有非空 `declaredScopes` 时，必须先传入已有 frozen GateSet；否则 transition fail-closed。若 Bug 有 `declaredScopes` 但 DU 尚未冻结，首次 transition 的 `validate.ok=false`、`plan` 未定义，playbook 只含 `bind_gateset`，不含 `issue_writeback`，因此不会先写 Issue 状态。GateSet 提案与计划提测/上线日期**同一次 L2 批量确认**后，由 Leader 调 `pnpm cli du` 的 `bind-gateset` 写入并冻结 DU；落盘后重新运行 transition，才生成正常 `WritePlan` 和 Issue 写回/最终回读。冻结后不得静默重绑。
 - 随时 `pnpm cli next` 看「在哪/阻塞什么/最快下一步/谁欠什么」。
 - 人工改了标签/手动部署/外部 CI 结果：`pnpm cli reconcile` 对账（label-ahead=人工推进二选一 / du-ahead=补写回 / external-close=提前关闭处理），不推倒重来。
 - 中途发现改错了：`pnpm cli change`（T1 文案→T4 数据/权限自动定级，GateSet 棘轮扩容只升不降，T3+ 关闭时才要求测试计划版本递增）。
@@ -153,10 +155,13 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
    - `validate`（G1–G16，`reasons` 自带补救动作；G14 按 DU GateSet 生效）
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm` + `actionTier`/`confirmBatchTitle`（动作分层，见 `gate.md`）
-3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。Leader 按序：
+3. **执行 playbook + 确认（Leader）**：普通转换的 `playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。绑定首轮是例外：若存在待绑定 `proposedGateSet`，playbook 只执行 `bind_gateset`，省略 `issue_writeback`，且不写 Issue 状态；Leader 落盘 DU 后重新运行 `transition`，再执行后续正常动作。Leader 必须先完成本轮 `reconcile`，并按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等）。**test/非生产构建参数默认值直用不逐参数确认**（测试数据与凭据同理，已裁定打通；缺定义无默认值才一次问全）；**生产部署参数仍必须逐项确认**（L3 红线）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。`mr-review` 步骤只在 DU GateSet 的 `mrReview=true` 时必填（G14，见 `guards.md`）。
    - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
-   - **post-readback `sync_week_milestone`（仅 `plan.postWriteback` 存在）**：状态或排期评论回读成功后，Leader 用最新有效、启用的 `## 周排期` 和 Asia/Shanghai 业务日期决定目标 Week：未开始取计划开始日期所在周，执行中取当天所在周，已结束跳过。目标不存在则创建，存在则关联当前 Issue；必须幂等，且只调整 Milestone。失败写入 `week-milestone-sync` 审计并重试，不撤回已确认的标签、Assignee、正文或评论。Harness 周一任务只接手已初始挂载的 Issue 做后续 rollover，不能替代此步骤。
+   - **readback 后更新 DU 主档**：只有 Issue 写回各阶段成功且最终回读确认后，Leader 才调用 `pnpm cli du` 的 `cached-node`，传入本次 `next` 的**有效最终目标**（跳状态也传投影后的最终目标），并落盘返回的新 DU；随后再更新 state `cachedNode`/审计。任何写回或回读失败都不得更新该对账基准。
+   - **GateSet 运行时动作**：只有当前转换命中的 GateSet 逻辑环境缺少 AssetAudit/TestRun（或要求 full 回归但缺对应证据）时，playbook 才生成 `run_affected_regression` / `run_full_regression`；动作由 `test-flow-e2e` 执行，完成后必须用 `pnpm cli du` 的 `record` 记入该环境证据并重新运行 `transition`。提测时 local 回归动作位于 feature `commit_push` 之后、merge/deploy 之前。GateSet 的逻辑环境当前仅为 `local` / `test`。
+   - **生产回滚核对**：GateSet `rollbackPlan=true` 时，生产发布 playbook 使用 `verify_rollback_ready` 核对已由 `release-check` 生成且已回读的回滚方案；`release-check` 仍在 `测试中→待发布` 生成 `release-plan`，发布阶段不重新生成。
+   - **post-readback `sync_week_milestone`（仅 `plan.postWriteback` 存在）**：状态或排期评论回读成功、DU/state 更新后，Leader 用最新有效、启用的 `## 周排期` 和 Asia/Shanghai 业务日期决定目标 Week：未开始取计划开始日期所在周，执行中取当天所在周，已结束跳过。目标不存在则创建，存在则关联当前 Issue；必须幂等，且只调整 Milestone。失败写入 `week-milestone-sync` 审计并重试，不撤回已确认的标签、Assignee、正文、评论或 DU/state。Harness 周一任务只接手已初始挂载的 Issue 做后续 rollover，不能替代此步骤。
    - `shouldConfirm` 由**动作分层**决定（`gate.md`）：L1（无 gate 的机械流转）且 `validate.ok` → 直接执行；L2（有业务 gate）/ L3（hard_gate）→ 以 `confirmBatchTitle` 为题做一次 `AskUserQuestion` 批量确认后再执行（计划日期、GateSet 提案、Jenkins 参数并入同一次批量对话）；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。`run_mode` 仅作审计记录，不参与确认判定。
    - 任何标签/Assignee、合并评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
    - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
@@ -211,7 +216,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 # → 写到 <workspace.root>/.glab-flow/<iid>-state.json
 ```
 
-之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`writebackAudit`/`updatedAt` 写回该文件；`writebackAudit` 记录串行写回阶段。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签与评论是唯一真理**，state 仅是派生缓存——两者不一致时以 GitLab 回读为准（对账逻辑见 `resume.md`）。
+之后每轮 Issue 写回并最终回读成功后，先用 `pnpm cli du` 的 `cached-node` 更新 DU，再更新 state 的 `cachedNode`/`cachedNodeAt`/`lastActions`/`writebackAudit`/`updatedAt`；`writebackAudit` 记录串行写回阶段。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab labels 是对外状态投影的真理，DU 是执行事实与 GateSet 的主档**；state 仅是派生缓存。二者不一致时先 `reconcile`，以最新 GitLab 回读和 DU 事实确定处置，绝不以 state 反向覆盖 GitLab（对账逻辑见 `resume.md`）。
 
 ### 学习闭环（learn）
 
@@ -242,14 +247,16 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 - 三类评审分离（G4）：reviewType 必须等于门禁要求，防技评/代码评审替代需求评审。
 - 门禁二值（G2）：通过走 `plan`，退回走 `plan-return`，没有"附带条件通过"。
-- hard_gate 人工（G3，恒 L3）：待发布 / 生产验收中 / 已完成 必须人工 `humanConfirmed`，无论何种动作分层，不可关闭。
+- hard_gate 人工（G3，恒 L3）：生产部署转换（待发布→生产验收中/生产验证中）及终态验收/关闭转换（生产验收中/生产验证中→已完成）必须人工 `humanConfirmed`，无论何种动作分层、GateSet 或 `skipStates`，不可关闭。
+- GateSet 跳状态只改变投影路径一层：校验仍按原转换执行，`next`/标签/评论头写最终投影目标；投影后的 hard gate 仍要校验，不得借此绕过 hard_gate。
+- Bug `已确认缺陷→开发中` 必须带非空 `declaredScopes` 或已有 frozen GateSet；若首次绑定，Leader 先执行 `bind-gateset` 并写入/冻结 DU，binding pass 不写 Issue 状态；DU 落盘后必须重新运行 transition，待正常 WritePlan 生成后再执行 Issue 写回/回读。
 - 冻结不改原文/评论（G7/G8）：永不 `update --description`，永不 edit/delete 已发评论。
 - 日期需确认（G10）：`datesConfirmed` 必须为真。
 - Assignee 必须 `@用户`（G6），不接受角色名占位。
 - 不建 Jira（G13）：流程只在 GitLab Issue 上走，不外建工单。
 - 测试问题挂父需求（G11）：阻塞发布问题全部验证通过才放行待发布。
 - 变更闭环（G16）：存在未关闭的需求/方案/实现/测试变更影响单时，不得继续正向流转；变化分级 T1–T4，轻量档（T1/T2）关闭时的证据要求随级别降低（T3+ 才要求测试计划版本递增）。
-- 多环境测试：开发中→测试中必须有当前计划的 `local` Apifox 资产审计和 TestRun；测试中→待发布必须有同计划版本的 `test` 资产审计和 TestRun（优先取 DU 证据，Issue 评论兜底；环境集合按 GateSet）。单测、构建、静态检查和代码评审不能替代真实业务闭环执行。
+- 多环境测试：按冻结 GateSet 的 `environments`、`regression` 和 `minUnitCases` 校验当前计划；要求某环境时，该环境必须有当前计划版本的 Apifox 资产审计和 TestRun（优先取 DU 证据，Issue 评论兜底）。GateSet 可使轻量路线跳过测试中，但不减少原转换校验字段；单测、构建、静态检查和代码评审不能替代真实业务闭环执行。
 - feature MR 评审前置（G14，按 GateSet 生效）：DU GateSet `mrReview=true` 时，测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）；`mrReview=false`（如 frontend-copy）豁免该字段。
 - 需求评审取证（G15）：待评审→已评审必须完成所有 Issue 图片的 OCR+视觉核查；有前端页面/菜单/路由信号必须用代码核实实际 URL、组件与分流，找不到即统一提问、不能猜；并以 grilling 决策账本覆盖五类需求分支，任何未决问题都不通过。
 - 禁止测试先行仪式：不采用“先写失败测试再实现”的开发仪式；实现后必须完成定向测试、完整业务闭环、全量回归、类型检查和代码走查。

@@ -12,6 +12,7 @@ import type {
 import { parseTestPlan } from './test-run.js';
 import { chronologicalNotes } from './notes.js';
 import { classifyChangeTier, isLightTier } from './tier.js';
+import { validatePublicField, validatePublicText } from './render.js';
 
 const SCOPES = new Set<ChangeScope>(['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release']);
 const SOURCES = new Set<ChangeSource>(['requirement', 'technical-design', 'implementation', 'test']);
@@ -22,6 +23,43 @@ const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
 const unique = <T>(items: T[]): T[] => [...new Set(items)];
 const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim().length > 0;
+const SAFE_CHANGE_ID = /^[A-Za-z][A-Za-z0-9._-]{0,63}$/;
+const SAFE_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const SAFE_PLAN_VERSION = /^v[0-9]+(?:\.[0-9]+)*$/i;
+const PUBLIC_ARTIFACT_LABELS: Record<ChangeArtifact, string> = {
+  proposal: '需求提案',
+  design: '技术方案',
+  'test-plan': '测试计划',
+  'apifox-assets': '接口资产',
+  implementation: '实现改动',
+  'local-rerun': '复测',
+  'test-rerun': '环境复测',
+  'week-plan': '周排期',
+  'release-check': '上线检查',
+};
+
+function publicArtifactLabels(artifacts: ChangeArtifact[]): string {
+  return artifacts.map((artifact) => PUBLIC_ARTIFACT_LABELS[artifact]).join('、') || '仅记录，无下游产物';
+}
+
+function publicFieldErrors(fields: Record<string, unknown>): string[] {
+  return Object.entries(fields).flatMap(([name, value]) => {
+    const result = validatePublicField(value);
+    return result.ok ? [] : result.reasons.map((reason) => `${name}：${reason}`);
+  });
+}
+
+function validateChangeImpactPublicFields(impact: ChangeImpact, input: Pick<ChangeImpactInput, 'proposer' | 'changeDate' | 'reason'>): string[] {
+  const errors = publicFieldErrors({
+    proposer: input.proposer,
+    reason: input.reason,
+  });
+  if (!nonEmpty(impact.currentNode) || /[\x00-\x1f]/.test(impact.currentNode)) errors.push('currentNode 不能为空且不得包含控制字符');
+  if (!SAFE_CHANGE_ID.test(impact.changeId)) errors.push('changeId 必须是安全标识符');
+  if (!SAFE_DATE.test(input.changeDate)) errors.push('changeDate 必须是 YYYY-MM-DD');
+  if (impact.previousPlanVersion && !SAFE_PLAN_VERSION.test(impact.previousPlanVersion)) errors.push('previousPlanVersion 格式非法');
+  return errors;
+}
 
 /** Story nodes at/after 测试中 must repeat test verification when a product-facing change occurs. */
 function hasEnteredTest(type: ChangeImpactInput['type'], node: string): boolean {
@@ -101,7 +139,7 @@ export function renderChangeImpact(impact: ChangeImpact, input: Pick<ChangeImpac
     `- 变更来源：${impact.source}`,
     `- 变更原因：${input.reason}`,
     `- 影响维度：${impact.scopes.join('、')}`,
-    `- 必须闭环：${impact.requiredArtifacts.join('、') || '仅记录，无下游产物'}`,
+    `- 必须闭环：${publicArtifactLabels(impact.requiredArtifacts)}`,
     `- 建议回退：${impact.returnTarget ?? '保持当前节点'}`,
     '',
     '### 闭环规则',
@@ -115,9 +153,15 @@ export function renderChangeImpact(impact: ChangeImpact, input: Pick<ChangeImpac
 
 export function buildChangeImpactPlan(input: ChangeImpactInput): { impact: ChangeImpact; plan: WritePlan } {
   const impact = deriveChangeImpact(input);
+  const fieldErrors = validateChangeImpactPublicFields(impact, input);
+  if (fieldErrors.length) throw new Error(`change-impact: 公共评论字段不安全：${fieldErrors.join('；')}`);
+  const body = renderChangeImpact(impact, input);
+  const humanBody = body.replace(/^<!--[\s\S]*?-->\n\n/, '');
+  const publicValidation = validatePublicText(humanBody);
+  if (!publicValidation.ok) throw new Error(publicValidation.reasons.join('；'));
   return {
     impact,
-    plan: { issueIid: input.iid, ops: [{ kind: 'add_comment', body: renderChangeImpact(impact, input) }] },
+    plan: { issueIid: input.iid, ops: [{ kind: 'add_comment', body }] },
   };
 }
 
@@ -243,7 +287,13 @@ export function buildChangeClosePlan(input: ChangeCloseInput): WritePlan {
   const target = open.find((item) => item.changeId === input.changeId);
   if (!target) throw new Error(`change-close: open change ${input.changeId} not found`);
   const parsed = input.testPlan === undefined ? undefined : parseTestPlan(input.testPlan);
-  const completed = target.requiredArtifacts.map((artifact) => `${artifact}=${input.completed[artifact]!.trim()}`).join('; ');
+  const fieldErrors = publicFieldErrors({ closer: input.closer });
+  if (!SAFE_CHANGE_ID.test(input.changeId)) fieldErrors.push('changeId 必须是安全标识符');
+  if (!SAFE_DATE.test(input.closeDate)) fieldErrors.push('closeDate 必须是 YYYY-MM-DD');
+  if (parsed?.ok && !SAFE_PLAN_VERSION.test(parsed.plan.version)) fieldErrors.push('testPlan version 格式非法');
+  if (fieldErrors.length) throw new Error(`change-close: 公共评论字段不安全：${fieldErrors.join('；')}`);
+  // Evidence values remain in the local completion record; the Issue only records artifact names.
+  const completed = target.requiredArtifacts.map((artifact) => `${artifact}=已提供`).join('; ');
   const body = [
     '<!-- glab-flow:change-impact:v1',
     `change-id: ${input.changeId}`,
@@ -257,8 +307,11 @@ export function buildChangeClosePlan(input: ChangeCloseInput): WritePlan {
     `- 变更编号：${input.changeId}`,
     `- 关闭人：${input.closer}`,
     `- 关闭日期：${input.closeDate}`,
-    `- 已完成证据：${completed}`,
+    `- 已完成产物：${publicArtifactLabels(target.requiredArtifacts)}`,
     '- 结论：受影响产物已同步；后续状态流转仍按当前测试计划与环境门禁重新校验。',
   ].join('\n');
+  const humanBody = body.replace(/^<!--[\s\S]*?-->\n\n/, '');
+  const publicValidation = validatePublicText(humanBody);
+  if (!publicValidation.ok) throw new Error(publicValidation.reasons.join('；'));
   return { issueIid: input.iid, ops: [{ kind: 'add_comment', body }] };
 }

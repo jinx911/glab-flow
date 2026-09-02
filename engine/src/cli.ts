@@ -1,9 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { loadModel, currentNode, progressStepsFor } from './model.js';
-import { validateTransition, validateWeekPlanChange } from './guard.js';
-import { toFacts } from './gitlab.js';
-import { renderStatusChange } from './render.js';
-import { buildReturnPlan, buildForwardPlan, buildWeekPlanChangePlan } from './plan.js';
+import { validateWeekPlanChange } from './guard.js';
+import { renderNodeComment, validatePublicComment } from './render.js';
+import { buildReturnPlan, buildWeekPlanChangePlan } from './plan.js';
 import { runTransition } from './transition.js';
 import { computeNextStep } from './next-step.js';
 import type { NextStepInput } from './next-step.js';
@@ -24,6 +23,7 @@ import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { initDu, recordEvidence, bindGateSet, setCachedNode } from './du.js';
+import { gateScopeValidationErrors } from './gate-set.js';
 import { parseAssetCatalog, renderAssetCatalog, searchCatalog, upsertCatalogEntry, catalogEntriesFromDisposal } from './asset-catalog.js';
 import type { AssetCatalogEntry } from './asset-catalog.js';
 import { buildReviewPack } from './review-pack.js';
@@ -38,6 +38,46 @@ function readStdin(): string {
   return readFileSync(0, 'utf8');
 }
 
+type LegacyTransitionInput = {
+  payload: Payload;
+  labels?: string[];
+  body?: string;
+  notes?: IssueNote[];
+  state?: 'opened' | 'closed';
+  iid?: number;
+  testPlan?: string;
+  du?: DuState;
+  declaredScopes?: TransitionInput['declaredScopes'];
+  config?: TransitionInput['config'];
+};
+
+function toTransitionInput(input: LegacyTransitionInput): TransitionInput {
+  const { payload } = input;
+  const prefix = payload.type === 'story' ? 'story-status::' : 'status::';
+  return {
+    type: payload.type,
+    iid: input.iid ?? 0,
+    labels: input.labels ?? [`type::${payload.type}`, `${prefix}${payload.from}`],
+    body: input.body ?? '',
+    notes: input.notes ?? [],
+    state: input.state ?? 'opened',
+    to: payload.to,
+    fields: payload.fields,
+    testPlan: input.testPlan ?? payload.testPlan,
+    du: input.du ?? payload.du,
+    declaredScopes: input.declaredScopes,
+    weekPlan: payload.weekPlan,
+    reviewEvidence: payload.reviewEvidence,
+    gateOutcome: payload.gateOutcome,
+    reviewType: payload.reviewType,
+    assigneeUser: payload.assigneeUser,
+    datesConfirmed: payload.datesConfirmed,
+    humanConfirmed: payload.humanConfirmed,
+    closeIssue: payload.closeIssue,
+    config: input.config,
+  };
+}
+
 async function main() {
   const [, , cmd, ...args] = process.argv;
   switch (cmd) {
@@ -48,34 +88,34 @@ async function main() {
       break;
     }
     case 'validate': {
-      const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; labels: string[]; payload: Payload; body?: string; notes?: IssueNote[]; testPlan?: string };
-      if (input.testPlan !== undefined) input.payload.testPlan = input.testPlan;
-      const result = validateTransition(model, toFacts({ iid: 0, state: 'opened', labels: input.labels, description: input.body ?? '' }), input.payload, input.notes);
-      console.log(JSON.stringify(result));
+      const input = JSON.parse(readStdin()) as LegacyTransitionInput;
+      const validation = runTransition(model, toTransitionInput(input)).validate;
+      console.log(JSON.stringify(validation));
       break;
     }
     case 'render': {
       const payload = JSON.parse(readStdin()) as Payload;
-      console.log(renderStatusChange(payload));
-      break;
-    }
-    case 'plan': {
-      const input = JSON.parse(readStdin()) as { payload: Payload; notes?: IssueNote[]; body?: string; testPlan?: string };
-      const payload = input.payload;
-      if (input.testPlan !== undefined) payload.testPlan = input.testPlan;
-      const statusLabel = payload.type === 'story' ? `story-status::${payload.from}` : `status::${payload.from}`;
-      const result = validateTransition(model, toFacts({
-        iid: 0,
-        state: 'opened',
-        labels: [`type::${payload.type}`, statusLabel],
-        description: input.body ?? '',
-      }), payload, input.notes);
-      if (!result.ok) {
-        console.log(JSON.stringify(result));
+      const validation = validatePublicComment(payload);
+      if (!validation.ok) {
+        console.error(JSON.stringify(validation));
         process.exitCode = 1;
         break;
       }
-      console.log(JSON.stringify(buildForwardPlan(payload, Number(args[0] ?? 0))));
+      console.log(renderNodeComment(payload));
+      break;
+    }
+    case 'plan': {
+      const input = JSON.parse(readStdin()) as LegacyTransitionInput;
+      const transition = runTransition(model, toTransitionInput({
+        ...input,
+        iid: input.iid ?? Number(args[0] ?? 0),
+      }));
+      if (!transition.validate.ok || !transition.plan) {
+        console.log(JSON.stringify(transition.validate));
+        process.exitCode = 1;
+        break;
+      }
+      console.log(JSON.stringify(transition.plan));
       break;
     }
     case 'transition': {
@@ -301,7 +341,7 @@ async function main() {
       // DU 写入面（终审遗留 Medium）：init/record/bind-gateset/cached-node 消除 Leader 手写 du.json。
       // 引擎纯计算——返回新 DU 对象，落盘仍归 Leader（与 state 文件同模式）。
       const input = JSON.parse(readStdin()) as {
-        op: 'init' | 'record' | 'bind-gateset' | 'cached-node';
+        op: 'init' | 'bootstrap' | 'record' | 'bind-gateset' | 'cached-node';
         iid?: number;
         type?: 'story' | 'bug';
         now?: string;
@@ -317,6 +357,16 @@ async function main() {
             throw new Error('du: init requires iid (number) and type (story|bug)');
           }
           console.log(JSON.stringify(initDu({ iid: input.iid, type: input.type, now })));
+          break;
+        }
+        case 'bootstrap': {
+          if (!input.iid || (input.type !== 'story' && input.type !== 'bug')) {
+            throw new Error('du: bootstrap requires iid (number) and type (story|bug)');
+          }
+          if (typeof input.node !== 'string' || !input.node.trim()) {
+            throw new Error('du: bootstrap requires node read from the current Issue status label');
+          }
+          console.log(JSON.stringify(setCachedNode(initDu({ iid: input.iid, type: input.type, now }), input.node, now)));
           break;
         }
         case 'record': {
@@ -346,9 +396,12 @@ async function main() {
         }
         case 'bind-gateset': {
           if (!input.du || typeof input.du !== 'object') throw new Error('du: bind-gateset requires du');
-          if (!Array.isArray(input.scopes) || input.scopes.length === 0) throw new Error('du: bind-gateset requires scopes (non-empty ChangeScope[])');
+          const scopes = input.scopes;
+          if (!scopes) throw new Error('du: bind-gateset requires scopes');
+          const scopeErrors = gateScopeValidationErrors(scopes);
+          if (scopeErrors.length) throw new Error(`du: bind-gateset ${scopeErrors.join('；')}`);
           if (!model.gateMatrix) throw new Error('du: bind-gateset requires gateMatrix in state-machine.yaml');
-          console.log(JSON.stringify(bindGateSet(input.du, model.gateMatrix, input.scopes, now)));
+          console.log(JSON.stringify(bindGateSet(input.du, model.gateMatrix, scopes, now)));
           break;
         }
         case 'cached-node': {

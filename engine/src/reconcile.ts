@@ -32,11 +32,14 @@ export function reconcileLabels(model: StateMachine, input: ReconcileInput): Rec
     return { kind: 'dirty-labels', resolution: `状态标签缺失/冲突（期望 1 个 ${prefix}*，实际 ${status.length} 个）：人工修标签后重跑` };
   }
   const labelNode = status[0]!.slice(prefix.length);
-  const duNode = input.du.cachedNode ?? '';
+  const duNode = input.du.cachedNode?.trim() ?? '';
   if (input.state === 'closed' && !TERMINAL.has(labelNode)) {
     return { kind: 'external-close', resolution: 'Issue 被人工关闭：确认验收事实后补终态评论，或 reopen' };
   }
-  if (!duNode || labelNode === duNode) return { kind: 'in-sync' };
+  if (!duNode) {
+    return { kind: 'unknown-node', labelNode, resolution: 'DU cachedNode 缺失：先初始化/对账并记录当前 Issue 节点，禁止直接生成流转计划' };
+  }
+  if (labelNode === duNode) return { kind: 'in-sync' };
   // 方向比较有意义的前提是双方都在状态机里；不在的先按 unknown-node 报，
   // 否则 indexOf 的 -1 会把「标签尾随空格/笔误」误判成 label-ahead。
   const labelIndex = modelIndex(model, input.type, labelNode);
