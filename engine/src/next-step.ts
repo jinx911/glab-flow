@@ -82,9 +82,13 @@ export function computeNextStep(model: StateMachine, input: NextStepInput): Next
       blockedOn: [],
       fastestPath: [],
       owedBy: [],
-      summary: pending.length
-        ? `已完成（终态）。资源清理待办 ${pending.length} 项：${pending.map((p) => `${p.resourceId}(${p.suggestion})`).join('、')}`
-        : '已完成（终态），无待清理资源。',
+      // R3：终态清单含 learn 升级建议（采集多蒸馏零的欠账——run 内 lessons 只有经 upgrade ritual 蒸馏进 knowledge.md 才会被后续 apply 注入）。
+      summary: [
+        pending.length
+          ? `已完成（终态）。资源清理待办 ${pending.length} 项：${pending.map((p) => `${p.resourceId}(${p.suggestion})`).join('、')}`
+          : '已完成（终态），无待清理资源。',
+        ...(input.du?.metricEvents?.length ? [`建议运行 /glab-flow learn --upgrade：本轮采集了 ${input.du.metricEvents.length} 条指标事件与 run lessons，蒸馏进 knowledge.md 后才会被后续需求复用。`] : []),
+      ].join('\n'),
     };
   }
   const fastestPath = fastestChain(model, input.type, node, input.du?.gateSet?.skipStates);

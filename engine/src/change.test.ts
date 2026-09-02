@@ -47,6 +47,7 @@ describe('gateSetMateriallyChanged', () => {
     mrReview: false,
     regression: 'affected-cases',
     rollbackPlan: false,
+    minUnitCases: 1,
     overrides: [],
   };
   const variant = (patch: Partial<GateSet>): GateSet => ({ ...base, ...patch });

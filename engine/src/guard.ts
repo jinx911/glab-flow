@@ -153,6 +153,15 @@ export function validateTestRunTransition(payload: Payload, notes: IssueNote[] =
 
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
+  // Q4：GateSet 按维度要求的最少 unit 用例数（纯逻辑防线：数据模型/权限类改动的计算逻辑须有单测）。
+  // 无 GateSet 的存量路径不要求（兼容）；frontend-copy 等轻量维度为 0。
+  const minUnits = payload.du?.gateSet?.minUnitCases ?? 0;
+  if (minUnits > 0) {
+    const unitCases = parsedPlan.plan.cases.filter((c) => c.methods.includes('unit')).length;
+    if (unitCases < minUnits) {
+      return fail([`测试计划 unit 用例不足：当前门禁单要求 ≥${minUnits} 条（改动了计算/状态/数据逻辑），实际 ${unitCases} 条——纯逻辑分支需单测兜底（test-plan 的 case 行 methods 加 unit）`], ['testPlan']);
+    }
+  }
   // DU 优先：本地有该环境事实就不看评论（存量 Issue 无 DU 仍走评论兜底）。
   const parsedLatest = duTestRunFor(payload.du, parsedPlan.plan, environment) ?? parseLatestTestRun(notes, environment);
   const validation = validateTestRun(parsedPlan.plan, environment, parsedLatest);

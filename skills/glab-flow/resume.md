@@ -89,7 +89,7 @@ state 文件的 TypeScript 权威定义在 `engine/src/state.ts` 的 `RunState` 
 | `runMode` | `'semi-auto' \| 'full-auto'` | 审计字段：记录运行模式偏好，不参与确认判定（确认由动作分层决定，见 `gate.md`） |
 | `lastActions[]` | string[] | 最近动作审计尾迹（用于续接与回看） |
 | `spawnedAgents[]` | string[] | 本 flow 已委派过的 agent 名单（去重/记账） |
-| `writebackAudit[]` | 审计阶段数组 | `metadata` / `state-comment` / `readback` 的串行成功/失败记录，以及独立 `week-milestone-sync` 记录，用于恢复定位首个未完成阶段或同步重试 |
+| `writebackAudit[]` | 审计阶段数组 | `code-commit` / `code-merge` / `code-jenkins`（代码侧断点，E4）与 `metadata` / `state-comment` / `readback` 的串行成功/失败记录，以及独立 `week-milestone-sync` 记录，用于恢复定位首个未完成动作或同步重试——代码侧任一失败只重试该动作（Jenkins 已触发看结果不重触），不整链重放 |
 | `lessonsCaptured` | number | 已 capture 的 lesson 条数；只作经验统计，不驱动门禁 |
 | `progress` | `{ node, done[] }` | 节点内子步骤进度（层 2）：`node` = 这批 done 所属节点；换节点时重置 |
 | `updatedAt` | string (ISO) | state 最后写入时间 |

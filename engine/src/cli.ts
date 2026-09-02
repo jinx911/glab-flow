@@ -24,6 +24,8 @@ import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { initDu, recordEvidence, bindGateSet, setCachedNode } from './du.js';
+import { parseAssetCatalog, renderAssetCatalog, searchCatalog, upsertCatalogEntry, catalogEntriesFromDisposal } from './asset-catalog.js';
+import type { AssetCatalogEntry } from './asset-catalog.js';
 import { buildReviewPack } from './review-pack.js';
 import type { ReviewPackInput } from './review-pack.js';
 import { checkResources, cleanupChecklist, disposeResource, registerResource } from './resource.js';
@@ -360,6 +362,50 @@ async function main() {
       }
       break;
     }
+    case 'catalog': {
+      // R1/E5 资产目录：workspace 级共享资产检索。stdin {op, ...}；文件由 Leader 落盘
+      // <workspace.root>/.glab-flow/asset-catalog.md（与 state/du 同模式，引擎只算）。
+      const input = JSON.parse(readStdin()) as {
+        op: 'search' | 'upsert' | 'render' | 'from-disposal';
+        catalog?: string;
+        domain?: string;
+        keyword?: string;
+        entry?: AssetCatalogEntry;
+        du?: DuState;
+        now?: string;
+      };
+      switch (input.op) {
+        case 'search': {
+          const parsed = parseAssetCatalog(input.catalog);
+          if (!parsed.ok) throw new Error(`catalog: ${parsed.errors.join('；')}`);
+          console.log(JSON.stringify(searchCatalog(parsed.entries, input.domain, input.keyword)));
+          break;
+        }
+        case 'upsert': {
+          const parsed = parseAssetCatalog(input.catalog);
+          if (!parsed.ok) throw new Error(`catalog: ${parsed.errors.join('；')}`);
+          if (!input.entry || typeof input.entry !== 'object' || !input.entry.domain || !input.entry.name || !input.entry.apifoxId || !input.entry.kind || !input.entry.covers) {
+            throw new Error('catalog: upsert requires entry {domain, name, apifoxId, kind, covers, registeredAt?}');
+          }
+          console.log(renderAssetCatalog(upsertCatalogEntry(parsed.entries, input.entry)));
+          break;
+        }
+        case 'render': {
+          const parsed = parseAssetCatalog(input.catalog);
+          if (!parsed.ok) throw new Error(`catalog: ${parsed.errors.join('；')}`);
+          console.log(renderAssetCatalog(parsed.entries));
+          break;
+        }
+        case 'from-disposal': {
+          if (!input.du || typeof input.du !== 'object') throw new Error('catalog: from-disposal requires du');
+          console.log(JSON.stringify(catalogEntriesFromDisposal(input.du, input.now ?? new Date().toISOString())));
+          break;
+        }
+        default:
+          throw new Error(`catalog: unknown op ${String(input.op)}`);
+      }
+      break;
+    }
     case 'review-pack': {
       // 评审上下文包：spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令，标准化喂给 reviewer。
       const input = JSON.parse(readStdin()) as ReviewPackInput;
@@ -372,7 +418,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics | du | review-pack');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics | du | review-pack | catalog');
       process.exit(1);
   }
 }

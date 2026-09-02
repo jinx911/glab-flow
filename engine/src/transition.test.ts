@@ -10,6 +10,7 @@ const model = loadModel();
 const TEST_PLAN = `<!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api,e2e
+case: TP-U01 | local,test | unit
 asset: TP-001 | scenario
 -->`;
 const LOCAL_RUN = `<!-- glab-flow:test-run:v1
@@ -18,8 +19,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/local
-cases: TP-001=passed
-evidence: api=report:101,e2e=note:https://git.example/local
+cases: TP-001=passed,TP-U01=passed
+evidence: api=report:101,e2e=note:https://git.example/local,unit=vitest-26-passed
 -->`;
 const TEST_RUN = `<!-- glab-flow:test-run:v1
 environment: test
@@ -27,8 +28,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/test
-cases: TP-001=passed
-evidence: api=report:102,e2e=note:https://git.example/test
+cases: TP-001=passed,TP-U01=passed
+evidence: api=report:102,e2e=note:https://git.example/test,unit=vitest-26-passed
 -->`;
 const LOCAL_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
 environment: local

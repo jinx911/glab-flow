@@ -471,6 +471,8 @@ export interface GateSet {
   mrReview: boolean;
   regression: 'affected-cases' | 'full';
   rollbackPlan: boolean;
+  /** 该门禁单下 test-plan 至少须含的 unit 用例数（Q4，0=不要求）。 */
+  minUnitCases: number;
   /** 显式改判记录（增/删门禁都留痕）。 */
   overrides: { field: string; from: string; to: string; by: string; at: string }[];
   frozenAt?: string;
@@ -483,6 +485,8 @@ export interface GateMatrixRule {
   mrReview?: boolean;
   regression?: 'affected-cases' | 'full';
   rollbackPlan?: boolean;
+  /** 该维度下 test-plan 至少须含的 unit 用例数（Q4：纯逻辑防线，0=不要求）。 */
+  minUnitCases?: number;
 }
 
 export interface GateMatrix {

@@ -90,6 +90,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `resource` | DU 资源登记表：stdin `{du,now,op}`，op=`register`/`check`/`cleanup`/`dispose`；创建即登记、终态出清理清单、处置后回写；临时 Apifox 资源强制 `TMP-<iid>-` 前缀 |
 | `metrics` | 交付指标：stdin `{du,event?}`；event 存在记一条指标事件返回新 DU（Leader 落盘），否则纯汇总（确认/流转/重测/环境阻塞/返工/人工介入次数 + 周期） |
 | `du` | DU 写入面：stdin `{op,...}`，op=`init`（iid+type）/`record`（du+entry 执行事实）/`bind-gateset`（du+scopes，推导+冻结门禁单，已冻结拒重绑）/`cached-node`（du+node，流转成功后更新对账基准）；返回新 DU 对象，落盘归 Leader |
+| `catalog` | workspace 资产目录（R1：复用从「全量 list+人肉比对」变检索）：stdin `{op,...}`，op=`search`（catalog 文本+domain/keyword → 匹配条目）/`upsert`（登记/更新共享资产，按 apifoxId 幂等）/`from-disposal`（du → 终态升级共享的目录条目）；目录文件 `.glab-flow/asset-catalog.md` 由 Leader 落盘——test-design 检索现有资产先查目录，终态 TMP→共享升级时登记 |
 | `review-pack` | 评审上下文包：stdin 同 `next` → spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令段；与 diff 一起注入 reviewer，标准化 feeding 材料（开发中代码评审 / MR 评审共用） |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |

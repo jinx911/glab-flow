@@ -58,6 +58,8 @@ export function deriveGateSet(matrix: GateMatrix, scopes: ChangeScope[]): GateSe
     mrReview: base.mrReview ?? matrix.defaults.mrReview,
     regression: base.regression ?? matrix.defaults.regression,
     rollbackPlan: base.rollbackPlan ?? matrix.defaults.rollbackPlan,
+    // 显式声明的规则值优先（含 0=明确豁免，如 frontend-copy）；规则未声明才回落 defaults。
+    minUnitCases: hit?.minUnitCases ?? matrix.defaults.minUnitCases ?? 0,
     overrides: [],
   };
 }

@@ -19,6 +19,7 @@ const facts = (labels: string[]): IssueFacts => ({ labels, body: '', state: 'ope
 const TEST_PLAN = `<!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api,e2e
+case: TP-U01 | local,test | unit
 asset: TP-001 | scenario
 -->`;
 const LOCAL_RUN = `<!-- glab-flow:test-run:v1
@@ -27,8 +28,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/local
-cases: TP-001=passed
-evidence: api=report:101,e2e=note:https://git.example/local
+cases: TP-001=passed,TP-U01=passed
+evidence: api=report:101,e2e=note:https://git.example/local,unit=vitest-26-passed
 -->`;
 const TEST_RUN = `<!-- glab-flow:test-run:v1
 environment: test
@@ -36,8 +37,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/test
-cases: TP-001=passed
-evidence: api=report:102,e2e=note:https://git.example/test
+cases: TP-001=passed,TP-U01=passed
+evidence: api=report:102,e2e=note:https://git.example/test,unit=vitest-26-passed
 -->`;
 const LOCAL_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
 environment: local
@@ -443,6 +444,7 @@ describe('DU-first evidence (P2)', () => {
     const governedPlan = `<!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api,e2e
+case: TP-U01 | local,test | unit
 asset: TP-001 | scenario
 presentation: TP-001 | scenario
 auth-profile: TP-001 | client-user
@@ -559,5 +561,34 @@ describe('G11b 多问题最新状态语义', () => {
       { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（修复后复测绿）', created_at: '2026-09-02T00:00:00Z', id: 2 },
     ];
     expect(unverifiedBlockingTestIssues(notes)).toHaveLength(0);
+  });
+});
+
+describe('Q4 unit 覆盖按维度要求（GateSet.minUnitCases）', () => {
+  it('rejects plan without enough unit cases when GateSet requires them', () => {
+    const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local,test | api\nasset: TP-001 | scenario\n-->';
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: noUnitPlan,
+      du: duWithGateSet(deriveGateSet(loadModel().gateMatrix!, ['data-model'])),
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('unit 用例不足') && x.includes('3'))).toBe(true);
+  });
+  it('frontend-copy GateSet (minUnitCases=0) passes without unit cases', () => {
+    const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n-->';
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: noUnitPlan,
+      du: { ...du, gateSet: deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']) },
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    expect(validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []).ok).toBe(true);
   });
 });
