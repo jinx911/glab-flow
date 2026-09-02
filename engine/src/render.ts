@@ -1,6 +1,42 @@
 import type { GuardResult, Payload } from './types.js';
 import { renderWeekPlan, validateWeekPlan } from './week-plan.js';
 import { renderRequirementsReviewEvidence } from './review-evidence.js';
+import { latestEvidence } from './du.js';
+
+/** 证据摘要里展示的环境顺序：local → test → 其余按出现序（稳定输出，团队可比对）。 */
+const DIGEST_ENV_ORDER = ['local', 'test'];
+
+/**
+ * 从 DU 本地事实渲染团队可见的证据摘要块；明细留在本地 DU/云端报告，结论同步到 Issue。
+ * 存量调用没有 DU 时不追加摘要，保持兼容。
+ */
+function renderEvidenceDigest(p: Payload): string | undefined {
+  const du = p.du;
+  if (!du) return undefined;
+
+  const lines: string[] = [];
+  const environments = [...DIGEST_ENV_ORDER, ...new Set(du.evidence.map((e) => e.environment).filter((e) => !DIGEST_ENV_ORDER.includes(e)))];
+  for (const env of environments) {
+    const run = latestEvidence(du, 'test-run', env);
+    const audit = latestEvidence(du, 'asset-audit', env);
+    if (!run && !audit) continue;
+    const parts: string[] = [];
+    if (run) parts.push(`执行 ${run.planVersion} / ${run.outcome}${run.detailRef ? ` / ${run.detailRef}` : ''}`);
+    if (audit) parts.push(`审计 ${audit.planVersion} / ${audit.outcome}`);
+    lines.push(`- ${env}：${parts.join('；')}`);
+  }
+
+  const undisposed = du.resources.filter((r) => !r.disposedAt);
+  if (undisposed.length) lines.push(`- 资源登记：${undisposed.length} 项在册（终态出清理清单）`);
+  if (du.gateSet) lines.push(`- 门禁单：${du.gateSet.scopes.join('、')}（${du.gateSet.environments.join('/')}，MR 评审${du.gateSet.mrReview ? '要求' : '豁免'}，回归=${du.gateSet.regression}）`);
+  if (du.metricEvents.length) {
+    const count = (kind: string): number => du.metricEvents.filter((e) => e.kind === kind).length;
+    lines.push(`- 指标：确认 ${count('confirm')} 次 / 流转 ${count('transition')} 次 / 重测 ${count('rerun')} 次 / 返工 ${count('rework')} 次`);
+  }
+
+  if (!lines.length) return undefined;
+  return ['## 证据摘要（引擎从 DU 生成；明细见云端报告与本地工作目录）', '', ...lines].join('\n');
+}
 
 export function renderStatusChange(p: Payload): string {
   const f = p.fields;
@@ -140,6 +176,9 @@ export function renderNodeComment(p: Payload): string {
     blocks.push(renderRequirementsReviewEvidence(p.reviewEvidence));
   }
 
+  const digest = renderEvidenceDigest(p);
+  if (digest) blocks.push(digest);
+
   const next = f['下一步']?.trim() || `由 ${p.assigneeUser ?? '目标节点负责人'} 按「${p.to}」节点继续推进。`;
   blocks.push(`## 下一步\n\n- ${next}`);
   return blocks.join('\n\n');
@@ -158,7 +197,9 @@ const INTERNAL_COMMENT_CONTENT = [
 /** Reject machine-only material before a state comment can be written. */
 export function validatePublicComment(p: Payload): GuardResult {
   const rendered = renderNodeComment(p);
-  const forbidden = INTERNAL_COMMENT_CONTENT.find((pattern) => pattern.test(rendered));
+  // The generated evidence digest is the approved public summary; validate handoff fields separately.
+  const handoff = rendered.replace(/\n\n## 证据摘要[\s\S]*$/, '');
+  const forbidden = INTERNAL_COMMENT_CONTENT.find((pattern) => pattern.test(handoff));
   if (!forbidden) return { ok: true, missing: [], reasons: [] };
   return {
     ok: false,

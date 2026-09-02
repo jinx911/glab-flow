@@ -119,4 +119,13 @@ describe('Week Plan contract', () => {
       input: { startDate: 'invalid', endDate: '2026-08-30', coverage: 'W35 ～ W35', autoRollover: true },
     });
   });
+
+  it('uses GitLab created_at to find the latest plan from a newest-first API response', () => {
+    const older = '## 周排期\n\n- 计划开始：2026-08-17\n- 计划完成：2026-08-23\n- 计划覆盖周：W34 ～ W34\n- 自动 rollover：启用';
+    const latest = '## 周排期\n\n- 计划开始：2026-08-24\n- 计划完成：2026-08-30\n- 计划覆盖周：W35 ～ W35\n- 自动 rollover：暂停';
+    expect(parseLatestWeekPlan([
+      { id: 20, created_at: '2026-08-26T09:01:00Z', body: latest },
+      { id: 10, created_at: '2026-08-25T09:01:00Z', body: older },
+    ])).toMatchObject({ kind: 'valid-paused', plan: { startDate: '2026-08-24' } });
+  });
 });

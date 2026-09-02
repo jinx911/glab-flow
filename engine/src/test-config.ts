@@ -200,7 +200,13 @@ export function buildTestContext(
       warnings.push(`apifox_projects 缺 "${name}"——请在 test-config 补齐项目索引`);
       return { project: name, projectId: '', branch: 'main', envName: profile.apifox.env, envId: undefined };
     }
-    return { project: name, projectId: project.projectId, branch: project.branch, envName: profile.apifox.env, envId: project.envs[profile.apifox.env] };
+    const envId = project.envs[profile.apifox.env];
+    // M1：envId 解析不到必须显式警告——静默 undefined 会让 -e 拼出空值或回落默认环境，
+    // 「test 轮」实跑 local。文档承诺「报错退出」，此处先以高可见警告 + CLI 侧缺失计数兜底。
+    if (!envId) {
+      warnings.push(`环境 "${input.env}" 的 apifox_projects.${name}.envs.${profile.apifox.env} 缺环境 ID——继续执行会拼出 -e undefined 或回落项目默认环境（可能是 local），请在 test-config 补齐后再跑`);
+    }
+    return { project: name, projectId: project.projectId, branch: project.branch, envName: profile.apifox.env, envId };
   });
 
   const testData = { ...profile.testData };

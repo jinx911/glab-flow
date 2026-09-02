@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { effectiveRunMode, initState, markProgressDone, normalizeRunState, recordInternalEvidence, recordWritebackAudit, resetProgress, addLastAction, MAX_LAST_ACTIONS, selectRunMode } from './state.js';
+import { initState, markProgressDone, normalizeRunState, recordWritebackAudit, resetProgress, addLastAction, MAX_LAST_ACTIONS } from './state.js';
 
 describe('initState', () => {
   it('builds initial state with defaults', () => {
@@ -14,7 +14,6 @@ describe('initState', () => {
     expect(s.spawnedAgents).toEqual([]);
     expect(s.progress).toEqual({ node: '', done: [] });
     expect(s.writebackAudit).toEqual([]);
-    expect(s.evidence).toEqual([]);
     expect(s.specDir).toBe('/tmp/workspace/.glab-flow/123/spec');
     expect(s.runMode).toBe('semi-auto');
     expect(s.cachedNodeAt).toBe('2026-07-29T00:00:00Z');
@@ -30,24 +29,6 @@ describe('initState', () => {
   it('derives specDir from workspaceRoot and iid', () => {
     const s = initState({ iid: '456', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/var/oa', now: 't' });
     expect(s.specDir).toBe('/var/oa/.glab-flow/456/spec');
-  });
-});
-
-describe('internal evidence ledger', () => {
-  const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
-  const receipt = '<!-- glab-flow:test-run:v1\nenvironment: local\n-->';
-
-  it('persists a receipt for cross-session gate recovery without Issue writeback', () => {
-    const next = recordInternalEvidence(base, { kind: 'test-run', receipt, recordedAt: 't1' });
-    expect(next.evidence).toEqual([{ kind: 'test-run', receipt, recordedAt: 't1' }]);
-    expect(next.writebackAudit).toEqual([]);
-    expect(recordInternalEvidence(next, { kind: 'test-run', receipt, recordedAt: 't2' })).toBe(next);
-  });
-
-  it('normalizes a pre-ledger state without losing existing state data', () => {
-    const legacy = { ...base } as Partial<typeof base>;
-    delete legacy.evidence;
-    expect(normalizeRunState(legacy as typeof base)).toMatchObject({ evidence: [], writebackAudit: [] });
   });
 });
 
@@ -78,37 +59,6 @@ describe('progress tracking', () => {
     const atDev = resetProgress(base, '开发中', 't1');
     const again = resetProgress(atDev, '开发中', 't2');
     expect(again).toBe(atDev);
-  });
-});
-
-describe('Issue-level run mode selection', () => {
-  const base = initState({ iid: '1', type: 'story', host: 'h', projectId: '1', workspaceRoot: '/r', now: 't0' });
-  const selection = { mode: 'full-auto' as const, selectedAt: 't1', selectedBy: '@owner' };
-
-  it('keeps legacy state compatible and uses runMode as the effective default', () => {
-    const legacy = { ...base } as Partial<typeof base>;
-    delete legacy.runModeSelection;
-    const normalized = normalizeRunState(legacy as typeof base);
-    expect(normalized.runModeSelection).toBeUndefined();
-    expect(effectiveRunMode(normalized)).toBe('semi-auto');
-  });
-
-  it('persists a selection and makes it effective', () => {
-    const input = { ...selection };
-    const selected = selectRunMode(base, input);
-    input.selectedBy = '@mutated';
-    expect(selected.runModeSelection).toEqual(selection);
-    expect(selected.runModeSelection).not.toBe(input);
-    expect(selected.updatedAt).toBe('t1');
-    expect(effectiveRunMode(selected)).toBe('full-auto');
-  });
-
-  it('is idempotent for the exact same selection and rejects changes', () => {
-    const selected = selectRunMode(base, selection);
-    expect(selectRunMode(selected, selection)).toBe(selected);
-    expect(() => selectRunMode(selected, { ...selection, selectedBy: '@other' })).toThrow('runModeSelection is immutable');
-    expect(() => selectRunMode(selected, { ...selection, selectedAt: 't2' })).toThrow('runModeSelection is immutable');
-    expect(() => selectRunMode(selected, { ...selection, mode: 'semi-auto' })).toThrow('runModeSelection is immutable');
   });
 });
 

@@ -1,7 +1,9 @@
-import type { InternalEvidenceReceipt, IssueType, RunMode, RunModeSelection } from './types.js';
+import type { IssueType } from './types.js';
+import type { RunMode } from './config.js';
 
 export type WritebackAuditTarget = 'issue' | `mr:${string}!${number}`;
-export type WritebackAuditStage = 'metadata' | 'state-comment' | 'readback' | 'week-milestone-sync';
+/** E4：code-side 阶段（commit/push、merge→deploy、Jenkins）与 Issue 写回共用同一审计尾迹——恢复时定位首个未完成动作，失败不整链重放。 */
+export type WritebackAuditStage = 'code-commit' | 'code-merge' | 'code-jenkins' | 'metadata' | 'state-comment' | 'readback' | 'week-milestone-sync';
 export type WritebackAuditStatus = 'succeeded' | 'failed';
 
 export interface WritebackAuditEntry {
@@ -23,17 +25,11 @@ export interface RunState {
   docVersion: number;
   specDir: string;
   runMode: RunMode;
-  runModeSelection?: RunModeSelection;
   lastActions: string[];
   spawnedAgents: string[];
   lessonsCaptured: number;
   /** 串行写回阶段的本地审计尾迹，供 resume 重新对账后恢复。 */
   writebackAudit: WritebackAuditEntry[];
-  /**
-   * 本 Issue 的内部测试门禁证据。仅供引擎恢复和校验，绝不写入父 Issue 评论。
-   * 证据缺失时必须重跑相关环境，不得降级为自由文本结论。
-   */
-  evidence: InternalEvidenceReceipt[];
   /** 节点内子步骤进度（层 2）：node = 这批 done 所属节点；换节点时 reset。 */
   progress: { node: string; done: string[] };
   updatedAt: string;
@@ -55,25 +51,8 @@ export interface InitStateInput {
  */
 export function normalizeRunState(state: RunState): RunState {
   const writebackAudit = Array.isArray(state.writebackAudit) ? state.writebackAudit : [];
-  const evidence = Array.isArray(state.evidence) ? state.evidence : [];
-  if (writebackAudit === state.writebackAudit && evidence === state.evidence) return state;
-  return { ...state, writebackAudit, evidence };
-}
-
-/** The Issue-level selection takes precedence over the legacy config/state mode. */
-export function effectiveRunMode(state: RunState): RunMode {
-  return state.runModeSelection?.mode ?? state.runMode;
-}
-
-/** Persist the first Issue-level mode choice and reject any later re-selection. */
-export function selectRunMode(state: RunState, selection: RunModeSelection): RunState {
-  const normalized = normalizeRunState(state);
-  const existing = normalized.runModeSelection;
-  if (!existing) return { ...normalized, runModeSelection: { ...selection }, updatedAt: selection.selectedAt };
-  if (existing.mode === selection.mode && existing.selectedAt === selection.selectedAt && existing.selectedBy === selection.selectedBy) {
-    return normalized;
-  }
-  throw new Error('runModeSelection is immutable');
+  if (writebackAudit === state.writebackAudit) return state;
+  return { ...state, writebackAudit };
 }
 
 export function initState(input: InitStateInput): RunState {
@@ -91,26 +70,8 @@ export function initState(input: InitStateInput): RunState {
     spawnedAgents: [],
     lessonsCaptured: 0,
     writebackAudit: [],
-    evidence: [],
     progress: { node: '', done: [] },
     updatedAt: input.now,
-  };
-}
-
-/**
- * Stores a validated machine receipt in the run state. Re-recording the exact
- * same receipt is idempotent; a later receipt remains later in the ledger so
- * the existing latest-receipt parsers keep their deterministic semantics.
- */
-export function recordInternalEvidence(state: RunState, receipt: InternalEvidenceReceipt): RunState {
-  const normalized = normalizeRunState(state);
-  const existing = normalized.evidence.find((item) => item.kind === receipt.kind && item.receipt === receipt.receipt);
-  if (existing) return normalized;
-  return {
-    ...normalized,
-    evidence: [...normalized.evidence, { ...receipt }],
-    lastActions: clampLastActions(normalized.lastActions, `recorded internal ${receipt.kind} evidence`),
-    updatedAt: receipt.recordedAt,
   };
 }
 

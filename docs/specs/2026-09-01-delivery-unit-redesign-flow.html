@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>glab-flow DU 重设计 · 需求/Bug 全流程模拟</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'JetBrains Mono', monospace; background: #020617; min-height: 100vh; padding: 2rem; color: white; }
+    .container { max-width: 1240px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #22d3ee; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container { background: rgba(15, 23, 42, 0.5); border-radius: 1rem; border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto; }
+    svg { width: 100%; min-width: 1100px; display: block; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem; }
+    .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; }
+    .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; }
+    .card-dot.amber { background: #fbbf24; }
+    .card-dot.rose { background: #fb7185; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+    .toolbar { display: flex; gap: 0.5rem; margin-left: auto; flex-shrink: 0; align-items: center; }
+    .toolbar-toggle { background: transparent; border: none; color: #475569; cursor: pointer; font-size: 1.25rem; line-height: 1; padding: 0.25rem 0.5rem; border-radius: 0.375rem; transition: color 0.2s, background 0.2s; }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30, 41, 59, 0.5); }
+    .toolbar-actions { display: none; gap: 0.5rem; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button { background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit; font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+    .toolbar-actions button:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>glab-flow · 交付工作包（DU）全流程模拟</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">模拟 #88「会员导出」需求（R3 标准路线，动接口）＋ #92「导出乱码」Bug（T2 级实施调整）— feat/delivery-unit-redesign 引擎真实行为 · 386 tests green · 19 CLI 命令</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1240 1720">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
+          </marker>
+          <marker id="arrowcyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" />
+          </marker>
+          <marker id="arrowemerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#34d399" />
+          </marker>
+          <marker id="arrowrose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- ================= LANE BOUNDARIES ================= -->
+        <rect x="20" y="60" width="820" height="680" rx="12" fill="rgba(34, 211, 238, 0.04)" stroke="#22d3ee" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="36" y="80" fill="#22d3ee" font-size="11" font-weight="600">STORY #88 · 会员导出（标准路线 R3：api-contract）</text>
+
+        <rect x="20" y="760" width="820" height="360" rx="12" fill="rgba(52, 211, 153, 0.04)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="36" y="780" fill="#34d399" font-size="11" font-weight="600">BUG #92 · 导出乱码（T2 级：functional）</text>
+
+        <rect x="20" y="1140" width="820" height="330" rx="12" fill="rgba(251, 191, 36, 0.04)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="36" y="1160" fill="#fbbf24" font-size="11" font-weight="600">横切机制 · 任何阶段可触发</text>
+
+        <!-- ================= RIGHT RAIL: DU & ENGINE ================= -->
+        <rect x="870" y="60" width="350" height="1410" rx="12" fill="rgba(167, 139, 250, 0.04)" stroke="#a78bfa" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="886" y="80" fill="#a78bfa" font-size="11" font-weight="600">DU #88 · du.json 主档 + 引擎命令</text>
+
+        <!-- DU card -->
+        <rect x="890" y="100" width="310" height="150" rx="6" fill="#0f172a"/>
+        <rect x="890" y="100" width="310" height="150" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1045" y="122" fill="white" font-size="12" font-weight="600" text-anchor="middle">DeliveryUnit #88</text>
+        <text x="1045" y="140" fill="#94a3b8" font-size="8" text-anchor="middle">.glab-flow/88/du.json（Leader 落盘）</text>
+        <text x="905" y="160" fill="#94a3b8" font-size="8">cachedNode: 测试中</text>
+        <text x="905" y="174" fill="#94a3b8" font-size="8">gateSet: {api-contract → MR评审+双环境}</text>
+        <text x="905" y="188" fill="#94a3b8" font-size="8">evidence: [local✓ v3, test✓ v3]</text>
+        <text x="905" y="202" fill="#94a3b8" font-size="8">resources: [TMP-88-export-data, branch-f-88]</text>
+        <text x="905" y="216" fill="#94a3b8" font-size="8">metricEvents: [confirm×5, transition×4…]</text>
+        <text x="905" y="234" fill="#a78bfa" font-size="7">执行明细不进 Issue —— 评论只在流转时发</text>
+
+        <!-- Action tiers -->
+        <rect x="890" y="280" width="310" height="130" rx="6" fill="#0f172a"/>
+        <rect x="890" y="280" width="310" height="130" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="1045" y="302" fill="white" font-size="12" font-weight="600" text-anchor="middle">ActionPolicy 动作分层</text>
+        <text x="905" y="324" fill="#94a3b8" font-size="8">L1 gate=null　→ 自动执行（不打断）</text>
+        <text x="905" y="340" fill="#94a3b8" font-size="8">L2 gate≠null　→ 一次批量确认</text>
+        <text x="905" y="356" fill="#94a3b8" font-size="8">L3 hardGate　→ 恒人工（G3 红线）</text>
+        <text x="905" y="376" fill="#22d3ee" font-size="7">run_mode 退化为审计字段</text>
+        <text x="905" y="390" fill="#22d3ee" font-size="7">Jenkins 参数并入同一次 L2 批量对话</text>
+
+        <!-- Engine commands -->
+        <rect x="890" y="440" width="310" height="210" rx="6" fill="#0f172a"/>
+        <rect x="890" y="440" width="310" height="210" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="1045" y="462" fill="white" font-size="12" font-weight="600" text-anchor="middle">引擎命令（纯计算 · 零 I/O）</text>
+        <text x="905" y="484" fill="#34d399" font-size="8">$ cli transition  ← declaredScopes/Gateset/证据</text>
+        <text x="905" y="500" fill="#34d399" font-size="8">$ cli next　　　　← 最短路径视图</text>
+        <text x="905" y="516" fill="#34d399" font-size="8">$ cli change　　 ← T1-T4 定级+棘轮</text>
+        <text x="905" y="532" fill="#34d399" font-size="8">$ cli reconcile　 ← 对账 5 verdict</text>
+        <text x="905" y="548" fill="#34d399" font-size="8">$ cli resource　 ← 登记/校验/清理</text>
+        <text x="905" y="564" fill="#34d399" font-size="8">$ cli metrics　　← 交付指标</text>
+        <text x="905" y="580" fill="#34d399" font-size="8">$ cli du　　　　 ← init/record/绑门禁单/对账基准</text>
+        <text x="905" y="596" fill="#34d399" font-size="8">$ cli review-pack ← 评审 feeding 标准化材料</text>
+        <text x="905" y="614" fill="#94a3b8" font-size="7">写回 = Leader 预览确认后跑 glab CLI</text>
+        <text x="905" y="628" fill="#94a3b8" font-size="7">证据双源：DU 优先 · Issue 评论兜底</text>
+        <text x="905" y="642" fill="#94a3b8" font-size="7">（存量 Issue 无 DU 自动回落，不迁移）</text>
+        <text x="905" y="658" fill="#fbbf24" font-size="7">⚠ 铁律全保留：Issue 唯一真相 / 评论不可变</text>
+
+        <!-- GitLab projection -->
+        <rect x="890" y="680" width="310" height="120" rx="6" fill="#0f172a"/>
+        <rect x="890" y="680" width="310" height="120" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="1045" y="702" fill="white" font-size="12" font-weight="600" text-anchor="middle">GitLab Issue（唯一真相）</text>
+        <text x="905" y="724" fill="#94a3b8" font-size="8">labels = DU 状态投影（8 状态词汇表）</text>
+        <text x="905" y="740" fill="#94a3b8" font-size="8">每状态 1 条流转评论（状态头+内容体</text>
+        <text x="905" y="754" fill="#94a3b8" font-size="8">＋证据摘要）＝ 全程 ~8 条</text>
+        <text x="905" y="774" fill="#94a3b8" font-size="7">MR 评审结论 → 发在各 MR（代码域）</text>
+        <text x="905" y="788" fill="#94a3b8" font-size="7">变更单 open/closed → Issue 评论（G16 阻断）</text>
+
+        <!-- ================= STORY LANE ================= -->
+        <!-- Step 1 triage -->
+        <rect x="45" y="105" width="190" height="86" rx="6" fill="#0f172a"/>
+        <rect x="45" y="105" width="190" height="86" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="140" y="127" fill="white" font-size="11" font-weight="600" text-anchor="middle">① 分诊</text>
+        <text x="140" y="145" fill="#94a3b8" font-size="8" text-anchor="middle">intake 产建议（自动）</text>
+        <text x="140" y="160" fill="#fb7185" font-size="8" text-anchor="middle">👤 L2 确认①：type+Assignee</text>
+        <text x="140" y="176" fill="#94a3b8" font-size="7" text-anchor="middle">→ type::story + 草稿中 + 建 DU</text>
+
+        <!-- Step 2 draft -->
+        <rect x="45" y="230" width="190" height="86" rx="6" fill="#0f172a"/>
+        <rect x="45" y="230" width="190" height="86" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="140" y="252" fill="white" font-size="11" font-weight="600" text-anchor="middle">② 草稿中 → 待评审</text>
+        <text x="140" y="270" fill="#94a3b8" font-size="8" text-anchor="middle">六清楚草稿/OCR/路由取证 全自动</text>
+        <text x="140" y="286" fill="#22d3ee" font-size="8" text-anchor="middle">L1 gate=null → 自动执行</text>
+        <text x="140" y="301" fill="#94a3b8" font-size="7" text-anchor="middle">（草稿门槛属机械流转，不打断）</text>
+
+        <!-- Step 3 review -->
+        <rect x="45" y="355" width="190" height="96" rx="6" fill="#0f172a"/>
+        <rect x="45" y="355" width="190" height="96" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="140" y="377" fill="white" font-size="11" font-weight="600" text-anchor="middle">③ 待评审 → 已评审</text>
+        <text x="140" y="395" fill="#94a3b8" font-size="8" text-anchor="middle">review-preview + grill-me 拷问（自动）</text>
+        <text x="140" y="411" fill="#fb7185" font-size="8" text-anchor="middle">👤 L2 确认②：评审结论+周排期</text>
+        <text x="140" y="427" fill="#94a3b8" font-size="7" text-anchor="middle">G15 取证齐 → 二值放行/退回</text>
+        <text x="140" y="441" fill="#94a3b8" font-size="7" text-anchor="middle">周排期区块随本评论追加</text>
+
+        <!-- Step 4 gate binding -->
+        <rect x="45" y="490" width="190" height="110" rx="6" fill="#0f172a"/>
+        <rect x="45" y="490" width="190" height="110" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="140" y="512" fill="white" font-size="11" font-weight="600" text-anchor="middle">④ 已评审 → 开发中 ★绑定点</text>
+        <text x="140" y="530" fill="#94a3b8" font-size="8" text-anchor="middle">design.md 声明维度: api-contract</text>
+        <text x="140" y="546" fill="#94a3b8" font-size="8" text-anchor="middle">cli du bind-gateset 推导+冻结</text>
+        <text x="140" y="562" fill="#fb7185" font-size="8" text-anchor="middle">👤 L2 确认③：方案放行+日期+门禁单</text>
+        <text x="140" y="578" fill="#94a3b8" font-size="7" text-anchor="middle">同一次批量确认后冻结进 DU（已冻结拒重绑）</text>
+        <text x="140" y="592" fill="#fbbf24" font-size="7" text-anchor="middle">MR评审+双环境+全量回归（棘轮只升不降）</text>
+
+        <!-- Step 5 dev -->
+        <rect x="45" y="640" width="190" height="96" rx="6" fill="#0f172a"/>
+        <rect x="45" y="640" width="190" height="96" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="140" y="661" fill="white" font-size="11" font-weight="600" text-anchor="middle">⑤ 开发中（全 L1 自动）</text>
+        <text x="140" y="679" fill="#94a3b8" font-size="8" text-anchor="middle">编码/分支/Apifox 资产/local 闭环</text>
+        <text x="140" y="695" fill="#94a3b8" font-size="8" text-anchor="middle">资源创建即登记 · 证据 cli du record 记 DU</text>
+        <text x="140" y="711" fill="#22d3ee" font-size="7" text-anchor="middle">自测 bug 修复=实施调整（节点内迭代重跑）</text>
+        <text x="140" y="727" fill="#22d3ee" font-size="7" text-anchor="middle">评审 feeding：cli review-pack 标准化材料</text>
+
+        <!-- Step 6+7 test & release (right column of story lane) -->
+        <rect x="300" y="105" width="240" height="300" rx="6" fill="rgba(15, 23, 42, 0.3)" stroke="#334155" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="420" y="127" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle">⑥ 测试中（test 环境全 L1）</text>
+        <text x="315" y="150" fill="#94a3b8" font-size="8">• test-config 注入环境/账号（自动）</text>
+        <text x="315" y="166" fill="#94a3b8" font-size="8">• test 执行 + 证据 cli du record（版本一致）</text>
+        <text x="315" y="182" fill="#94a3b8" font-size="8">• 建 MR feature→master（标题=#88）</text>
+        <text x="315" y="198" fill="#94a3b8" font-size="8">• mr-review + review-pack 材料注入</text>
+        <text x="315" y="214" fill="#94a3b8" font-size="8">　（G14：GateSet.mrReview=true 才必填）</text>
+        <text x="315" y="230" fill="#94a3b8" font-size="8">• release-check 产发布计划（提前）</text>
+        <text x="315" y="252" fill="#34d399" font-size="8">• #92 发现 = 实施调整：测试问题评论挂父需求</text>
+        <text x="315" y="268" fill="#34d399" font-size="8">　→ 阻塞修复 → 复测 → G11 收口，不退回</text>
+        <text x="420" y="298" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">👤 L2 确认④：提测放行</text>
+        <text x="420" y="314" fill="#94a3b8" font-size="8" text-anchor="middle">（合并+构建参数+证据摘要 一次问）</text>
+        <text x="420" y="344" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">👤 L2 确认⑤：测试验收放行</text>
+        <text x="420" y="360" fill="#94a3b8" font-size="8" text-anchor="middle">→ 待发布</text>
+        <text x="315" y="388" fill="#94a3b8" font-size="7">跳状态对照：frontend-copy 需求（改文案）</text>
+        <text x="315" y="400" fill="#94a3b8" font-size="7">skipStates=[测试中] → 开发中直推待发布</text>
+        <text x="315" y="412" fill="#94a3b8" font-size="7">校验 fail-closed · cli next 同口径显示路径</text>
+        <text x="420" y="374" fill="#a78bfa" font-size="7" text-anchor="middle">每条流转评论自动带「## 证据摘要」块（DU 事实团队可见）</text>
+
+        <!-- Step 8-9 release -->
+        <rect x="300" y="440" width="240" height="280" rx="6" fill="rgba(136, 19, 55, 0.08)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="420" y="462" fill="#fb7185" font-size="10" font-weight="600" text-anchor="middle">⑦ 发布 → ⑧ 验收（不可逆区）</text>
+        <text x="315" y="486" fill="#94a3b8" font-size="8">• 待发布：Leader 按发布计划做上线前确认</text>
+        <text x="315" y="502" fill="#94a3b8" font-size="8">• 你手动部署（平台点击）或导入 CI 结果</text>
+        <text x="420" y="530" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">👤 L3 确认⑥：生产部署</text>
+        <text x="420" y="546" fill="#94a3b8" font-size="8" text-anchor="middle">hard_gate · humanConfirmed · 恒人工</text>
+        <text x="315" y="574" fill="#94a3b8" font-size="8">• 产品生产验收（流程外事实导入）</text>
+        <text x="420" y="602" fill="#fb7185" font-size="9" font-weight="600" text-anchor="middle">👤 L3 确认⑦：验收+关闭</text>
+        <text x="420" y="618" fill="#94a3b8" font-size="8" text-anchor="middle">终态原子：标签+Assignee+评论+close</text>
+        <text x="315" y="646" fill="#94a3b8" font-size="8">• 终态钩子（自动）：resource cleanup 清单</text>
+        <text x="315" y="662" fill="#94a3b8" font-size="8">　TMP-88-export-data → 删除/升级共享</text>
+        <text x="315" y="678" fill="#94a3b8" font-size="8">　branch-f-88 / worktree → 保留或删</text>
+        <text x="315" y="694" fill="#94a3b8" font-size="8">• cli metrics：确认 7 次 · 周期 9 天 · 重测 1</text>
+
+        <!-- ================= BUG LANE ================= -->
+        <rect x="45" y="800" width="190" height="90" rx="6" fill="#0f172a"/>
+        <rect x="45" y="800" width="190" height="90" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="140" y="822" fill="white" font-size="11" font-weight="600" text-anchor="middle">① 确认缺陷 #92</text>
+        <text x="140" y="840" fill="#94a3b8" font-size="8" text-anchor="middle">复现+根因 全自动（L1）</text>
+        <text x="140" y="856" fill="#fb7185" font-size="8" text-anchor="middle">👤 确认①：缺陷+Assignee</text>
+        <text x="140" y="872" fill="#94a3b8" font-size="7" text-anchor="middle">根因=编码缺陷 → GateSet 按 functional</text>
+
+        <rect x="45" y="930" width="190" height="80" rx="6" fill="#0f172a"/>
+        <rect x="45" y="930" width="190" height="80" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="140" y="951" fill="white" font-size="11" font-weight="600" text-anchor="middle">② 开发中 → 测试中</text>
+        <text x="140" y="969" fill="#94a3b8" font-size="8" text-anchor="middle">修复/local 闭环/资源登记 全 L1</text>
+        <text x="140" y="985" fill="#fb7185" font-size="8" text-anchor="middle">👤 确认②：提测（参数并入一次问）</text>
+        <text x="140" y="1001" fill="#94a3b8" font-size="7" text-anchor="middle">T2 级 → 受影响用例复测，不全量回归</text>
+
+        <rect x="45" y="1050" width="190" height="60" rx="6" fill="#0f172a"/>
+        <rect x="45" y="1050" width="190" height="60" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="140" y="1072" fill="white" font-size="11" font-weight="600" text-anchor="middle">③ 待发布 → 生产验证</text>
+        <text x="140" y="1090" fill="#fb7185" font-size="8" text-anchor="middle">👤 L3 确认③ 生产部署 · 👤④ 验证+关闭</text>
+        <text x="140" y="1104" fill="#94a3b8" font-size="7" text-anchor="middle">终态责任=测试 · 全程 5 次确认</text>
+
+        <!-- bug lane annotations -->
+        <rect x="300" y="800" width="240" height="180" rx="6" fill="rgba(15, 23, 42, 0.3)" stroke="#334155" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="420" y="822" fill="#34d399" font-size="10" font-weight="600" text-anchor="middle">Bug 与 Story 的差异</text>
+        <text x="315" y="846" fill="#94a3b8" font-size="8">• 6 状态线，无需求评审/产品验收</text>
+        <text x="315" y="862" fill="#94a3b8" font-size="8">• 门禁深度由根因维度推导：</text>
+        <text x="315" y="878" fill="#94a3b8" font-size="8">　文案级 bug → local 受影响用例即收</text>
+        <text x="315" y="894" fill="#94a3b8" font-size="8">　数据迁移 bug → T4 双环境+回滚预案</text>
+        <text x="315" y="916" fill="#94a3b8" font-size="8">• 同一套 DU/GateSet/分层/对账机制</text>
+        <text x="315" y="932" fill="#94a3b8" font-size="8">• #92 在 #88 测试中发现时：</text>
+        <text x="315" y="948" fill="#94a3b8" font-size="8">　挂父需求评论，不退回父流程</text>
+        <text x="315" y="964" fill="#94a3b8" font-size="8">　仅整体返工才回开发中</text>
+
+        <!-- ================= CROSS-CUTTING LANE ================= -->
+        <rect x="45" y="1180" width="240" height="256" rx="6" fill="#0f172a"/>
+        <rect x="45" y="1180" width="240" height="256" rx="6" fill="rgba(136, 19, 55, 0.35)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="165" y="1204" fill="white" font-size="11" font-weight="600" text-anchor="middle">「三类改」决策树</text>
+        <text x="60" y="1224" fill="#34d399" font-size="8" font-weight="600">改完后 proposal/design/test-plan</text>
+        <text x="60" y="1238" fill="#34d399" font-size="8" font-weight="600">有没有话变假？</text>
+        <text x="60" y="1258" fill="#94a3b8" font-size="8">没有 → 实施调整，不开单（左图绿路径）</text>
+        <text x="60" y="1278" fill="#94a3b8" font-size="8">有 → cli change 按 source 分流：</text>
+        <text x="60" y="1296" fill="#94a3b8" font-size="8">　requirement → 回退待评审重评审</text>
+        <text x="60" y="1312" fill="#94a3b8" font-size="8">　technical-design → 回退已评审</text>
+        <text x="60" y="1328" fill="#94a3b8" font-size="8">　implementation/test → 回退开发中</text>
+        <text x="60" y="1348" fill="#94a3b8" font-size="8">定级：T1 文案/T2 行为/T3 契约/T4 数据权限</text>
+        <text x="60" y="1364" fill="#94a3b8" font-size="8">T3+ 才要求 plan-version 递增</text>
+        <text x="60" y="1384" fill="#fbbf24" font-size="7">棘轮只升不降 · tier 从 open 单重推导禁自报</text>
+        <text x="60" y="1400" fill="#fbbf24" font-size="7">变更单渲染自带「纯修复勿开单」指引</text>
+        <text x="60" y="1420" fill="#94a3b8" font-size="7">open 单存在 → G16 阻断正向流转</text>
+
+        <rect x="330" y="1180" width="240" height="256" rx="6" fill="#0f172a"/>
+        <rect x="330" y="1180" width="240" height="256" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="450" y="1204" fill="white" font-size="11" font-weight="600" text-anchor="middle">外部事实对账 cli reconcile</text>
+        <text x="345" y="1228" fill="#94a3b8" font-size="8">人工改标签 / 手动部署 / CI 结果：</text>
+        <text x="345" y="1250" fill="#34d399" font-size="8">in-sync　　　→ 继续</text>
+        <text x="345" y="1270" fill="#34d399" font-size="8">label-ahead → 人工推进了标签</text>
+        <text x="345" y="1286" fill="#94a3b8" font-size="8">　　　　　　　 L2 二选一：对齐 DU / 回改标签</text>
+        <text x="345" y="1306" fill="#34d399" font-size="8">du-ahead　　→ 补发流转评论+写回</text>
+        <text x="345" y="1322" fill="#94a3b8" font-size="8">　　　　　　　 （上次写回中断，查 writebackAudit）</text>
+        <text x="345" y="1342" fill="#34d399" font-size="8">external-close → 提前关闭处理</text>
+        <text x="345" y="1358" fill="#94a3b8" font-size="8">dirty-labels / unknown-node → 修标签</text>
+        <text x="345" y="1382" fill="#fbbf24" font-size="7">不再是「脏状态异常」而是投影漂移，</text>
+        <text x="345" y="1396" fill="#fbbf24" font-size="7">对完继续走，不推倒重来</text>
+        <text x="345" y="1416" fill="#94a3b8" font-size="7">存量 Issue：cachedNode='' → in-sync 接入</text>
+
+        <rect x="615" y="1180" width="210" height="256" rx="6" fill="#0f172a"/>
+        <rect x="615" y="1180" width="210" height="256" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="720" y="1204" fill="white" font-size="11" font-weight="600" text-anchor="middle">维度 → 门禁推导矩阵</text>
+        <text x="720" y="1230" fill="#94a3b8" font-size="8" text-anchor="middle">技术方案声明（declaredScopes）</text>
+        <text x="628" y="1254" fill="#94a3b8" font-size="8">frontend-copy → 跳测试中·local</text>
+        <text x="628" y="1270" fill="#94a3b8" font-size="8">　　　　　　　　　·免MR·受影响用例</text>
+        <text x="628" y="1290" fill="#94a3b8" font-size="8">functional　　→ 双环境·免MR</text>
+        <text x="628" y="1310" fill="#94a3b8" font-size="8">api-contract　→ 双环境·MR评审</text>
+        <text x="628" y="1330" fill="#94a3b8" font-size="8">data-model/  → 双环境·MR·全量</text>
+        <text x="628" y="1346" fill="#94a3b8" font-size="8">permission　 　·回滚预案</text>
+        <text x="628" y="1370" fill="#a78bfa" font-size="7">最高档维度命中规则（确定性）</text>
+        <text x="628" y="1386" fill="#a78bfa" font-size="7">#88 声明 api-contract → R3 标准路线</text>
+        <text x="628" y="1406" fill="#94a3b8" font-size="7">RANK+规则集有契约测试锁定</text>
+
+        <!-- ================= ARROWS (story lane vertical) ================= -->
+        <line x1="140" y1="191" x2="140" y2="228" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrowcyan)"/>
+        <text x="150" y="214" fill="#22d3ee" font-size="7">L1 自动</text>
+        <line x1="140" y1="316" x2="140" y2="353" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="140" y1="451" x2="140" y2="488" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="140" y1="600" x2="140" y2="638" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+
+        <!-- story lane horizontal into test block -->
+        <path d="M 235 680 L 268 680 Q 288 680 288 660 L 288 260 Q 288 240 308 240 L 298 240" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="252" y="668" fill="#fb7185" font-size="7">👤④提测</text>
+
+        <!-- test block to release block -->
+        <line x1="420" y1="405" x2="420" y2="438" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrowrose)"/>
+        <text x="430" y="426" fill="#fb7185" font-size="7">👤⑤验收</text>
+
+        <!-- dev loop back (change during dev) -->
+        <path d="M 235 545 Q 292 545 292 1215 Q 292 1235 272 1235 L 289 1235" fill="none" stroke="#fb7185" stroke-width="1" stroke-dasharray="5,5" marker-end="url(#arrowrose)"/>
+        <text x="248" y="537" fill="#fb7185" font-size="7">产物层偏差 → change</text>
+
+        <!-- external facts into reconcile -->
+        <rect x="615" y="1010" width="210" height="60" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="720" y="1032" fill="white" font-size="10" font-weight="600" text-anchor="middle">外部事实</text>
+        <text x="720" y="1050" fill="#94a3b8" font-size="8" text-anchor="middle">手动部署 / 人工改标签 / CI 结果</text>
+        <path d="M 720 1070 L 720 1178" fill="none" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="5,5" marker-end="url(#arrowhead)"/>
+        <text x="730" y="1130" fill="#fbbf24" font-size="7">reconcile 导入</text>
+
+        <!-- bug lane arrows -->
+        <line x1="140" y1="890" x2="140" y2="928" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="140" y1="1010" x2="140" y2="1048" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrowrose)"/>
+
+        <!-- bug #92 found during #88 test -->
+        <path d="M 300 260 Q 250 260 250 810 Q 250 800 243 810" fill="none" stroke="#34d399" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrowemerald)"/>
+        <text x="252" y="700" fill="#34d399" font-size="7" transform="rotate(-90 252 700)">#92 发现于 #88 测试中 · 挂父需求评论</text>
+
+        <!-- ================= LEGEND (below all boundaries) ================= -->
+        <text x="45" y="1500" fill="white" font-size="10" font-weight="600">Legend</text>
+        <rect x="45" y="1512" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
+        <text x="67" y="1520" fill="#94a3b8" font-size="8">L1 自动执行（可逆/机械流转）</text>
+        <text x="45" y="1544" fill="#fb7185" font-size="9">👤</text>
+        <text x="67" y="1544" fill="#94a3b8" font-size="8">人工确认点（L2 批量业务判断 / L3 硬门）</text>
+        <rect x="45" y="1558" width="16" height="10" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
+        <text x="67" y="1566" fill="#94a3b8" font-size="8">不可逆区（hard_gate：生产部署/终态关闭）</text>
+        <line x1="45" y1="1584" x2="61" y2="1584" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="67" y="1587" fill="#94a3b8" font-size="8">变化闭环 / 横切触发路径</text>
+        <line x1="45" y1="1602" x2="61" y2="1602" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="67" y="1605" fill="#94a3b8" font-size="8">外部事实导入</text>
+        <rect x="45" y="1616" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
+        <text x="67" y="1624" fill="#94a3b8" font-size="8">DU / 引擎命令 / 推导矩阵</text>
+        <text x="45" y="1648" fill="#475569" font-size="8">Story 标准路线 7 次确认（5×L2 + 2×L3）· 简单路线（frontend-copy）4 次 · Bug 5 次</text>
+        <text x="45" y="1664" fill="#475569" font-size="8">引擎纯计算零 I/O · GitLab Issue 唯一真相 · 评论不可变 · preview-confirm · 不建 Jira</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot cyan"></div>
+          <h3>这次模拟的 #88 需求（R3 标准路线）</h3>
+        </div>
+        <ul>
+          <li>• 分诊→草稿→评审→方案(声明 api-contract)→开发→测试→发布→验收</li>
+          <li>• 👤 确认 7 次：分诊/评审结论/方案放行(含门禁单)/提测/测试验收/生产部署(L3)/验收关闭(L3)</li>
+          <li>• 中间执行全 L1 自动；Issue 仅 8 条流转评论（每条自动带证据摘要）</li>
+          <li>• 测试中发现 #92 → 实施调整路径，不退回父流程</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot emerald"></div>
+          <h3>#92 Bug（T2 级·实施调整）</h3>
+        </div>
+        <ul>
+          <li>• 6 状态线；门禁深度由根因维度推导（functional→受影响用例复测）</li>
+          <li>• 👤 确认 5 次；终态责任 = 测试</li>
+          <li>• 编码缺陷修复=实施调整：测试问题评论+复测，不开变更单</li>
+          <li>• 与 Story 共用 DU/GateSet/动作分层/对账机制</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot violet"></div>
+          <h3>新引擎能力（P1-P6 + 优化轮）</h3>
+        </div>
+        <ul>
+          <li>• next/reconcile/change/resource/metrics 五命令</li>
+          <li>• du 写入面（init/record/bind-gateset）+ review-pack 评审材料</li>
+          <li>• 证据摘要块自动随流转评论上传（团队共享本地结论）</li>
+          <li>• 35 commits · 386 tests · 19 CLI 命令 · 终审 READY_TO_MERGE</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">
+      glab-flow feat/delivery-unit-redesign · spec 2026-09-01-delivery-unit-redesign.md · 图中行为均与引擎实现对齐（grill-me 评审拷问 / 三类改决策树 / du·review-pack 命令 / 证据摘要块 已反映）
+    </p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPNG(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const link = document.createElement('a');
+        link.download = 'glab-flow-du-flow.png';
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPDF(btn) {
+      const orig = btn.textContent;
+      btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+        pdf.save('glab-flow-du-flow.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) {
+        btn.textContent = '✗ Failed';
+      }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
+</body>
+</html>

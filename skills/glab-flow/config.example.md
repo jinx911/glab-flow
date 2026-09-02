@@ -21,7 +21,7 @@ branch_naming:
   format: "{type}/{iid}"
   type_map: { story: feat, bug: fix }
 
-run_mode: "semi-auto"                     # 仅兼容默认；开发入口必须用 run-mode-select 锁定 semi-auto | full-auto
+run_mode: "semi-auto"                     # semi-auto（默认）| full-auto
 
 # ---- 可选（按需开启）----
 

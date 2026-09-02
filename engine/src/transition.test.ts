@@ -2,12 +2,15 @@ import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
 import { runTransition } from './transition.js';
 import { renderStatusChange } from './render.js';
-import type { RequirementsReviewEvidence, TransitionInput } from './types.js';
+import { deriveGateSet, freezeGateSet } from './gate-set.js';
+import { initDu, recordEvidence } from './du.js';
+import type { DuState, RequirementsReviewEvidence, TransitionInput } from './types.js';
 
 const model = loadModel();
 const TEST_PLAN = `<!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api,e2e
+case: TP-U01 | local,test | unit
 asset: TP-001 | scenario
 -->`;
 const LOCAL_RUN = `<!-- glab-flow:test-run:v1
@@ -16,8 +19,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/local
-cases: TP-001=passed
-evidence: api=report:101,e2e=note:https://git.example/local
+cases: TP-001=passed,TP-U01=passed
+evidence: api=report:101,e2e=note:https://git.example/local,unit=vitest-26-passed
 -->`;
 const TEST_RUN = `<!-- glab-flow:test-run:v1
 environment: test
@@ -25,8 +28,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/test
-cases: TP-001=passed
-evidence: api=report:102,e2e=note:https://git.example/test
+cases: TP-001=passed,TP-U01=passed
+evidence: api=report:102,e2e=note:https://git.example/test,unit=vitest-26-passed
 -->`;
 const LOCAL_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
 environment: local
@@ -61,13 +64,6 @@ const TEST_DONE_FIELDS = {
   回归范围或证据: 'r',
   阻塞发布问题均已验证通过: '是',
   feature分支MR评审结论: '通过，无 HIGH 残留',
-  业务覆盖范围: '核心离职结算与权限流程',
-  缺陷处理结果: '阻塞问题已关闭',
-  遗留风险: '无阻塞遗留风险',
-  上线步骤: '按发布计划执行',
-  配置清单: '配置已核对',
-  回滚方案: '按发布计划回滚',
-  发布建议: '建议发布',
 };
 
 const DEVELOPMENT_START_FIELDS = {
@@ -76,24 +72,6 @@ const DEVELOPMENT_START_FIELDS = {
   研发Assignee: '@dev',
   计划提测时间: '2026-08-08',
   计划上线时间: '2026-08-09',
-  技术方案版本: 'v1',
-  方案概述: '按已评审方案实现',
-  影响模块: '服务与前端',
-  数据模型变更: '新增审计字段',
-  API契约: '兼容现有接口',
-  前端页面与路由: '现有页面扩展',
-  权限与安全: '复用现有权限',
-  迁移与配置: '迁移已纳入发布',
-  测试计划摘要: '覆盖本地与测试环境',
-  风险与对策: '灰度验证',
-  回滚方案: '回滚版本与迁移',
-};
-const PRODUCTION_RELEASE_FIELDS = {
-  部署顺序: '先服务后前端',
-  数据迁移: '无',
-  配置清单: '生产配置已核对',
-  上线后验证: '主流程与监控告警验证',
-  回滚方案: '回滚应用版本与配置',
 };
 
 const REVIEW_FIELDS = {
@@ -120,13 +98,8 @@ const TEST_SUBMISSION_FIELDS = {
   代码评审结论: '通过',
   提测日期: '2026-08-07',
   研发Assignee: '@dev',
-  涉及项目与提测分支: 'oa-platform:test；oa-frontend:test',
-  可测试版本: 'release-candidate-1',
-  本次改动: '完成已评审功能',
-  测试范围: '核心业务流程',
-  环境准备与配置: '按配置清单完成',
-  测试重点: '边界与权限',
-  已知限制: '无阻塞限制',
+  可测试版本或环境: 'test-v1',
+  测试说明: '说明',
 };
 
 
@@ -136,6 +109,8 @@ describe('transition — dirty detection', () => {
     expect(r.dirty).toBe(true);
     expect(r.validate.ok).toBe(false);
     expect(r.preview).toContain('脏状态');
+    expect(r.actionTier).toBeUndefined();
+    expect(r.confirmBatchTitle).toBeUndefined();
   });
   it('flags ≥2 status labels', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中', 'story-status::待发布'] }));
@@ -183,7 +158,7 @@ describe('transition — assignee resolution', () => {
 describe('transition — G11 normalization flows through', () => {
   const f = (val: string) => runTransition(model, baseInput({
     labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-    fields: { ...TEST_DONE_FIELDS, 阻塞发布问题均已验证通过: val },
+    fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: val, feature分支MR评审结论: '通过，无 HIGH 残留' },
     datesConfirmed: true,
   }));
   it('accepts 已验证', () => expect(f('已验证').validate.ok).toBe(true));
@@ -199,10 +174,10 @@ describe('transition — missing fields carry hints', () => {
     expect(fields).toContain('阻塞发布问题均已验证通过');
     expect(r.missing.find((m) => m.field === '阻塞发布问题均已验证通过')?.hint).toMatch(/是 \/ 已验证/);
   });
-  it('requires involved projects and branches in the submission handoff', () => {
+  it('hints 上线清单 on 测试说明 (开发中→测试中)', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true }));
     expect(r.next).toBe('测试中');
-    expect(r.missing.find((m) => m.field === '涉及项目与提测分支')?.hint).toBeDefined();
+    expect(r.missing.find((m) => m.field === '测试说明')?.hint).toMatch(/上线步骤与配置清单/);
   });
   it('requires feature MR review before 待发布 (blocks when missing)', () => {
     const fieldsWithoutMR = { ...TEST_DONE_FIELDS };
@@ -257,16 +232,16 @@ describe('transition — plan + preview + shouldConfirm', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true, runMode: 'semi-auto' }));
     expect(r.shouldConfirm).toBe(true);
   });
-  it('full-auto skips confirm when ok and not hardGate', () => {
+  it('full-auto still confirms gated transition (L2 业务判断与 run 模式无关)', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: TEST_DONE_FIELDS, datesConfirmed: true, runMode: 'full-auto' }));
     expect(r.validate.ok).toBe(true);
-    expect(r.modeSelectionRequired).toBe(false);
-    expect(r.shouldConfirm).toBe(false);
+    expect(r.actionTier).toBe('L2');
+    expect(r.shouldConfirm).toBe(true);
   });
   it('full-auto still confirms hardGate (待发布→生产验收中)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
-      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', ...PRODUCTION_RELEASE_FIELDS },
+      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
       datesConfirmed: true, humanConfirmed: true, runMode: 'full-auto',
     }));
     expect(r.validate.ok).toBe(true);
@@ -363,51 +338,9 @@ describe('transition — Story Week Plan gates', () => {
   });
 
   it('accepts a valid paused latest Week Plan for development entry', () => {
-    const r = runTransition(model, developmentInput({
-      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
-      runModeSelection: { mode: 'semi-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' },
-    }));
-    expect(r.validate.ok).toBe(true);
-    expect(r.plan).toBeDefined();
-  });
-
-  it('requires a persisted mode selection before an otherwise valid development entry can write', () => {
     const r = runTransition(model, developmentInput({ notes: [{ body: PAUSED_WEEK_PLAN_NOTE }] }));
     expect(r.validate.ok).toBe(true);
-    expect(r.modeSelectionRequired).toBe(true);
-    expect(r.shouldConfirm).toBe(true);
-    expect(r.plan).toBeUndefined();
-    expect(r.payload).toBeDefined();
-    expect(r.comment).toBeDefined();
-    expect(r.missing).toContainEqual({
-      field: 'runModeSelection',
-      hint: '在进入开发中前选择 semi-auto 或 full-auto，并用 run-mode-select 写入 Issue state',
-    });
-    expect(r.preview).toContain('开发入口尚未持久化选择');
-  });
-
-  it('uses a persisted full-auto selection over a bare runMode at development entry', () => {
-    const r = runTransition(model, developmentInput({
-      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
-      runMode: 'semi-auto',
-      runModeSelection: { mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' },
-    }));
-    expect(r.validate.ok).toBe(true);
-    expect(r.modeSelectionRequired).toBe(false);
-    expect(r.shouldConfirm).toBe(false);
     expect(r.plan).toBeDefined();
-    expect(r.preview).toContain('已持久化选择：@owner 于 2026-08-17T09:00:00Z');
-  });
-
-  it('does not let a bare full-auto runMode bypass the development-entry selection', () => {
-    const r = runTransition(model, developmentInput({
-      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
-      runMode: 'full-auto',
-    }));
-    expect(r.validate.ok).toBe(true);
-    expect(r.modeSelectionRequired).toBe(true);
-    expect(r.shouldConfirm).toBe(true);
-    expect(r.plan).toBeUndefined();
   });
 
   it('keeps Bug transitions compatible without a Week Plan', () => {
@@ -462,7 +395,7 @@ describe('transition — per-transition side-effect playbook', () => {
   it('发布 = 执行上线 deploy + issue writeback（生产 deploy 无条件，手动也推进 Issue）', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
-      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', ...PRODUCTION_RELEASE_FIELDS },
+      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
       datesConfirmed: true, humanConfirmed: true,
     }));
     expect(r.next).toBe('生产验收中');
@@ -508,11 +441,7 @@ describe('transition — node progress checklist (layer 2 visibility)', () => {
 
 describe('transition — evidence smart prefill', () => {
   const NOTE = '## 状态变更\n- 测试完成日期：2026-08-05\n- 测试结论：通过\n- 回归范围或证据：回归通过\n';
-  const rest = {
-    测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过',
-    业务覆盖范围: '核心业务流程', 缺陷处理结果: '阻塞问题已关闭', 遗留风险: '无阻塞遗留风险',
-    上线步骤: '按发布计划执行', 配置清单: '配置已核对', 回滚方案: '按发布计划回滚', 发布建议: '建议发布',
-  };
+  const rest = { 测试Assignee: '@qa', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' };
 
   it('prefills required fields from note "- 字段：值" lines', () => {
     const r = runTransition(model, baseInput({
@@ -577,5 +506,159 @@ describe('transition — prefill from render-normalized comments (semantic slot 
       gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
     }));
     expect(r.payload?.fields.评审日期).toBe('2026-08-09');
+  });
+});
+
+describe('GateSet skip states (P3)', () => {
+  const DU_NOW = '2026-09-01T00:00:00Z';
+  const frontendCopyDu = (): DuState => {
+    const base = initDu({ iid: 42, type: 'story', now: DU_NOW });
+    // local TestRun + AssetAudit 证据（frontend-copy environments=[local]，validateTestRunTransition 固定查 local）
+    const withAudit = recordEvidence(base, { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' }, DU_NOW);
+    const withRun = recordEvidence(withAudit, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' }, DU_NOW);
+    return { ...withRun, gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
+  };
+
+  it('frontend-copy DU advances 开发中 straight to 待发布 while validating original transition fields', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      notes: [], du: frontendCopyDu(),
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.next).toBe('待发布');
+    // 校验/必填按原转换（开发中→测试中），payload 不撒谎
+    expect(r.payload?.to).toBe('测试中');
+    expect(r.transition?.from).toBe('开发中');
+    expect(r.transition?.to).toBe('测试中');
+    // 标签写回与评论头用 effectiveTarget（跳过 测试中）
+    const addLabel = r.plan?.ops.find((o) => o.kind === 'add_label');
+    expect(addLabel).toMatchObject({ value: 'story-status::待发布' });
+    expect(r.comment).toContain('`开发中` → `待发布`');
+    expect(r.comment).not.toContain('`开发中` → `测试中`');
+    // playbook 沿用原转换（提测动作照做）
+    expect(r.playbook.map((s) => s.action)).toEqual(['commit_push_feature', 'issue_writeback']);
+  });
+
+  it('skips nothing when GateSet has no skipStates (functional)', () => {
+    const du: DuState = { ...frontendCopyDu(), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['functional']), DU_NOW) };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.next).toBe('测试中');
+    expect(r.payload?.to).toBe('测试中');
+    expect(r.plan?.ops).toContainEqual(expect.objectContaining({ kind: 'add_label', value: 'story-status::测试中' }));
+  });
+
+  it('skip projection still fails closed on missing original-transition fields', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: {}, datesConfirmed: true,
+      notes: [], du: frontendCopyDu(),
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((m) => m.field)).toContain('代码评审结论');
+    expect(r.plan).toBeUndefined();
+    // 校验未过时不落计划；next 仍展示投影目标（写回以 plan 为准，未过则不写）
+    expect(r.next).toBe('待发布');
+  });
+
+  it('skip projection still fails closed without local test evidence', () => {
+    const du: DuState = { ...initDu({ iid: 42, type: 'story', now: DU_NOW }), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.validate.missing).toContain('localAssetAudit');
+    expect(r.plan).toBeUndefined();
+    expect(r.next).toBe('待发布');
+  });
+
+  it('missing hints share the guard exemption — no ghost gap for waived MR review (I3)', () => {
+    // functional GateSet（mrReview=false）：测试中→待发布 缺全部字段时，
+    // 缺口提示也不得出现 feature分支MR评审结论（与 guard 豁免口径一致）
+    const du: DuState = { ...initDu({ iid: 42, type: 'story', now: DU_NOW }), gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['functional']), DU_NOW) };
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      fields: {}, datesConfirmed: true,
+      notes: [], du,
+    }));
+    expect(r.validate.ok).toBe(false);
+    expect(r.missing.map((m) => m.field)).not.toContain('feature分支MR评审结论');
+    expect(r.missing.map((m) => m.field)).toContain('阻塞发布问题均已验证通过');
+  });
+
+  it('no GateSet bound → no projection at all (存量行为不变)', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
+      fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
+      notes: [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }],
+    }));
+    expect(r.next).toBe('测试中');
+    expect(r.validate.ok).toBe(true);
+  });
+});
+
+describe('GateSet proposal on 已评审→开发中 (P3)', () => {
+  it('declaredScopes on 已评审→开发中 proposes GateSet', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
+      declaredScopes: ['frontend-copy'],
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.proposedGateSet?.skipStates).toContain('测试中');
+    expect(r.proposedGateSet?.mrReview).toBe(false);
+    expect(r.proposedGateSet?.environments).toEqual(['local']);
+    expect(r.proposedGateSet?.frozenAt).toBeUndefined();
+  });
+  it('does not propose on other transitions even with declaredScopes', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
+      fields: REVIEW_FIELDS, gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
+      weekPlan: VALID_WEEK_PLAN, reviewEvidence: VALID_REVIEW_EVIDENCE,
+      declaredScopes: ['frontend-copy'],
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.proposedGateSet).toBeUndefined();
+  });
+  it('does not propose when declaredScopes omitted', () => {
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
+      fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
+      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
+    }));
+    expect(r.validate.ok).toBe(true);
+    expect(r.proposedGateSet).toBeUndefined();
+  });
+});
+
+describe('action tier (P1)', () => {
+  it('marks gateless bug transition L1 with shouldConfirm=false when validation passes', () => {
+    const out = runTransition(loadModel(), {
+      type: 'bug', iid: 1, labels: ['type::bug', 'status::已确认缺陷'],
+      body: '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n', state: 'opened',
+      notes: [], fields: {}, datesConfirmed: true,
+    });
+    expect(out.validate.ok).toBe(true);
+    expect(out.actionTier).toBe('L1');
+    expect(out.shouldConfirm).toBe(false);
+  });
+  it('marks hard gate L3 and requires confirmation even when validation passes', () => {
+    const out = runTransition(loadModel(), {
+      type: 'bug', iid: 1, labels: ['type::bug', 'status::待发布'],
+      body: '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n', state: 'opened',
+      notes: [], datesConfirmed: true, humanConfirmed: true,
+      fields: { 发布日期: '2026-09-01', 研发Assignee: '@dev', 生产版本: 'v1.0', 发布记录或回滚信息: '见 release-check' },
+    });
+    expect(out.validate.ok).toBe(true);
+    expect(out.actionTier).toBe('L3');
+    expect(out.shouldConfirm).toBe(true);
   });
 });

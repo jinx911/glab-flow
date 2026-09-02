@@ -2,7 +2,7 @@
 
 > 让 AI 推进需求，不绕过交付流程。先看 [项目介绍页](index.html) 了解完整流程、变更闭环与多环境证据链。
 
-glab-flow 是由人主导的 Claude Code / Codex 技能包，依据项目级 GitLab Issue 状态机推进需求：从分诊到发布、验收，以**确定性护栏**约束流程，复用子技能生成内容，并以“预览—确认”方式写回 GitLab。
+glab-flow 是由人主导的 Claude Code / Codex 技能包，依据项目级 GitLab Issue 状态机推进需求：从分诊到发布、验收，以**确定性护栏**约束流程，复用子技能生成内容，并以“预览—确认”方式写回 GitLab。确认行为由**动作分层**（L1 无业务 gate 自动执行 / L2 业务 gate 一次批量确认 / L3 hard_gate 恒人工）决定；每个需求带一份**交付工作包 DU**（`.glab-flow/<iid>/du.json`，承载执行明细、资源登记与指标）；已评审→开发中 按技术方案声明维度推导 **GateSet**（跳状态投影 / 环境集 / MR 评审 / 回归范围），变化经 `change` 定级 T1–T4 并棘轮扩容门禁。
 
 它是自包含、GitLab 原生的技能包，内置配置、状态缓存和随仓库维护的子技能。
 
@@ -48,7 +48,7 @@ scripts/doctor.sh --workspace /absolute/path/to/business-workspace
 
 | 文件 | 职责 |
 |---|---|
-| `.glab-flow/config.md` | **交付流程**：GitLab host/projectId、分支命名、兼容默认 run_mode、Jenkins、数据库索引 |
+| `.glab-flow/config.md` | **交付流程**：GitLab host/projectId、分支命名、run_mode（审计字段）、Jenkins、数据库索引 |
 | `.glab-flow/test-config.md` | **测试配置**：Apifox 项目路由（改动仓库→项目）、环境 ID 索引、凭据变量名、测试数据策略、共用登录契约 |
 | `.glab-flow/apifox-vars.json` | **环境参数值**（CLI `--variables` 消费）：凭据/前缀按环境条目存，`-e` 切环境自动跟随 |
 
@@ -69,7 +69,7 @@ apifox test-suite run <suiteId> --project <pid> \
 
 - **参数三轴口诀**：随环境轴变（每环境一值）→ apifox-vars.json；随轮次轴变（同环境 N 值）→ 云端数据集 `-d`；不变 → 写死 case。
 - ⚠️ CLI 环境变量坑：Apifox 环境 UI / `environment update` 写的变量 CLI 运行时**取不到**——只认 `--variables` 文件（实测三轮坐实）。
-- **产物落点**：所有产出按 `.glab-flow/<iid>/` 归位（spec / e2e / fixtures / archive）；工作区根的 `playwright-report/`、`test-results/` 是临时执行位。测试平台回执写入 Issue 对应 run-state 的内部证据账本；Issue 只保留团队可读的提测说明、测试报告与上线方案。
+- **产物落点**：所有产出按 `.glab-flow/<iid>/` 归位（spec / e2e / fixtures / archive）；工作区根的 `playwright-report/`、`test-results/` 是临时执行位，报告进 Issue 评论后立即清理。
 - **测试计划**：`test-plan.md` 必含「测试环境与数据集」章节（环境矩阵 + 场景↔数据集映射表 + fixture 顺序）——执行时 `-d` 传什么一目了然。
 - **证据门禁**：执行后 `test-report get` 回读 environmentName + stats，禁止只凭 CLI stdout 说通过。
 - **四层环境事实**：测试计划环境、CLI 显式 `-e` 目标、报告 `environmentName`、Apifox 页面列表展示必须分别记录并核对；页面显示 local、报告为 Stage 不能通过资产审计。
@@ -85,29 +85,27 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
   plan <iid>        (stdin {payload})             # -> WritePlan JSON
   plan-return <iid> (stdin {type,from,target,issues,confirmer,date,assigneeUser})
                                                   # -> 退回 WritePlan JSON
+  change           (stdin change-impact 输入 + {du})  # -> T1–T4 定级 + open 影响单 + GateSet 棘轮扩容提案
+                                                  #    + closeRequiresPlanVersionBump（T3+ 才要求计划版本递增）
   change-impact  (stdin {iid,type,currentNode,changeId,proposer,changeDate,source,reason,scopes,testPlan?})
-                                                  # -> open 变更影响单 + 受影响产物/建议回退节点
+                                                  # -> open 变更影响单 + 受影响产物/建议回退节点（兼容保留）
   change-close   (stdin {iid,changeId,closer,closeDate,notes,completed,testPlan?})
-                                                  # -> closed 变更回执；测试计划受影响时校验版本递增
-  evidence          (stdin [{body}] from `glab api .../notes`)  # -> 抽取的状态变更证据
+                                                  # -> closed 变更回执；测试计划受影响时校验版本递增（T1/T2 豁免）
+  next             (stdin 同 transition)         # -> 在哪/阻塞什么/最快下一步/谁欠什么；终态带资源清理清单
+  reconcile        (stdin {type,labels,state,du}) # -> 5 种对账 verdict（in-sync/label-ahead/du-ahead/external-close/dirty-labels+unknown-node）
+  resource         (stdin {du,now,op})            # -> register/check/cleanup/dispose：DU 资源登记表（TMP-<iid>- 强制前缀）
+  metrics          (stdin {du,event?})            # -> 交付指标汇总（确认/流转/重测/环境阻塞/返工/人工介入 + 周期）
+  evidence          (stdin [{body,created_at,id}] from `glab api .../notes`)  # -> 抽取的状态变更证据
   config            (stdin = config markdown 文件内容)                      # -> GlabConfig JSON（Leader: cat <config.md> | pnpm cli config）
   test-config       (--repos a,b --env local [--iid N]; stdin = test-config.md)  # -> TestContext JSON（apifoxTargets/envId/凭据变量/数据库,配置送到脸上）
   state-init        (stdin {iid,type,host,projectId,workspaceRoot,runMode?,now?})  # -> RunState JSON（Leader 写到 .glab-flow/*-state.json）
-  run-mode-select   (stdin {state,mode,selectedBy,now}) # -> 不可变的 Issue 级 runModeSelection
-  automation-decision (stdin {event,attempt}) # -> continue/retry/repair/pause 的确定性决定
 ```
 
 全部 GitLab 读写均由 Leader 通过已登录的 `glab` CLI 完成，无需在命令或环境变量中配置 Token。
 
 ## 变更闭环
 
-需求、技术方案、实现或测试中发现错误时，先用 `change-impact` 写入不可变的 open 影响单；它会推导必须同步的 proposal、design、测试计划、Apifox 资产、环境重测、排期或发布材料。open 单存在时 G16 阻断正向状态流转。完成所有受影响项后，以刚回读的 Issue notes 调 `change-close`；若测试计划被影响，`plan-version` 必须递增，旧 local/test 证据会自动失效。
-
-## 自动模式协议
-
-进入开发前，且仅在「已评审 → 开发中」state 尚无选择时，Leader 询问半自动或自动；调用 `run-mode-select` 落盘后立即重读，并将不可变 `runModeSelection` 传给 `transition`。配置的 `run_mode` 只用于旧 state 兼容，不能单独授权自动写回。
-
-已锁定 `full-auto` 时，连续路径是：技术方案/测试计划 → 编码 → local API + E2E → commit/push + feature MR → 测试分支合并 → 参数唯一的 Jenkins 测试构建 → test API + E2E → GitLab 写回并回读。每一步都有 `progress` 与审计。所有异常先经 `automation-decision`：临时失败只重试一次；可恢复证据修复后重验；测试失败、语义冲突、人工证据、实质变更、权限和 hard_gate 暂停，并写含 `action/code/reason/requiredInput/currentStep/evidence/attemptedRecovery/resumeCommand` 的统一暂停回执。Jenkins 参数不能唯一推导即暂停；生产部署、验收和关闭恒人工。
+需求、技术方案、实现或测试中发现错误时，先用 `change` 写入不可变的 open 影响单并自动定级 T1–T4（tier 从 open 单 scopes 重推导、禁自报）；它会推导必须同步的 proposal、design、测试计划、Apifox 资产、环境重测、排期或发布材料，必要时给出 GateSet 棘轮扩容提案（只升不降）。open 单存在时 G16 阻断正向状态流转。完成所有受影响项后，以刚回读的 Issue notes 调 `change-close`；若测试计划被影响且定级 T3+，`plan-version` 必须递增，旧环境证据会自动失效（T1/T2 轻量档豁免）。
 
 ## 测试、类型检查与构建
 
@@ -120,8 +118,8 @@ pnpm build                    # tsc → engine/dist（可选；用 node engine/d
 ## 项目结构
 
 ```
-engine/state-machine.yaml     # 状态机模型（story+bug），来源为 Harness 的 docs/issue-state-machine.md
-engine/src/{types,model,contract,guard,parse,gitlab,render,plan,evidence,test-config,cli}.ts   # + *.test.ts
+engine/state-machine.yaml     # 状态机模型（story+bug，含 gateMatrix 维度→门禁推导），来源为 Harness 的 docs/issue-state-machine.md
+engine/src/{types,model,contract,guard,parse,gitlab,render,plan,evidence,test-config,cli,du,gate-set,next-step,reconcile,change,tier,resource,metrics,action-policy}.ts   # + *.test.ts
 skills/glab-flow/{SKILL,config,config.example,test-config.example,nodes,guards,gate,resume,learn,tools}.md
 skills/glab-flow/sub-skills/*.md    # 含 test-design / test-flow-apifox / test-flow-e2e (测试三件套)
 agents/{intake,review-preview,release-check}.md

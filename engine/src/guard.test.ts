@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
-import { validateTransition, validateWritePlan, isAffirmative } from './guard.js';
-import type { IssueFacts, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
+import { validateTransition, validateWritePlan, isAffirmative, unverifiedBlockingTestIssues } from './guard.js';
+import { initDu, recordEvidence } from './du.js';
+import { deriveGateSet } from './gate-set.js';
+import type { DuState, GateSet, IssueFacts, IssueNote, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
 
 describe('isAffirmative — tight prefix (excludes 是否/是吗)', () => {
   it.each(['是', '是(无阻塞)', '是。详细说明…', '是，无问题', '已验证', 'true', ' 是 '])('accepts %s', (v) => {
@@ -17,6 +19,7 @@ const facts = (labels: string[]): IssueFacts => ({ labels, body: '', state: 'ope
 const TEST_PLAN = `<!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api,e2e
+case: TP-U01 | local,test | unit
 asset: TP-001 | scenario
 -->`;
 const LOCAL_RUN = `<!-- glab-flow:test-run:v1
@@ -25,8 +28,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/local
-cases: TP-001=passed
-evidence: api=report:101,e2e=note:https://git.example/local
+cases: TP-001=passed,TP-U01=passed
+evidence: api=report:101,e2e=note:https://git.example/local,unit=vitest-26-passed
 -->`;
 const TEST_RUN = `<!-- glab-flow:test-run:v1
 environment: test
@@ -34,8 +37,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/test
-cases: TP-001=passed
-evidence: api=report:102,e2e=note:https://git.example/test
+cases: TP-001=passed,TP-U01=passed
+evidence: api=report:102,e2e=note:https://git.example/test,unit=vitest-26-passed
 -->`;
 const LOCAL_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
 environment: local
@@ -56,27 +59,6 @@ evidence: list-get:https://apifox.example/test
 asset: TP-001 | scenario | scenario-101 | reuse
 -->`;
 const TEST_NOTES = [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }, { body: TEST_AUDIT }, { body: TEST_RUN }];
-const PUBLIC_RELEASE_FIELDS = {
-  业务覆盖范围: '核心业务流程',
-  缺陷处理结果: '阻塞问题已关闭',
-  遗留风险: '无阻塞遗留风险',
-  上线步骤: '按发布计划执行',
-  配置清单: '配置已核对',
-  回滚方案: '按发布计划回滚',
-  发布建议: '建议发布',
-};
-const PRODUCTION_RELEASE_FIELDS = {
-  部署顺序: '先服务后前端',
-  数据迁移: '无',
-  配置清单: '生产配置已核对',
-  上线后验证: '主流程与监控告警验证',
-  回滚方案: '回滚应用版本与配置',
-};
-const ACCEPTANCE_REPORT_FIELDS = {
-  验收范围: '主流程、权限与通知',
-  遗留事项: '无',
-  后续行动: '持续观察监控',
-};
 const VALID_REVIEW_EVIDENCE: RequirementsReviewEvidence = {
   images: [], frontend: { applicable: false, routes: [] },
   grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
@@ -112,21 +94,11 @@ describe('G2 gate outcome binary', () => {
 describe('G3 hard gate needs humanConfirmed', () => {
   it('blocks hard-gate transition without humanConfirmed', () => {
     const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
-      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', ...PRODUCTION_RELEASE_FIELDS },
+      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
       assigneeUser: '@pm', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
     expect(r.ok).toBe(false);
     expect(r.reasons.some((x) => x.includes('hard'))).toBe(true);
-  });
-
-  it('requires executable release handoff fields before production deployment', () => {
-    const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
-      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1' },
-      assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true };
-    const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
-    expect(r.ok).toBe(false);
-    expect(r.missing).toContain('部署顺序');
-    expect(r.missing).toContain('上线后验证');
   });
 });
 
@@ -192,7 +164,7 @@ describe('G11 blocking test issues verified', () => {
 describe('G12 terminal atomicity', () => {
   it('blocks terminal transition without closeIssue', () => {
     const p: Payload = { type: 'story', from: '生产验收中', to: '已完成',
-      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok', ...ACCEPTANCE_REPORT_FIELDS },
+      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok' },
       assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true, closeIssue: false };
     const r = validateTransition(model, facts(['type::story', 'story-status::生产验收中']), p);
     expect(r.ok).toBe(false);
@@ -229,7 +201,7 @@ describe('G7/G8/G13 write-plan guards', () => {
 describe('G3 positive — hard gate with humanConfirmed passes', () => {
   it('passes 待发布->生产验收中 when humanConfirmed true', () => {
     const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
-      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', ...PRODUCTION_RELEASE_FIELDS },
+      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
       assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
     expect(r.ok).toBe(true);
@@ -239,7 +211,7 @@ describe('G3 positive — hard gate with humanConfirmed passes', () => {
 describe('G12 positive — terminal with closeIssue passes', () => {
   it('passes 生产验收中->已完成 when closeIssue true', () => {
     const p: Payload = { type: 'story', from: '生产验收中', to: '已完成',
-      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok', ...ACCEPTANCE_REPORT_FIELDS },
+      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok' },
       assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true, closeIssue: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::生产验收中']), p);
     expect(r.ok).toBe(true);
@@ -256,7 +228,7 @@ describe('G11 bug — blocking issues apply to bug too', () => {
   });
   it('passes bug 测试中->待发布 when blocking issues verified', () => {
     const p: Payload = { type: 'bug', from: '测试中', to: '待发布',
-      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', ...PUBLIC_RELEASE_FIELDS }, testPlan: TEST_PLAN,
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' }, testPlan: TEST_PLAN,
       assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p, TEST_NOTES);
     expect(r.ok).toBe(true);
@@ -264,7 +236,7 @@ describe('G11 bug — blocking issues apply to bug too', () => {
 });
 
 describe('G11 normalization — accepts affirmative synonyms, rejects the rest', () => {
-  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过', ...PUBLIC_RELEASE_FIELDS };
+  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过' };
   const run = (val: string) => validateTransition(model, facts(['type::story', 'story-status::测试中']), {
     type: 'story', from: '测试中', to: '待发布',
     fields: { ...baseFields, 阻塞发布问题均已验证通过: val }, testPlan: TEST_PLAN, assigneeUser: '@dev', datesConfirmed: true,
@@ -313,5 +285,310 @@ describe('G6b role cross-check (when 交付协同 table present)', () => {
     const p: Payload = { type: 'story', from: '草稿中', to: '待评审', fields: {}, assigneeUser: '@anyone' };
     const r = validateTransition(model, facts(['type::story', 'story-status::草稿中']), p);
     expect(r.ok).toBe(true);
+  });
+});
+
+// —— P2 评论瘦身：证据双源（DU 本地事实优先，Issue 评论兜底）——
+// DU 登记只影响证据读取来源；版本一致性仍以 testPlan 为准（DU 里 planVersion 必须与当前计划一致）。
+const DU_NOW = '2026-09-01T00:00:00Z';
+const duWith = (entries: Parameters<typeof recordEvidence>[1][]): DuState =>
+  entries.reduce((du, entry) => recordEvidence(du, entry, DU_NOW), initDu({ iid: 88, type: 'story', now: DU_NOW }));
+const DU_SUBMIT_FIELDS = {
+  代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev',
+  可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对',
+};
+
+// —— P3 GateSet-scoped guards：G14 仅在 GateSet 要求 MR 评审时必填 ——
+const GATESET_TEST_DONE_FIELDS = {
+  测试完成日期: '2026-09-01',
+  测试Assignee: '@qa',
+  测试结论: '通过',
+  回归范围或证据: 'r',
+  阻塞发布问题均已验证通过: '是',
+};
+const duWithGateSet = (gateSet: GateSet): DuState => {
+  const du = initDu({ iid: 88, type: 'story', now: DU_NOW });
+  return { ...du, gateSet };
+};
+
+describe('GateSet-scoped guards (P3)', () => {
+  it('drops MR-review requirement when GateSet disables mrReview', () => {
+    const p: Payload = {
+      type: 'story', from: '测试中', to: '待发布',
+      fields: GATESET_TEST_DONE_FIELDS, testPlan: TEST_PLAN,
+      du: duWithGateSet(deriveGateSet(loadModel().gateMatrix!, ['functional'])),
+      assigneeUser: '@dev', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p, TEST_NOTES);
+    expect(r.missing).not.toContain('feature分支MR评审结论');
+    expect(r.ok).toBe(true);
+  });
+  it('still requires MR-review when GateSet keeps default', () => {
+    const p: Payload = {
+      type: 'story', from: '测试中', to: '待发布',
+      fields: GATESET_TEST_DONE_FIELDS, testPlan: TEST_PLAN,
+      du: duWithGateSet(deriveGateSet(loadModel().gateMatrix!, ['api-contract'])),
+      assigneeUser: '@dev', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p, TEST_NOTES);
+    expect(r.missing).toContain('feature分支MR评审结论');
+    expect(r.ok).toBe(false);
+  });
+  it('keeps MR-review required when no GateSet is bound at all (存量 DU / 无 DU 不放松)', () => {
+    const p: Payload = {
+      type: 'story', from: '测试中', to: '待发布',
+      fields: GATESET_TEST_DONE_FIELDS, testPlan: TEST_PLAN,
+      assigneeUser: '@dev', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p, TEST_NOTES);
+    expect(r.missing).toContain('feature分支MR评审结论');
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('DU-first evidence (P2)', () => {
+  it('accepts local TestRun+AssetAudit from DU evidence without Issue comments', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(true);
+  });
+  it('falls back to Issue comment evidence when DU absent', () => {
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }]);
+    expect(r.ok).toBe(true);
+  });
+  it('rejects when DU records failed test-run, surfacing the rerun root cause', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'failed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('DU 记录 outcome=failed，须重跑后再记录'))).toBe(true);
+  });
+  it('rejects a non-numeric DU asset-audit outcome instead of coercing it to zero (fail-closed)', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: 'abc', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('DU asset-audit outcome 无效（须为非负整数）：abc'))).toBe(true);
+  });
+  it('rejects a negative or fractional DU asset-audit outcome (fail-closed)', () => {
+    for (const outcome of ['-1', '1.5', '']) {
+      const du = duWith([{ kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome, recordedAt: DU_NOW }]);
+      const p: Payload = {
+        type: 'story', from: '开发中', to: '测试中',
+        fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+        assigneeUser: '@qa', datesConfirmed: true,
+      };
+      const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+      expect(r.ok).toBe(false);
+      expect(r.reasons.some((x) => x.includes('DU asset-audit outcome 无效'))).toBe(true);
+    }
+  });
+  it('surfaces a positive DU unresolved-findings count instead of zeroing it', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '2', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('仍有 2 个未处置问题'))).toBe(true);
+  });
+  it('rejects when DU evidence plan version drifts from the current test plan', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v2', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v2', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('版本不匹配'))).toBe(true);
+  });
+  it('falls back to a valid v2 Issue comment when the plan requires presentation/auth-profile evidence', () => {
+    // 计划声明 presentation/auth-profile → 必须走 v2 审计；DU 合成对象无法承载，
+    // 适配器回落评论路径，合法 v2 评论照常通过（不被 DU-first 短路卡死）。
+    const governedPlan = `<!-- glab-flow:test-plan:v1
+plan-version: v3
+case: TP-001 | local,test | api,e2e
+case: TP-U01 | local,test | unit
+asset: TP-001 | scenario
+presentation: TP-001 | scenario
+auth-profile: TP-001 | client-user
+-->`;
+    const v2Audit = `<!-- glab-flow:apifox-asset-audit:v2
+environment: local
+plan-version: v3
+project: 8731182
+branch: main
+unresolved-findings: 0
+evidence: list-get:https://apifox.example/local
+asset: TP-001 | scenario | scenario-101 | reuse
+presentation: TP-001 | scenario | local | local | local
+auth-profile: TP-001 | client-user | auth_token
+-->`;
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: governedPlan, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: v2Audit }, { body: LOCAL_RUN }]);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('环境混淆防线（记录侧）', () => {
+  it('rejects DU test-run without real version（占位/缺失不再合成通过形状）', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('缺少真实被测版本'))).toBe(true);
+  });
+  it('rejects DU test-run with placeholder version "du"', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'du' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    expect(validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []).ok).toBe(false);
+  });
+});
+
+describe('G11b 阻塞问题交叉核对（Q2：自报字段不够，评论必须闭环）', () => {
+  const p = (notes: IssueNote[]): Payload => ({
+    type: 'story', from: '测试中', to: '待发布',
+    fields: { ...GATESET_TEST_DONE_FIELDS, feature分支MR评审结论: '通过' }, testPlan: TEST_PLAN,
+    assigneeUser: '@dev', datesConfirmed: true,
+    du: duWith([
+      { kind: 'asset-audit', environment: 'test', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'test', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:t1' },
+    ]),
+  });
+  it('rejects when an unverified blocking test-issue comment exists', () => {
+    const notes: IssueNote[] = [{
+      body: '## 测试问题\n\n- 发现人：@qa\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：未复测',
+      created_at: '2026-09-01T00:00:00Z', id: 1,
+    }];
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p(notes), notes);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('未验证的阻塞项') && x.includes('导出乱码'))).toBe(true);
+  });
+  it('passes when the blocking issue is verified in the comment', () => {
+    const notes: IssueNote[] = [{
+      body: '## 测试问题\n\n- 发现人：@qa\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（复测绿）',
+      created_at: '2026-09-01T00:00:00Z', id: 1,
+    }];
+    expect(validateTransition(model, facts(['type::story', 'story-status::测试中']), p(notes), notes).ok).toBe(true);
+  });
+  it('newer issue-comment overrides older unverified state（最新块为准）', () => {
+    const notes: IssueNote[] = [
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：未复测', created_at: '2026-09-01T00:00:00Z', id: 1 },
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（修复后复测绿）', created_at: '2026-09-02T00:00:00Z', id: 2 },
+    ];
+    expect(validateTransition(model, facts(['type::story', 'story-status::测试中']), p(notes), notes).ok).toBe(true);
+  });
+  it('non-blocking issue comments do not block', () => {
+    const notes: IssueNote[] = [{
+      body: '## 测试问题\n\n- 是否阻塞发布：否\n- 实际结果：文案建议\n- 验证结果：无需',
+      created_at: '2026-09-01T00:00:00Z', id: 1,
+    }];
+    expect(validateTransition(model, facts(['type::story', 'story-status::测试中']), p(notes), notes).ok).toBe(true);
+  });
+});
+
+describe('G11b 多问题最新状态语义', () => {
+  it('two distinct issues: one verified one not → 未验证的那个拦截', () => {
+    const notes: IssueNote[] = [
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（复测绿）', created_at: '2026-09-01T00:00:00Z', id: 1 },
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：金额少一分\n- 验证结果：未复测', created_at: '2026-09-01T01:00:00Z', id: 2 },
+    ];
+    const r = unverifiedBlockingTestIssues(notes);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toContain('金额少一分');
+  });
+  it('same issue superseded to verified by newer comment → 放行', () => {
+    const notes: IssueNote[] = [
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：未复测', created_at: '2026-09-01T00:00:00Z', id: 1 },
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（修复后复测绿）', created_at: '2026-09-02T00:00:00Z', id: 2 },
+    ];
+    expect(unverifiedBlockingTestIssues(notes)).toHaveLength(0);
+  });
+});
+
+describe('Q4 unit 覆盖按维度要求（GateSet.minUnitCases）', () => {
+  it('rejects plan without enough unit cases when GateSet requires them', () => {
+    const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local,test | api\nasset: TP-001 | scenario\n-->';
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: noUnitPlan,
+      du: duWithGateSet(deriveGateSet(loadModel().gateMatrix!, ['data-model'])),
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('unit 用例不足') && x.includes('3'))).toBe(true);
+  });
+  it('frontend-copy GateSet (minUnitCases=0) passes without unit cases', () => {
+    const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n-->';
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: noUnitPlan,
+      du: { ...du, gateSet: deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']) },
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    expect(validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []).ok).toBe(true);
   });
 });

@@ -6,8 +6,6 @@ import { toFacts, parseAssigneeTable, type GitLabIssue } from './gitlab.js';
 import { renderReturn } from './render.js';
 import { buildForwardPlan } from './plan.js';
 import { runTransition } from './transition.js';
-import { runModeSelectCommand } from './cli-commands.js';
-import { initState } from './state.js';
 import type { RequirementsReviewEvidence, TransitionInput, WritePlan } from './types.js';
 
 const model = loadModel();
@@ -83,67 +81,5 @@ describe('e2e: 合并评论(状态变更头 + 内容体, 无 marker)', () => {
     expect(r.comment).toContain('## 需求提案要点');
     expect(r.comment).toContain('- 背景：b');
     expect(r.comment).not.toContain('artifact-receipt');
-  });
-});
-
-describe('e2e: 开发入口的持久化自动模式护栏', () => {
-  const body = '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n';
-  const pausedWeekPlan = `## 周排期
-
-- 计划开始：2026-08-17
-- 计划完成：2026-09-06
-- 计划覆盖周：W34 ～ W36
-- 自动 rollover：暂停`;
-  const developmentInput: TransitionInput = {
-    type: 'story', iid: 42, labels: ['type::story', 'story-status::已评审'], body, notes: [{ body: pausedWeekPlan }], state: 'opened',
-    fields: {
-      技术方案评审通过记录或免评审结论: '通过', 实际开始日期: '2026-08-17', 研发Assignee: '@dev',
-      计划提测时间: '2026-08-24', 计划上线时间: '2026-08-31',
-      技术方案版本: 'v1', 方案概述: '按已评审需求实施', 影响模块: '服务与前端', 数据模型变更: '新增字段', API契约: '兼容现有接口',
-      前端页面与路由: '现有页面扩展', 权限与安全: '复用现有权限', 迁移与配置: '纳入发布', 测试计划摘要: '覆盖本地与测试环境',
-      风险与对策: '灰度验证', 回滚方案: '回滚版本',
-    },
-    datesConfirmed: true,
-  };
-
-  function selectMode(mode: 'semi-auto' | 'full-auto') {
-    return runModeSelectCommand({
-      state: initState({ iid: '42', type: 'story', host: 'gitlab.example', projectId: '1', workspaceRoot: '/workspace', runMode: 'full-auto', now: '2026-08-17T08:00:00Z' }),
-      mode, selectedBy: '@owner', now: '2026-08-17T09:00:00Z',
-    });
-  }
-
-  it('uses the persisted semi-auto selection at development entry and requires confirmation', () => {
-    const state = selectMode('semi-auto');
-    const result = runTransition(model, { ...developmentInput, runMode: state.runMode, runModeSelection: state.runModeSelection });
-
-    expect(state.runModeSelection).toEqual({ mode: 'semi-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' });
-    expect(result).toMatchObject({ validate: { ok: true }, modeSelectionRequired: false, shouldConfirm: true, plan: { ops: expect.any(Array) } });
-    expect(result.preview).toContain('已持久化选择：@owner 于 2026-08-17T09:00:00Z');
-  });
-
-  it('uses the persisted full-auto selection to apply a non-hard development entry automatically', () => {
-    const state = selectMode('full-auto');
-    const result = runTransition(model, { ...developmentInput, runMode: state.runMode, runModeSelection: state.runModeSelection });
-
-    expect(state.runModeSelection).toEqual({ mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' });
-    expect(result).toMatchObject({ validate: { ok: true }, modeSelectionRequired: false, shouldConfirm: false, plan: { ops: expect.any(Array) } });
-    expect(result.preview).toContain('护栏 ok 即可自动写回');
-  });
-
-  it('keeps a hard gate manually confirmed even after persisted full-auto selection', () => {
-    const state = selectMode('full-auto');
-    const hardGateInput: TransitionInput = {
-      type: 'story', iid: 42, labels: ['type::story', 'story-status::待发布'], body, notes: [], state: 'opened',
-      fields: { 发布日期: '2026-08-31', 研发Assignee: '@dev', 生产版本: 'v1', 部署顺序: '先服务后前端', 数据迁移: '无', 配置清单: '生产配置已核对', 上线后验证: '主流程验证通过', 回滚方案: '回滚应用版本与配置' },
-      datesConfirmed: true, runMode: state.runMode, runModeSelection: state.runModeSelection,
-    };
-
-    const awaitingConfirmation = runTransition(model, hardGateInput);
-    expect(awaitingConfirmation).toMatchObject({ validate: { ok: false }, shouldConfirm: true });
-    expect(awaitingConfirmation.preview).toContain('hard_gate：必须人工确认');
-
-    const confirmed = runTransition(model, { ...hardGateInput, humanConfirmed: true });
-    expect(confirmed).toMatchObject({ validate: { ok: true }, shouldConfirm: true, plan: { ops: expect.any(Array) } });
   });
 });

@@ -45,37 +45,27 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 - 都无 → AskUserQuestion multiSelect 让用户选择（支持多项目）
 - 用户说"部署 N 个项目" → 按上下文推断
 
-### 2. 交互式参数收集
+### 2. 参数收集（按环境分层：test 自动，生产必确认）
 
-每个选中 Job 调用 `jenkins_get_job` 获取参数定义后，按类型交互：
+**test/非生产环境的构建参数与凭据同理——测试数据，默认值直用，不逐参数交互确认**（已裁定打通：减少确认点提高效率）。只有**缺参数定义且无默认值**才问（一次性问全，不逐个问）；生产部署（发布节点）参数确认保留（L3 红线）。
 
-**Choice 参数** (如 test_version)：
-- 有默认值且用户未指定 → 使用默认值
-- 用户需要调整 → AskUserQuestion 列出 choices 选项
+- Choice 参数（如 test_version）：有默认值 → 直用；无默认值 → AskUserQuestion 一次列出
+- String 参数（如分支）：有默认值 → 直用；无默认值 → 与其他缺参一次问全
+- Boolean / Password 参数：默认值直用 / 跳过
+- 多项目共享：环境和分支参数解析一次，共享给所有项目
 
-**String 参数** (如分支)：
-- 有默认值 → 在确认清单中展示，用户可调整
-- 无默认值 → AskUserQuestion 让用户输入
+### 3. 触发前记录（test 环境）
 
-**Boolean 参数**：
-- 使用默认值，在确认清单中展示
-
-**Password 参数**：跳过。
-
-**多项目共享**：环境和分支参数只询问一次，共享给所有项目。
-
-### 3. 最终确认
-
-所有参数收集后，**必须**用 AskUserQuestion 展示完整清单让用户确认。粗粒度授权（例如「去发布」「合并并部署」「触发 Jenkins」）不等于构建参数确认；`test_version` / `DEPLOY_ENV` / 分支等会改变目标环境的参数必须逐项展示后再触发：
+test 环境参数解析完成后**直接触发**，参数清单写入执行记录（构建号/版本进提测说明合并评论，事后可审计）；不再有独立的「部署清单确认」对话——提测流转的 L2 批量确认已覆盖放行判断。**生产部署**：仍必须 AskUserQuestion 展示完整清单逐项确认后触发（粗粒度授权不等于生产参数确认，L3 红线）：
 
 ```
-📋 部署清单
+📋 生产部署清单（必须逐项确认）
 
 [1] sample-service
-    DEPLOY_ENV = test, branch = release/123
+    DEPLOY_ENV = prod, branch = release/123
 
 [2] sample-frontend
-    DEPLOY_ENV = test, GIT_BRANCH = release/123, RUN_LINT = true
+    DEPLOY_ENV = prod, GIT_BRANCH = release/123
 
 确认部署？
 ```
@@ -109,5 +99,5 @@ description: glab-flow 发布节点的 Jenkins 部署子 skill。交互式选择
 
 - 只用 MCP 工具 (`mcp__jenkins__jenkins_*`)，禁止 curl/bash
 - 参数不完整必须交互询问，不自行编造
-- **触发前必须展示清单让用户确认**
+- **test 环境默认值直用直接触发（清单进执行记录）；生产部署触发前必须展示清单让用户逐项确认**
 - Boolean 参数必须传字符串 `"true"` / `"false"`

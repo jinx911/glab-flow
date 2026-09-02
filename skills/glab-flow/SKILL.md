@@ -9,7 +9,7 @@ glab-flow 是 GitLab-native、自包含的流程引擎：引擎只做确定性�
 
 ## 权威来源
 
-业务规则权威来自目标项目已确认的状态机与团队交付规范；glab-flow 的 `state-machine.yaml`、护栏和节点文档是其可执行投影。运行时状态权威是 GitLab Issue 的 labels/comments；本地 state 与 lessons 都是派生缓存或经验材料。
+业务规则权威来自目标项目已确认的状态机与团队交付规范；glab-flow 的 `state-machine.yaml`、护栏和节点文档是其可执行投影。运行时状态权威是 GitLab Issue 的 labels/comments；执行明细（TestRun/AssetAudit）权威是 DU 本地主档（见下文「交付工作包（DU）」），Issue 评论仅作存量兜底；本地 state 与 lessons 都是派生缓存或经验材料。
 
 ## 输入
 
@@ -46,7 +46,7 @@ glab-flow 是配置驱动的——`host`/`project_id`/`workspace.root` 等参数
    cd "$ENGINE_ROOT" && cat <config.md 路径> | pnpm cli config
    ```
 
-   stdout 是 `GlabConfig` JSON，从中派生后续编排所需的全部项目参数：`gitlab.host` / `gitlab.projectId` / `workspace.root`（以及可选项 `harnessClone` / `deployBranch` / `jenkins` / `databases` / `testEnvironments`）。`runMode` 仅为旧 state 或尚未进入开发前的兼容默认值，不能替代本 Issue 的已持久化选择。
+   stdout 是 `GlabConfig` JSON，从中派生后续编排所需的全部项目参数：`gitlab.host` / `gitlab.projectId` / `workspace.root` / `runMode`（以及可选项 `harnessClone` / `deployBranch` / `jenkins` / `databases` / `testEnvironments`）。
 
 3. 解析失败 → 把错误贴给用户，引导重跑 `/init-glab-flow`。配置文件不存在（查找链都没命中）→ 用 `AskUserQuestion` 引导运行 `/init-glab-flow <workspace.root>` 生成项目级配置后再继续——**不让 flow 在无配置下裸跑**。
 
@@ -67,31 +67,36 @@ if [ ! -d "$ENGINE_ROOT/engine" ]; then ENGINE_ROOT="$(pwd)"; fi  # 开发态兜
 cd "$ENGINE_ROOT" && pnpm cli <cmd>
 ```
 
-> 也可先 `pnpm build` 预编译到 `engine/dist`，再用 `node engine/dist/cli.js <cmd>` 跑（省去 tsx 即时编译的冷启动开销，full-auto 批量推进时更快）；默认 `pnpm cli`（tsx）即可。
+> 也可先 `pnpm build` 预编译到 `engine/dist`，再用 `node engine/dist/cli.js <cmd>` 跑（省去 tsx 即时编译的冷启动开销，批量推进时更快）；默认 `pnpm cli`（tsx）即可。
 
 命令列表：
 
 | 命令 | 作用 |
 |---|---|
 | `node` | 推导当前节点：`pnpm cli node <type> <labels...>` |
-| `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 当前 `testPlan` 全文 + 已知 `fields`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm}`。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
-| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?,evidence?}` → `{ok,missing,reasons}`；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与本地 run-state 的 `evidence`，以验证当前环境资产审计和 TestRun |
+| `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 当前 `testPlan` 全文 + 已知 `fields` + 可选 `du`/`declaredScopes`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm,actionTier,confirmBatchTitle}`（`已评审→开发中` 传 `declaredScopes` 时另出 `proposedGateSet`）。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
+| `next` | 最短路径速览：stdin 同 `transition` → `{where,isTerminal,blockedOn,fastestPath,owedBy,summary}`——在哪/阻塞什么/最快下一步/谁欠什么；终态自动带资源清理清单 |
+| `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?}` → `{ok,missing,reasons}`；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与刚回读 `notes`，以验证当前环境资产审计和 TestRun |
 | `render` | 渲染评论正文 |
-| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?,evidence?}`；周排期需传刚回读 `notes`，local/test TestRun 门禁需传本地 run-state 的 `evidence`，否则拒绝建计划 |
-| `test-run` | 预览/校验一条环境执行记录：stdin `{plan,run}` → `{validate,receipt}`；`receipt` 是内部证据，不执行测试或写 GitLab |
-| `asset-audit` | 预览/校验一条测试资产审计：stdin `{plan,audit}` → `{validate,receipt}`；`receipt` 是内部证据，不调用测试平台或写 GitLab |
-| `evidence-record` | 将一条已校验的 `test-run` / `apifox-asset-audit` receipt 写入 Issue 对应的本地 run-state；跨会话恢复时作为门禁输入，绝不写入父 Issue 评论 |
+| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?}`；周排期和 local/test TestRun 门禁均需传刚回读 `notes`，否则拒绝建计划 |
+| `test-run` | 预览/校验一条环境执行记录：stdin `{plan,run}` → `{validate,comment}`；只产出评论草稿，不执行测试或写 GitLab |
+| `asset-audit` | 预览/校验一条 Apifox 资产审计：stdin `{plan,audit}` → `{validate,comment}`；只解析计划与回读事实，不调用 Apifox 或写 GitLab |
 | `plan-return` | 退回建写回计划：stdin `{type,from,target,issues,confirmer,date,assigneeUser?}` |
 | `week-plan-change` | **独立排期变更**：stdin 提供完整排期与变更事实，返回仅含一条 `add_comment` 的 `WritePlan`；不改变状态、Assignee、Issue 正文或既有评论 |
-| `change-impact` | **变更影响单**：stdin 提供来源、影响维度、当前节点和当前测试计划，返回仅评论的 `WritePlan`、必须同步的产物、建议回退节点和旧计划版本；不直接改状态 |
-| `change-close` | **变更闭环**：stdin 提供刚回读的 notes、open 变更编号及各项完成证据；测试计划受影响时必须传入版本已递增的当前计划；返回仅评论的关闭回执 |
+| `change` | **变化分级入口（首选）**：stdin = change-impact 输入 + `du`；自动定级 T1–T4（tier 从 open 单 scopes 重推导、禁自报）+ GateSet 棘轮扩容（`expandedGateSet` 由 Leader 确认后写回 DU，只升不降）+ `closeRequiresPlanVersionBump`（T3+ 才要求测试计划版本递增） |
+| `change-impact` | **变更影响单（兼容保留）**：stdin 提供来源、影响维度、当前节点和当前测试计划，返回仅评论的 `WritePlan`、必须同步的产物、建议回退节点和旧计划版本；不直接改状态 |
+| `change-close` | **变更闭环（兼容保留）**：stdin 提供刚回读的 notes、open 变更编号及各项完成证据；测试计划受影响时必须传入版本已递增的当前计划（轻量档 T1/T2 豁免）；返回仅评论的关闭回执 |
+| `reconcile` | 外部事实对账：stdin `{type,labels,state,du}` → 5 种 verdict（`in-sync`/`label-ahead`/`du-ahead`/`external-close`/`dirty-labels`+`unknown-node`），人工改标签/手动关闭不再当脏状态推倒重来 |
+| `resource` | DU 资源登记表：stdin `{du,now,op}`，op=`register`/`check`/`cleanup`/`dispose`；创建即登记、终态出清理清单、处置后回写；临时 Apifox 资源强制 `TMP-<iid>-` 前缀 |
+| `metrics` | 交付指标：stdin `{du,event?}`；event 存在记一条指标事件返回新 DU（Leader 落盘），否则纯汇总（确认/流转/重测/环境阻塞/返工/人工介入次数 + 周期） |
+| `du` | DU 写入面：stdin `{op,...}`，op=`init`（iid+type）/`record`（du+entry 执行事实）/`bind-gateset`（du+scopes，推导+冻结门禁单，已冻结拒重绑）/`cached-node`（du+node，流转成功后更新对账基准）；返回新 DU 对象，落盘归 Leader |
+| `catalog` | workspace 资产目录（R1：复用从「全量 list+人肉比对」变检索）：stdin `{op,...}`，op=`search`（catalog 文本+domain/keyword → 匹配条目）/`upsert`（登记/更新共享资产，按 apifoxId 幂等）/`from-disposal`（du → 终态升级共享的目录条目）；目录文件 `.glab-flow/asset-catalog.md` 由 Leader 落盘——test-design 检索现有资产先查目录，终态 TMP→共享升级时登记 |
+| `review-pack` | 评审上下文包：stdin 同 `next` → spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令段；与 diff 一起注入 reviewer，标准化 feeding 材料（开发中代码评审 / MR 评审共用） |
 | `evidence` | 从 GitLab notes 抽证据（确认人/日期/结论/阻塞验证） |
 | `config` | 解析配置 markdown → `GlabConfig` JSON |
 | `version` | 运行时版本守卫（issue 22）：`--fetched` 表示 Skill 已先 `git fetch origin`；输出 `{commit, upToDate, remoteCommit, capability, notes}`；落后即阻断 |
 | `test-config` | 测试上下文注入：stdin = `.glab-flow/test-config.md` 全文；`--repos a,b --env local [--iid N]` → routes 推 Apifox 项目 + 环境 ID + 账号/数据库/前端构建/测试数据，一次拿全（开发中自测步骤 0.5 / 测试中第一步用；模板见 `test-config.example.md`） |
 | `state-init` | 生成 state 文件：stdin `{iid,type,host,projectId,workspaceRoot,runMode?,now?}` → `RunState` |
-| `run-mode-select` | **开发入口模式选择**：stdin `{state,mode,selectedBy,now}` → 写入不可变 `runModeSelection`；只允许首次选择 `semi-auto` 或 `full-auto` |
-| `automation-decision` | **自动化决策**：stdin `{event,attempt}` → `continue` / 一次 `retry` / `repair` / 统一 `pause` 决定；Leader 只按返回决定行动 |
 | `state-writeback` | 追加串行写回阶段的成功/失败审计；用于恢复时定位首个未完成阶段 |
 | `progress` | 节点内进度跟踪：stdin `{state, step?, resetToNode?, now}` → 更新后的 `RunState`（标记子步骤 done / 换节点重置；引擎纯计算，Leader 落盘） |
 
@@ -119,40 +124,60 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
   ```bash
   glab api --hostname <host> "projects/<id>/issues/<iid>"
-  glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"
+  glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100&page=1"
   ```
 
-`<host>` 与 `<id>` 一律从 `GlabConfig` 取，不在命令里硬编码域名或项目号。
+`<host>` 与 `<id>` 一律从 `GlabConfig` 取，不在命令里硬编码域名或项目号。读取 notes 后传给引擎时必须保留每条原始 `body`、`created_at`、`id`；不得仅映射为 `{body}`。GitLab notes API 常按 newest-first 返回，引擎依赖时间戳与 ID 归一化后才可安全判定“最新”回执。
+
+**notes 必须翻页取全（Q6：单页截断=门禁失明）**：长 Issue 的变更影响单（G16）、测试问题评论（G11b）滚出第一页后引擎看不见——open 单不再阻断、阻塞问题漏核。取法：`page=1` 起逐页请求，**返回条数 < per_page 即停**，全部合并去重（按 `id`）后喂引擎。判断截断的捷径：某页恰好返回 100 条就必须再取下一页。MR 的 notes 同样翻页。
 
 ## Leader 每轮编排（一键流转）
 
+### 交付工作包（DU）
+
+每个 flow 启动时与 state 同步初始化 DU（Leader 落盘 `<workspace.root>/.glab-flow/<iid>/du.json`，模式与 state 文件一致；引擎命令产出新 DU 对象、Leader 写回）。此后：
+
+- 执行明细（TestRun/AssetAudit）优先记入 DU（`transition`/`validate` 传 `du`），不再要求发独立 Issue 评论（评论瘦身）。**边界**：明细不上传 ≠ 事实不上传——Issue 评论是团队共享的，本地 DU 的执行结论由 `renderNodeComment` 在每条流转评论里**自动追加「## 证据摘要」块**（各环境执行/审计结论 + 报告指针 + 门禁单 + 指标），想深挖的成员顺 reportId 到云端核对；DU 未传入时不追加（存量 Issue 行为不变）。无 DU 的存量 Issue 自动回落评论解析，不迁移。
+- `已评审→开发中` 时把技术方案声明的受影响维度传入 `declaredScopes`，引擎返回 `proposedGateSet`（含 skipStates/environments/mrReview/regression/rollbackPlan）——与计划提测/上线日期**同一次 L2 批量确认**后冻结进 DU。
+- 随时 `pnpm cli next` 看「在哪/阻塞什么/最快下一步/谁欠什么」。
+- 人工改了标签/手动部署/外部 CI 结果：`pnpm cli reconcile` 对账（label-ahead=人工推进二选一 / du-ahead=补写回 / external-close=提前关闭处理），不推倒重来。
+- 中途发现改错了：`pnpm cli change`（T1 文案→T4 数据/权限自动定级，GateSet 棘轮扩容只升不降，T3+ 关闭时才要求测试计划版本递增）。
+- 终态后 `pnpm cli resource --op cleanup`（或直接看 `next`）出清理清单，逐项处置（删除/升级共享/保留）。
+- 收尾 `pnpm cli metrics` 看交付指标（确认次数/周期/重测/返工）。
+
 每个节点用 `transition` 一次算完确定性部分，Leader 只做「读 → 确认 → 写」三件事（门禁细节见 `gate.md`）：
 
-1. **读状态（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论；有受影响 MR 时，逐个读取该 MR 的 notes。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读，不能以 state 缓存替代。
-2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields + 当前 `<iid>-state.json` 的 `evidence` 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
-   - `node` / `next` / `dirty`（脏：0/≥2 状态标签，或已 closed 但非终态 → 停，见 `resume.md`）
+1. **读状态（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100&page=1"` 逐页取全父 Issue 评论（见「notes 必须翻页取全」），并将 API 原样的 `body`、`created_at`、`id` 传入引擎；有受影响 MR 时，逐个读取该 MR 的 notes（同样翻页）。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读，不能以 state 缓存替代。
+2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields + 当前 `du` 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
    - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
-   - `validate`（G1–G15，`reasons` 自带补救动作）
-   - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm`
-3. **开发入口选择、执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。Leader 按序：
-   - **仅一次的模式选择**：当且仅当当前转换是「已评审 → 开发中」且 state 没有 `runModeSelection`，先问用户选择半自动（`semi-auto`）或自动（`full-auto`），以 `pnpm cli run-mode-select` 将 `{ mode, selectedBy, selectedAt }` 落盘，**立刻重读 state**，把完整 `runModeSelection` 传回下一次 `transition`。选择一经落盘不可改；此时不能以裸 `runMode` 或配置值跳过选择。非开发入口的旧 state 没有选择时，才兼容采用 state/config 的 `runMode` 默认值。
-   - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与 `run_mode` 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。
-   - **内部执行证据**：测试资产审计与环境执行完成后，先用 `asset-audit` / `test-run` 生成 receipt，再以 `evidence-record` 更新 run-state；receipt 仅供 guard 校验和恢复，**禁止** `glab issue note` 到父 Issue。旧 Issue 已有 marker 时只读兼容，下一次执行起必须迁移到 run-state。
-   - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 面向团队的状态交接单，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。评论只含状态、正式交付物与下一步；不得出现本地环境、测试平台、报告 ID、账号、路径、SHA 或机器 marker。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
+   - `validate`（G1–G16，`reasons` 自带补救动作；G14 按 DU GateSet 生效）
+   - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm` + `actionTier`/`confirmBatchTitle`（动作分层，见 `gate.md`）
+3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。Leader 按序：
+   - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等）。**test/非生产构建参数默认值直用不逐参数确认**（测试数据与凭据同理，已裁定打通；缺定义无默认值才一次问全）；**生产部署参数仍必须逐项确认**（L3 红线）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。`mr-review` 步骤只在 DU GateSet 的 `mrReview=true` 时必填（G14，见 `guards.md`）。
+   - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
    - **post-readback `sync_week_milestone`（仅 `plan.postWriteback` 存在）**：状态或排期评论回读成功后，Leader 用最新有效、启用的 `## 周排期` 和 Asia/Shanghai 业务日期决定目标 Week：未开始取计划开始日期所在周，执行中取当天所在周，已结束跳过。目标不存在则创建，存在则关联当前 Issue；必须幂等，且只调整 Milestone。失败写入 `week-milestone-sync` 审计并重试，不撤回已确认的标签、Assignee、正文或评论。Harness 周一任务只接手已初始挂载的 Issue 做后续 rollover，不能替代此步骤。
-   - `shouldConfirm=false`（持久化 `full-auto`、`validate.ok` 且非 hard_gate）→ 直接执行；`shouldConfirm=true`（semi-auto / hard_gate / 有缺口 / 未选择模式）→ `AskUserQuestion` 确认后再执行；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。
+   - `shouldConfirm` 由**动作分层**决定（`gate.md`）：L1（无 gate 的机械流转）且 `validate.ok` → 直接执行；L2（有业务 gate）/ L3（hard_gate）→ 以 `confirmBatchTitle` 为题做一次 `AskUserQuestion` 批量确认后再执行（计划日期、GateSet 提案、Jenkins 参数并入同一次批量对话）；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。`run_mode` 仅作审计记录，不参与确认判定。
    - 任何标签/Assignee、合并评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
    - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
    - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
 
 `transition` 内部确定性编排 = 推导节点 + 评论字段扫描预填（`scanFieldsFromNotes`：精确 key 优先，缺失则按「实际日期 / 确认人 / 结论 / 依据」语义槽位回填，兼容 `render` 归一化评论）+ `validate` + `plan` + `render` + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。`evidence` 命令是独立的结构化取证工具（从 `## 状态变更` 块抽固定语义槽位，供 G1/G3/G11 人工排障），不参与 transition 内部预填。
 
-### 需求/方案变更闭环
+### 需求/方案变更闭环（区别于实施调整）
 
-实施、联调或测试中发现需求、技术方案、接口契约、数据模型、权限或页面路由有误时，禁止仅改代码/文档后继续推进。Leader 先回读 Issue 和当前 `test-plan.md`，调用 `change-impact` 预览并经确认新增不可变的 `glab-flow:change-impact:v1 status: open` 评论。输出的 `requiredArtifacts` 是最小闭环清单：按影响更新 proposal/design/test-plan、Apifox 资产、代码、周排期或发布材料；需要状态回退时再调用既有 `plan-return`，不得由变更单暗改标签。
+**「三类改」决策树——改完后，proposal / design / test-plan 里有没有任何一句话变成假的？**
 
-变更影响到测试计划时，必须递增 `plan-version`；既有 local/test AssetAudit 与 TestRun 会因版本不一致自动失效。完成所有清单项及相应 local/test 重测后，Leader 以刚回读的 notes 调用 `change-close` 生成 `status: closed` 回执。每一次 `transition`/`validate` 都检查未关闭影响单（G16）；任何 open 单都会阻断正向流转。排期维度仍须另走 `week-plan-change` 并将其回读证据写入 close；关闭单不能替代周排期评论或 Milestone 同步。
+- **没有一句话变假 → 实施调整，不开影响单**：行为本应符合已确认方案，只是从错误实现改为正确实现。开发中=自测迭代（节点内循环，修复后重跑 local，TestRun 最新事实覆盖）；测试中=测试问题评论（renderTestIssue）挂父需求 + 阻塞修复 + 复测，G11 收口，不退回节点。
+- **需求口径变假（范围/规则/验收变了）→ 变更**：`change` source=requirement（建议回退 待评审）。
+- **技术方案/契约变假（接口、数据模型、权限、路由与 design 不符）→ 变更**：`change` source=technical-design（建议回退 已评审）。
+- **实现/测试时才发现方案不可行 → 变更**：`change` source=implementation/test（建议回退 开发中）——注意这是「方案层偏差从实现侧暴露」，不是实现层 bug。
+
+`source` 表达「谁发现的偏差」，`scopes` 表达「什么维度错了」——两者正交；tier 由 scopes 定级，与 source 无关。
+
+发现产物层偏差（后三类）时，禁止仅改代码/文档后继续推进。Leader 先回读 Issue 和当前 `test-plan.md`，调用 `change`（首选；等价于 `change-impact` + 自动定级）预览并经确认新增不可变的 `glab-flow:change-impact:v1 status: open` 评论。输出的 `requiredArtifacts` 是最小闭环清单：按影响更新 proposal/design/test-plan、Apifox 资产、代码、周排期或发布材料；需要状态回退时再调用既有 `plan-return`，不得由变更单暗改标签。tier 由引擎从 open 单 scopes 重推导（禁自报）；若扩容实质改变门禁，`expandedGateSet` 经确认后写回 DU（棘轮只升不降）。
+
+变更影响到测试计划且定级为 T3/T4 时，必须递增 `plan-version`（`closeRequiresPlanVersionBump`）；既有 local/test AssetAudit 与 TestRun 会因版本不一致自动失效。T1/T2 轻量档关闭时豁免版本严格递增检查。完成所有清单项及相应环境重测后，Leader 以刚回读的 notes 调用 `change-close` 生成 `status: closed` 回执。每一次 `transition`/`validate` 都检查未关闭影响单（G16）；任何 open 单都会阻断正向流转。排期维度仍须另走 `week-plan-change` 并将其回读证据写入 close；关闭单不能替代周排期评论或 Milestone 同步。
 
 ### 周排期（Harness 协议）
 
@@ -173,15 +198,9 @@ Story 的 `已评审 → 开发中` 在既有「计划提测时间 / 计划上�
 
 排期变化不走状态流转：Leader 调用 `pnpm cli week-plan-change`，提供完整 replacement `weekPlan` 与变更日期、原排期、原因、影响、后续动作、负责人。它只产生一条含 `## 排期变更` 和 replacement `## 周排期` 的评论；按普通预览→确认→写入→回读执行，**不**改标签、Assignee、Issue 正文或既有评论。若计划为启用，引擎同时产生 `postWriteback.sync_week_milestone`，Leader 按上述规则即时重新同步。
 
-### 自动模式连续编排与失败处理
+### 批量推进（可选）
 
-已在开发入口持久化选择 `full-auto` 时，Leader 允许连续执行：**技术方案/技术方案评审 → 测试计划 → 编码 → local API + E2E → commit/push + feature MR → 合并到测试分支 → Jenkins 测试构建（唯一参数）→ test API + E2E → GitLab 写回并回读**。每个子步骤完成立即调用 `progress` 落盘；每次外部动作都记录动作、输入摘要、证据链接/版本和结果到 state 审计，Issue 写回仍逐阶段用 `state-writeback` 记 `metadata` / `state-comment` / `readback`。流程循环是 `transition → 执行动作 → 回读 → 下一 transition`，绝不以缓存跳过回读。
-
-外部动作或验证异常必须先调用 `automation-decision`，不得凭经验自行继续：临时失败仅允许 `attempt=0` 的一次重试；可恢复的证据缺失按 `repair` 自动修复后**重验**。测试失败、Git/语义冲突、不可自动补齐的人工证据、实质变更、权限拒绝和 hard_gate 都得到 `pause`，不得自动越过。Leader 在每次暂停都写统一暂停回执：`action`、`code`、`reason`、`requiredInput`、`currentStep`、`evidence`、`attemptedRecovery`、`resumeCommand`；回执与 state 审计落盘后才等待人工输入。
-
-Jenkins 仅用于测试构建。参数必须从配置、MR/目标分支和已回读版本**唯一推导**；无法唯一推导 job、branch、`test_version`、`DEPLOY_ENV`、`force_package` 等任何参数即 `pause`，展示候选和所需输入，不能猜测或复用旧值。生产部署、生产验收和关闭恒为人工动作，即使运行在 `full-auto` 也不能自动执行。
-
-引擎只提供 `transition` 和 `automation-decision` 等纯计算原语，循环在 Leader；遇 `!validate.ok`、暂停、hard_gate 或终态即停。
+连续推进多个节点：Leader 端循环 `transition →（shouldConfirm? 确认 : 直放）→ 执行 plan → 重新拉取 → 再 transition`，遇 `!validate.ok`（缺口）/ L2·L3 需确认 / 终态即停。引擎只提供 `transition` 原语，循环在 Leader（保纯计算）。
 
 ### 状态缓存
 
@@ -192,7 +211,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 # → 写到 <workspace.root>/.glab-flow/<iid>-state.json
 ```
 
-之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`writebackAudit`/`evidence`/`updatedAt` 写回该文件；`writebackAudit` 记录串行写回阶段，`evidence` 保存不可直接展示的环境执行 receipt。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签、正式评论和 run-state 的内部证据账本共同构成运行事实**：状态与交接内容以 GitLab 回读为准，环境门禁以 state.evidence 为准；缺失证据必须重跑，不能以自由文本补齐。
+之后每轮门禁写回 GitLab 成功后，更新 `cachedNode`/`cachedNodeAt`/`lastActions`/`writebackAudit`/`updatedAt` 写回该文件；`writebackAudit` 记录串行写回阶段。门禁走 `gate.md`；恢复（无参 `/glab-flow`）走 `resume.md`。**GitLab Issue 标签与评论是唯一真理**，state 仅是派生缓存——两者不一致时以 GitLab 回读为准（对账逻辑见 `resume.md`）。
 
 ### 学习闭环（learn）
 
@@ -215,7 +234,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 ## 门禁
 
-每节点门禁仪式（取证 → 校验 → 计划 → 预览 → 确认 → 应用，6 步不可跳序）+ semi/full-auto 模式 + hard_gate 红线，全部见 `gate.md`。SKILL.md 不重复展开。
+每节点门禁仪式（取证 → 校验 → 计划 → 预览 → 确认 → 应用，6 步不可跳序）+ 动作分层（L1/L2/L3）+ hard_gate 红线，全部见 `gate.md`。SKILL.md 不重复展开。
 
 ## 硬规则
 
@@ -223,15 +242,15 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 - 三类评审分离（G4）：reviewType 必须等于门禁要求，防技评/代码评审替代需求评审。
 - 门禁二值（G2）：通过走 `plan`，退回走 `plan-return`，没有"附带条件通过"。
-- hard_gate 人工（G3）：待发布 / 生产验收中 / 已完成 必须人工 `humanConfirmed`，无论 run 模式，不可关闭。
+- hard_gate 人工（G3，恒 L3）：待发布 / 生产验收中 / 已完成 必须人工 `humanConfirmed`，无论何种动作分层，不可关闭。
 - 冻结不改原文/评论（G7/G8）：永不 `update --description`，永不 edit/delete 已发评论。
 - 日期需确认（G10）：`datesConfirmed` 必须为真。
 - Assignee 必须 `@用户`（G6），不接受角色名占位。
 - 不建 Jira（G13）：流程只在 GitLab Issue 上走，不外建工单。
 - 测试问题挂父需求（G11）：阻塞发布问题全部验证通过才放行待发布。
-- 变更闭环（G16）：存在未关闭的需求/方案/实现/测试变更影响单时，不得继续正向流转。
-- 多环境测试：开发中→测试中必须有当前计划的 `local` Apifox 资产审计和 TestRun；测试中→待发布必须有同计划版本的 `test` 资产审计和 TestRun。单测、构建、静态检查和代码评审不能替代真实业务闭环执行。
-- feature MR 评审前置（G14）：测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）。
+- 变更闭环（G16）：存在未关闭的需求/方案/实现/测试变更影响单时，不得继续正向流转；变化分级 T1–T4，轻量档（T1/T2）关闭时的证据要求随级别降低（T3+ 才要求测试计划版本递增）。
+- 多环境测试：开发中→测试中必须有当前计划的 `local` Apifox 资产审计和 TestRun；测试中→待发布必须有同计划版本的 `test` 资产审计和 TestRun（优先取 DU 证据，Issue 评论兜底；环境集合按 GateSet）。单测、构建、静态检查和代码评审不能替代真实业务闭环执行。
+- feature MR 评审前置（G14，按 GateSet 生效）：DU GateSet `mrReview=true` 时，测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）；`mrReview=false`（如 frontend-copy）豁免该字段。
 - 需求评审取证（G15）：待评审→已评审必须完成所有 Issue 图片的 OCR+视觉核查；有前端页面/菜单/路由信号必须用代码核实实际 URL、组件与分流，找不到即统一提问、不能猜；并以 grilling 决策账本覆盖五类需求分支，任何未决问题都不通过。
 - 禁止测试先行仪式：不采用“先写失败测试再实现”的开发仪式；实现后必须完成定向测试、完整业务闭环、全量回归、类型检查和代码走查。
 
@@ -243,7 +262,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - 开发 → `sub-skills/git-ops.md` / `sub-skills/code-review.md`（实现后验证）
 - 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`（API）/ `sub-skills/test-flow-e2e.md`（前端 E2E）
 - 测试→待发布 MR 评审 → `sub-skills/mr-review.md`（G14，无 HIGH 残留才放行）
-- 发布 → `sub-skills/jenkins-deploy.md`（Jenkins 触发前必须单独确认 job/分支/部署参数；发布流转确认不等于构建参数确认）
+- 发布 → `sub-skills/jenkins-deploy.md`（test 构建参数默认值直用；生产部署前必须单独确认 job/分支/部署参数，发布流转确认不等于生产参数确认）
 - 运行时工具（非 vendor）见 `tools.md`（codegraph / *-reviewer / apifox-* / glab / MySQL MCP）
 
 自带 agent（随 skill 一起定义，直接 spawn）：
@@ -275,8 +294,8 @@ glab-flow 的同伴文件（与 SKILL.md 同目录 `skills/glab-flow/`，自包�
 - `config.md` —— 配置格式、字段语义、查找链。
 - `nodes.md` —— 节点契约（下一节点 / 必填项 / 门禁 / Assignee 角色 / 文档存储树）。
 - `guards.md` —— 护栏 G1–G16 完整判定。
-- `gate.md` —— 门禁仪式（6 步）+ run 模式 + hard_gate 红线。
-- `resume.md` —— 恢复 / 脏状态处理 / GitLab 对账。
+- `gate.md` —— 门禁仪式（6 步）+ 动作分层（L1/L2/L3）+ hard_gate 红线。
+- `resume.md` —— 恢复 / 对账（reconcile）/ 脏状态处理 / GitLab 对账。
 - `learn.md` —— 自我迭代闭环（capture / apply / upgrade ritual）。
 - `tools.md` —— 运行时工具依赖清单（glab / codegraph / *-reviewer / apifox-* / MySQL MCP，非 vendor）。
 - `sub-skills/*.md` —— 8 个内置子 skill（spec-author / git-ops / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）。

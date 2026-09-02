@@ -183,4 +183,21 @@ describe('团队交接评论（内部证据隔离）', () => {
     expect(result.ok).toBe(false);
     expect(result.reasons.join('\n')).toContain('内部执行证据');
   });
+
+  it('allows the generated DU evidence digest while isolating it from handoff validation', () => {
+    const payload: Payload = {
+      type: 'story', from: '测试中', to: '待发布',
+      fields: { 测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: '完整回归', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
+      du: {
+        iid: 22, type: 'story', cachedNode: '测试中', affectedScopes: ['functional'],
+        evidence: [{ kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: '2026-08-29T10:00:00Z', detailRef: 'report:101' }],
+        resources: [], metricEvents: [], updatedAt: '2026-08-29T10:00:00Z',
+      },
+      assigneeUser: '@dev',
+    };
+    const md = renderNodeComment(payload);
+    expect(md).toContain('## 证据摘要');
+    expect(md).toContain('- local：执行 v3 / passed / report:101');
+    expect(validatePublicComment(payload).ok).toBe(true);
+  });
 });

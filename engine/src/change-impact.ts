@@ -6,11 +6,14 @@ import type {
   ChangeScope,
   ChangeSource,
   GuardResult,
+  IssueNote,
   WritePlan,
 } from './types.js';
 import { parseTestPlan } from './test-run.js';
+import { chronologicalNotes } from './notes.js';
+import { classifyChangeTier, isLightTier } from './tier.js';
 
-const SCOPES = new Set<ChangeScope>(['functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release']);
+const SCOPES = new Set<ChangeScope>(['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release']);
 const SOURCES = new Set<ChangeSource>(['requirement', 'technical-design', 'implementation', 'test']);
 const ARTIFACTS = new Set<ChangeArtifact>(['proposal', 'design', 'test-plan', 'apifox-assets', 'implementation', 'local-rerun', 'test-rerun', 'week-plan', 'release-check']);
 const DEVELOPMENT_SCOPES = new Set<ChangeScope>(['functional', 'api-contract', 'data-model', 'permission', 'frontend-route']);
@@ -103,6 +106,7 @@ export function renderChangeImpact(impact: ChangeImpact, input: Pick<ChangeImpac
     '',
     '### 闭环规则',
     '',
+    '- 本单适用于产物层偏差（proposal/design/test-plan 有话变假）；纯实现缺陷修复请走测试问题评论+复测，勿开单。',
     '- 先按本单更新全部受影响产物；需要回退时用 plan-return，禁止直接改标签。',
     '- 测试计划受影响时必须递增 plan-version；旧环境测试证据随即失效。',
     '- 本单未关闭前，任何正向状态流转都会被阻断。',
@@ -120,6 +124,7 @@ export function buildChangeImpactPlan(input: ChangeImpactInput): { impact: Chang
 interface ChangeMarker {
   changeId: string;
   status: 'open' | 'closed';
+  scopes: ChangeScope[];
   requiredArtifacts: ChangeArtifact[];
   previousPlanVersion?: string;
   index: number;
@@ -135,11 +140,11 @@ function markerFields(raw: string): Map<string, string> {
 }
 
 /** Parses all immutable markers in chronological Issue notes; malformed marker blocks are explicit errors. */
-function parseMarkers(notes: { body: string }[]): { markers: ChangeMarker[]; errors: string[] } {
+function parseMarkers(notes: IssueNote[]): { markers: ChangeMarker[]; errors: string[] } {
   const markers: ChangeMarker[] = [];
   const errors: string[] = [];
   let index = 0;
-  for (const note of notes) {
+  for (const note of chronologicalNotes(notes)) {
     const blocks = note.body.matchAll(/<!--\s*glab-flow:change-impact:v1\r?\n([\s\S]*?)-->/g);
     for (const block of blocks) {
       const fields = markerFields(block[1] ?? '');
@@ -154,9 +159,16 @@ function parseMarkers(notes: { body: string }[]): { markers: ChangeMarker[]; err
         errors.push(`变更单 ${changeId} 含未知 requires 项，不能安全推进`);
         continue;
       }
+      // open 回执必须携带合法 scopes 行——关闭定级要靠它重推导，缺失/非法即无法收口。
+      const scopes = status === 'open' ? (fields.get('scopes') ?? '').split(',').map((v) => v.trim()).filter(Boolean) : [];
+      if (status === 'open' && (scopes.length === 0 || scopes.some((scope) => !SCOPES.has(scope as ChangeScope)))) {
+        errors.push(`变更单 ${changeId} 的 open 回执缺少合法 scopes 声明，无法推导关闭定级`);
+        continue;
+      }
       markers.push({
         changeId,
         status,
+        scopes: scopes as ChangeScope[],
         requiredArtifacts: required as ChangeArtifact[],
         ...(fields.get('previous-plan-version') && fields.get('previous-plan-version') !== 'none' ? { previousPlanVersion: fields.get('previous-plan-version') } : {}),
         index: index++,
@@ -166,7 +178,7 @@ function parseMarkers(notes: { body: string }[]): { markers: ChangeMarker[]; err
   return { markers, errors };
 }
 
-export function openChangeImpacts(notes: { body: string }[]): { open: ChangeMarker[]; errors: string[] } {
+export function openChangeImpacts(notes: IssueNote[]): { open: ChangeMarker[]; errors: string[] } {
   const { markers, errors } = parseMarkers(notes);
   const latest = new Map<string, ChangeMarker>();
   for (const marker of markers) latest.set(marker.changeId, marker);
@@ -174,7 +186,7 @@ export function openChangeImpacts(notes: { body: string }[]): { open: ChangeMark
 }
 
 /** G16: no normal state transition may bypass an unclosed change impact receipt. */
-export function validateChangeImpactClosure(notes: { body: string }[] = []): GuardResult {
+export function validateChangeImpactClosure(notes: IssueNote[] = []): GuardResult {
   const { open, errors } = openChangeImpacts(notes);
   const reasons = [...errors];
   if (open.length) reasons.push(`存在未闭环变更影响单：${open.map((item) => item.changeId).join('、')}。先完成受影响产物、必要回退与环境重测，再执行 change-close 并回读评论`);
@@ -202,10 +214,20 @@ export function validateChangeClose(input: unknown): GuardResult {
   const incomplete = target.requiredArtifacts.filter((artifact) => !nonEmpty(value.completed?.[artifact]));
   if (incomplete.length) return fail([...errors, `变更单 ${value.changeId} 尚未提供完成证据：${incomplete.join('、')}`], incomplete);
 
+  // 定级以 open 回执里冻结的 scopes 重推导为准（回读事实优先）；客户端 tier 仅交叉核对。
+  // 放在 test-plan 分支之外：tier 若获得块外效果，谎报不得因无 test-plan 要求而免检。
+  const derivedTier = classifyChangeTier(target.scopes);
+  if (value.tier !== undefined && value.tier !== derivedTier) {
+    return fail(
+      [`close tier 与 open 单 scopes 推导不符：open 单 ${value.changeId} 按 scopes（${target.scopes.join('、')}）推导为 ${derivedTier}，收到 ${value.tier}`],
+      ['tier'],
+    );
+  }
   if (target.requiredArtifacts.includes('test-plan')) {
     const parsed = parseTestPlan(value.testPlan);
     if (!parsed.ok) return fail([`变更单 ${value.changeId} 要求更新测试计划：${parsed.errors.join('；')}`], ['testPlan']);
-    if (target.previousPlanVersion) {
+    // 轻量关闭（spec §4.3）：T1/T2 无测试计划深度要求，跳过版本严格递增；未传 tier 按推导档执行。
+    if (!isLightTier(derivedTier) && target.previousPlanVersion) {
       const before = parseVersionOrdinal(target.previousPlanVersion);
       const after = parseVersionOrdinal(parsed.plan.version);
       if (before === undefined || after === undefined || after <= before) {

@@ -13,158 +13,13 @@ const VALID_REVIEW_EVIDENCE = {
 };
 
 /** 跑 CLI，stdin 喂 JSON，捕获 stdout（直接用 tsx，绕过 pnpm 的 script header 污染）。 */
-function cli(command: 'validate' | 'plan' | 'transition' | 'test-run' | 'asset-audit' | 'run-mode-select' | 'automation-decision' | 'evidence-record', stdin: object): { json: unknown; status: number | null; stderr: string } {
+function cli(command: 'validate' | 'plan' | 'test-run' | 'asset-audit' | 'resource' | 'change' | 'reconcile', stdin: object): { json: unknown; status: number | null; stderr: string } {
   const r = spawnSync(process.execPath, [TSX_CLI, CLI, command], {
     input: JSON.stringify(stdin),
     encoding: 'utf8',
   });
   return { json: r.stdout ? JSON.parse(r.stdout) : null, status: r.status, stderr: r.stderr ?? '' };
 }
-
-describe('cli render — 团队交接评论白名单', () => {
-  it('uses the same whitelist renderer as the Issue writeback', () => {
-    const result = spawnSync(process.execPath, [TSX_CLI, CLI, 'render'], {
-      input: JSON.stringify({
-        type: 'story', from: '开发中', to: '测试中', assigneeUser: '@qa',
-        fields: {
-          涉及项目与提测分支: 'service:test', 可测试版本: 'release-candidate-1', 本次改动: '完成主流程',
-          Apifox资产审计记录: 'internal-only', local测试执行记录: 'internal-only',
-        },
-      }),
-      encoding: 'utf8',
-    });
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('## 提测说明');
-    expect(result.stdout).toContain('涉及项目与提测分支：service:test');
-    expect(result.stdout).not.toContain('Apifox');
-    expect(result.stdout).not.toContain('internal-only');
-  });
-});
-
-describe('cli automation-decision', () => {
-  it('prints a decision as JSON', () => {
-    const result = cli('automation-decision', { event: { kind: 'transient_failure', detail: 'timeout' }, attempt: 0 });
-    expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({ action: 'retry', remainingRetries: 0, reason: expect.stringContaining('timeout') });
-  });
-
-  it.each([
-    { event: { kind: 'unknown', detail: 'x' }, attempt: 0 },
-    { event: { kind: 'completed' }, attempt: -1 },
-    { event: { kind: 'missing_evidence', detail: 'receipt absent', autoRecoverable: 'false' }, attempt: 0 },
-    { event: { kind: 'transient_failure' }, attempt: 0 },
-    { event: { kind: 'missing_evidence', detail: 'receipt absent' }, attempt: 0 },
-  ])('returns a JSON error and non-zero status for invalid input', (input) => {
-    const result = cli('automation-decision', input);
-    expect(result.status).toBe(1);
-    expect(result.json).toEqual(expect.objectContaining({ error: expect.any(String) }));
-  });
-
-  it.each([
-    ['transient retry exhausted', { kind: 'transient_failure', detail: 'network reset' }, 1, 'transient_failure_exhausted'],
-    ['test failure', { kind: 'test_failed', detail: 'TP-001 failed' }, 0, 'test_failed'],
-    ['Git conflict', { kind: 'git_conflict', detail: 'main diverged' }, 0, 'git_conflict'],
-    ['missing human evidence', { kind: 'missing_evidence', detail: 'approval absent', autoRecoverable: false }, 0, 'missing_human_evidence'],
-    ['material change', { kind: 'material_change', detail: 'API changed' }, 0, 'material_change'],
-    ['permission denied', { kind: 'permission_denied', detail: 'protected branch' }, 0, 'permission_denied'],
-    ['hard gate', { kind: 'hard_gate', detail: 'release approval' }, 0, 'hard_gate'],
-  ] as const)('prints every pause field for %s', (_label, event, attempt, code) => {
-    const result = cli('automation-decision', { event, attempt });
-
-    expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({
-      action: 'pause', code, reason: expect.stringContaining(event.detail), requiredInput: expect.any(String),
-    });
-    expect((result.json as { requiredInput: string }).requiredInput.trim().length).toBeGreaterThan(10);
-  });
-});
-
-describe('cli run-mode-select', () => {
-  const state = {
-    iid: '1', type: 'story', project: { host: 'h', id: '1' }, cachedNode: '', cachedNodeAt: 't0',
-    docVersion: 1, specDir: '/r/.glab-flow/1/spec', runMode: 'semi-auto', lastActions: [], spawnedAgents: [],
-    lessonsCaptured: 0, writebackAudit: [], progress: { node: '', done: [] }, updatedAt: 't0',
-  };
-
-  it('returns status 0 and the selected state for a valid selection', () => {
-    const result = cli('run-mode-select', { state, mode: 'full-auto', selectedBy: '  @owner ', now: ' t1 ' });
-    expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({ runModeSelection: { mode: 'full-auto', selectedAt: 't1', selectedBy: '@owner' } });
-  });
-
-  it.each([
-    ['empty selectedBy', { state, mode: 'full-auto', selectedBy: '   ', now: 't1' }],
-    ['invalid mode', { state, mode: 'manual', selectedBy: '@owner', now: 't1' }],
-    ['different second selection', {
-      state: { ...state, runModeSelection: { mode: 'full-auto', selectedAt: 't1', selectedBy: '@owner' } },
-      mode: 'semi-auto', selectedBy: '@owner', now: 't1',
-    }],
-  ])('returns status 1 and a JSON error for %s', (_label, input) => {
-    const result = cli('run-mode-select', input);
-    expect(result.status).toBe(1);
-    expect(result.json).toEqual(expect.objectContaining({ error: expect.any(String) }));
-  });
-});
-
-describe('cli transition — persisted development-entry mode selection', () => {
-  const body = '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n';
-  const pausedWeekPlan = `## 周排期
-
-- 计划开始：2026-08-17
-- 计划完成：2026-09-06
-- 计划覆盖周：W34 ～ W36
-- 自动 rollover：暂停`;
-  const input = {
-    type: 'story', iid: 42, labels: ['type::story', 'story-status::已评审'], body, notes: [{ body: pausedWeekPlan }], state: 'opened',
-    fields: {
-      技术方案评审通过记录或免评审结论: '通过', 实际开始日期: '2026-08-07', 研发Assignee: '@dev',
-      计划提测时间: '2026-08-08', 计划上线时间: '2026-08-09',
-      技术方案版本: 'v1', 方案概述: '按已评审需求实施', 影响模块: '服务与前端', 数据模型变更: '新增字段', API契约: '兼容现有接口',
-      前端页面与路由: '现有页面扩展', 权限与安全: '复用现有权限', 迁移与配置: '纳入发布', 测试计划摘要: '覆盖多环境',
-      风险与对策: '灰度验证', 回滚方案: '回滚版本',
-    },
-    datesConfirmed: true,
-  };
-
-  it('blocks an otherwise valid development transition without the persisted selection', () => {
-    const result = cli('transition', { ...input, runMode: 'full-auto' });
-    expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({
-      validate: { ok: true }, modeSelectionRequired: true, shouldConfirm: true,
-      missing: [expect.objectContaining({ field: 'runModeSelection' })],
-      preview: expect.stringContaining('run-mode-select'),
-    });
-    expect(result.json).not.toHaveProperty('plan');
-  });
-
-  it('allows an auditable persisted full-auto selection to skip confirmation', () => {
-    const result = cli('transition', {
-      ...input,
-      runMode: 'semi-auto',
-      runModeSelection: { mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' },
-    });
-    expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({
-      validate: { ok: true }, modeSelectionRequired: false, shouldConfirm: false,
-      plan: { ops: expect.any(Array) },
-      preview: expect.stringContaining('已持久化选择：@owner 于 2026-08-17T09:00:00Z'),
-    });
-  });
-
-  it.each([
-    ['empty selectedAt', { mode: 'full-auto', selectedAt: '  ', selectedBy: '@owner' }],
-    ['empty selectedBy', { mode: 'full-auto', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '  ' }],
-    ['invalid mode', { mode: 'manual', selectedAt: '2026-08-17T09:00:00Z', selectedBy: '@owner' }],
-  ])('treats a %s pseudo-selection as absent even with bare full-auto', (_label, runModeSelection) => {
-    const result = cli('transition', { ...input, runMode: 'full-auto', runModeSelection });
-    expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({
-      validate: { ok: true }, modeSelectionRequired: true, shouldConfirm: true,
-      missing: [expect.objectContaining({ field: 'runModeSelection' })],
-    });
-    expect(result.json).not.toHaveProperty('plan');
-  });
-});
 
 describe('cli validate — body passthrough (G6b reachable, ⑩)', () => {
   // 待评审→已评审：requiredFields 齐 + gateOutcome 通过 + reviewType 需求评审 + 日期已确认；
@@ -243,17 +98,17 @@ asset: TP-001 | scenario | scenario-101 | reuse
 -->`;
   const submit = {
     type: 'story' as const, from: '开发中', to: '测试中',
-    fields: { 代码评审结论: '通过', 提测日期: '2026-08-24', 研发Assignee: '@dev', 涉及项目与提测分支: 'service:test', 可测试版本: 'release-candidate-1', 本次改动: '完成需求', 测试范围: '核心业务流程', 环境准备与配置: '完成配置', 测试重点: '边界', 已知限制: '无阻塞限制' },
+    fields: { 代码评审结论: '通过', 提测日期: '2026-08-24', 研发Assignee: '@dev', 可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对' },
     assigneeUser: '@qa', datesConfirmed: true,
   };
   const accept = {
     type: 'story' as const, from: '测试中', to: '待发布',
-    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: '业务回归完成', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 业务覆盖范围: '核心业务流程', 缺陷处理结果: '阻塞问题已关闭', 遗留风险: '无阻塞遗留风险', 上线步骤: '按发布计划执行', 配置清单: '配置已核对', 回滚方案: '按发布计划回滚', 发布建议: '建议发布' },
+    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'report', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
     assigneeUser: '@dev', datesConfirmed: true,
   };
 
   it('enforces the same plan through legacy validate and plan commands', () => {
-    expect(cli('validate', { type: 'story', labels: ['type::story', 'story-status::开发中'], payload: submit }).json).toMatchObject({ ok: false, missing: expect.arrayContaining(['testPlan']) });
+    expect(cli('validate', { type: 'story', labels: ['type::story', 'story-status::开发中'], payload: submit }).json).toMatchObject({ ok: false, missing: ['testPlan'] });
     expect(cli('plan', { payload: submit, testPlan: plan, notes: [{ body: localAudit }, { body: localRun }] })).toMatchObject({ status: 0, json: { ops: expect.any(Array) } });
     expect(cli('validate', { type: 'story', labels: ['type::story', 'story-status::测试中'], payload: accept, testPlan: plan, notes: [{ body: localAudit }, { body: localRun }] }).json)
       .toMatchObject({ ok: false, missing: expect.arrayContaining(['testAssetAudit', 'testTestRun']) });
@@ -266,7 +121,7 @@ asset: TP-001 | scenario | scenario-101 | reuse
       run: { environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'passed', assetAudit: 'v3/local', cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/local' } },
     });
     expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({ validate: { ok: true }, receipt: expect.stringContaining('glab-flow:test-run:v1') });
+    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:test-run:v1') });
   });
 
   it('renders a parseable asset-audit preview without I/O', () => {
@@ -275,7 +130,7 @@ asset: TP-001 | scenario | scenario-101 | reuse
       audit: { environment: 'local', planVersion: 'v3', project: '8731182', branch: 'main', unresolvedFindings: 0, evidence: 'list-get:https://apifox.example/local', assets: [{ caseId: 'TP-001', type: 'scenario', id: 'scenario-101', action: 'reuse' }] },
     });
     expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({ validate: { ok: true }, receipt: expect.stringContaining('glab-flow:apifox-asset-audit:v1') });
+    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:apifox-asset-audit:v1') });
   });
 
   it('renders a v2 presentation and AuthProfile audit without credential values', () => {
@@ -291,7 +146,7 @@ asset: TP-001 | scenario | scenario-101 | reuse
       },
     });
     expect(result.status).toBe(0);
-    expect(result.json).toMatchObject({ validate: { ok: true }, receipt: expect.stringContaining('glab-flow:apifox-asset-audit:v2') });
+    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:apifox-asset-audit:v2') });
     expect(JSON.stringify(result.json)).not.toContain('password');
   });
 });
@@ -308,9 +163,6 @@ describe('cli Week Plan contract — legacy direct paths', () => {
     fields: {
       技术方案评审通过记录或免评审结论: '通过', 实际开始日期: '2026-08-07', 研发Assignee: '@dev',
       计划提测时间: '2026-08-08', 计划上线时间: '2026-08-09',
-      技术方案版本: 'v1', 方案概述: '按已评审需求实施', 影响模块: '服务与前端', 数据模型变更: '新增字段', API契约: '兼容现有接口',
-      前端页面与路由: '现有页面扩展', 权限与安全: '复用现有权限', 迁移与配置: '纳入发布', 测试计划摘要: '覆盖多环境',
-      风险与对策: '灰度验证', 回滚方案: '回滚版本',
     },
     assigneeUser: '@dev', datesConfirmed: true,
   };
@@ -348,25 +200,16 @@ describe('cli Week Plan contract — legacy direct paths', () => {
     ]) });
   });
 
-  it('validate rejects Story development entry with no latest Week Plan, while plan rejects the unsafe legacy path', () => {
+  it('validate and plan reject Story development entry with no latest Week Plan', () => {
     const input = { type: 'story', labels: ['type::story', 'story-status::已评审'], payload: developmentPayload };
-    expect(cli('validate', input)).toMatchObject({ status: 0, json: { ok: false, missing: expect.arrayContaining(['latestWeekPlan']) } });
-    expect(cli('plan', { payload: developmentPayload })).toMatchObject({
-      status: 1,
-      json: { error: expect.stringContaining('transition') },
-    });
+    expect(cli('validate', input)).toMatchObject({ status: 0, json: { ok: false, missing: ['latestWeekPlan'] } });
+    expect(cli('plan', { payload: developmentPayload })).toMatchObject({ status: 1, json: { ok: false, missing: ['latestWeekPlan'] } });
   });
 
-  it('plan rejects a valid Story development entry because only transition accepts persisted runModeSelection', () => {
+  it('plan accepts a paused latest Week Plan for Story development entry', () => {
     const { json, status } = cli('plan', { payload: developmentPayload, notes: [{ body: PAUSED_WEEK_PLAN_NOTE }] });
-    expect(status).toBe(1);
-    expect(json).toMatchObject({
-      error: expect.stringContaining('transition'),
-    });
-    expect(json).toMatchObject({
-      error: expect.stringContaining('runModeSelection'),
-    });
-    expect(json).not.toHaveProperty('ops');
+    expect(status).toBe(0);
+    expect(json).toHaveProperty('ops');
   });
 
   it.each([
@@ -379,5 +222,71 @@ describe('cli Week Plan contract — legacy direct paths', () => {
     expect(status).toBe(1);
     expect(json).toMatchObject({ ok: false, reasons: [expect.stringContaining('not allowed')] });
     expect(json).not.toHaveProperty('ops');
+  });
+});
+
+describe('cli resource — boundary validation', () => {
+  const du = {
+    iid: 88, type: 'story', cachedNode: '', affectedScopes: [], evidence: [],
+    resources: [], metricEvents: [], updatedAt: '2026-09-01T00:00:00Z',
+  };
+
+  it('exits non-zero when register is missing entry (no silent {} garbage)', () => {
+    const { status, stderr } = cli('resource', { du, op: 'register', now: '2026-09-01T00:00:00Z' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('register requires entry');
+  });
+
+  it('exits non-zero when dispose targets an unknown resourceId (no silent no-op)', () => {
+    const { status, stderr } = cli('resource', { du, op: 'dispose', resourceId: 'nope', disposal: 'deleted', now: '2026-09-01T00:00:00Z' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('unknown resourceId');
+  });
+
+  it('exits non-zero when op is not one of register|check|cleanup|dispose', () => {
+    const { status, stderr } = cli('resource', { du, op: 'purge', now: '2026-09-01T00:00:00Z' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('resource:');
+  });
+});
+
+describe('cli change / reconcile — boundary validation', () => {
+  const du = {
+    iid: 88, type: 'story', cachedNode: '开发中', affectedScopes: [], evidence: [],
+    resources: [], metricEvents: [], updatedAt: '2026-09-01T00:00:00Z',
+  };
+  const changeInput = {
+    iid: 88, type: 'story', currentNode: '开发中', changeId: 'C-1', proposer: '@dev',
+    changeDate: '2026-09-01', source: 'implementation', reason: 'r', scopes: ['functional'],
+  };
+
+  it('change exits non-zero when du is missing (no silent ratchet skip)', () => {
+    const { status, stderr } = cli('change', changeInput);
+    expect(status).toBe(1);
+    expect(stderr).toContain('change: du required');
+  });
+
+  it('reconcile exits non-zero when type is invalid', () => {
+    const { status, stderr } = cli('reconcile', { type: 'epic', labels: [], state: 'opened', du });
+    expect(status).toBe(1);
+    expect(stderr).toContain('reconcile:');
+  });
+
+  it('reconcile exits non-zero when labels is not an array', () => {
+    const { status, stderr } = cli('reconcile', { type: 'story', labels: 'story-status::开发中', state: 'opened', du });
+    expect(status).toBe(1);
+    expect(stderr).toContain('reconcile:');
+  });
+
+  it('reconcile exits non-zero when state is invalid', () => {
+    const { status, stderr } = cli('reconcile', { type: 'story', labels: [], state: 'locked', du });
+    expect(status).toBe(1);
+    expect(stderr).toContain('reconcile:');
+  });
+
+  it('reconcile exits non-zero when du is missing', () => {
+    const { status, stderr } = cli('reconcile', { type: 'story', labels: [], state: 'opened' });
+    expect(status).toBe(1);
+    expect(stderr).toContain('reconcile:');
   });
 });
