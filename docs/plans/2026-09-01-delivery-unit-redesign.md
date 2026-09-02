@@ -1261,7 +1261,7 @@ git commit -m "feat(reconcile): 外部事实对账——投影漂移二选一 + 
 - [ ] **Step 1: types.ts 定义**
 
 ```typescript
-/** DU 指标事件（spec §7）：Leader 记事件，引擎终态算汇总。 */
+/** DU 指标事件（指标事件）：Leader 记事件，引擎终态算汇总。 */
 export interface DuMetricEvent {
   at: string;
   kind: 'confirm' | 'transition' | 'rerun' | 'env-block' | 'rework' | 'manual-intervention';

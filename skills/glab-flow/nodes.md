@@ -1,6 +1,41 @@
 # 节点契约（引擎权威来源 = engine/state-machine.yaml；本表是 Leader 速查）
 
-**工作产物落点**：所有 issue 文档（需求草稿 / 技术方案 `design.md` / 测试计划 / 回滚等）→ `<workspace.root>/.glab-flow/<iid>/spec/`（路径来自 config，见 `config.md`；`<iid>` 为 GitLab Issue iid）。**禁止**写进业务代码仓的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一存储树见 spec §7。
+**工作产物落点**：所有 issue 文档（需求草稿 / 技术方案 `design.md` / 测试计划 / 回滚等）→ `<workspace.root>/.glab-flow/<iid>/spec/`（路径来自 config，见 `config.md`；`<iid>` 为 GitLab Issue iid）。**禁止**写进业务代码仓的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一文件管理规则见下方「产物文件管理」节。
+
+## 产物文件管理（本地 + Apifox 云端统一规则）
+
+**原则**：Apifox 是测试资产事实源（场景/套件/数据集/报告住云端，全团队可见）；本地只放引擎状态与过程产物（GitLab Issue 是流转真相，DU 是执行事实，其余皆可再生）。
+
+### 本地目录树与生命周期
+
+```
+<workspace.root>/.glab-flow/
+├─ test-config.md               # 项目级测试配置（一次建立，跨需求复用）
+├─ apifox-vars.json             # 凭据变量（凭据可持久化到 Apifox 后此文件可精简）
+├─ <iid>-state.json             # 流程状态缓存（GitLab 为真相，此为派生）
+└─ <iid>/                       # 需求工作目录
+   ├─ du.json                   # DU 主档（证据/资源/门禁单/指标——执行事实）
+   ├─ spec/                     # 正式产物：proposal.md / design.md / test-plan.md
+   │  └─ fixtures/*.sql         # 前置 seed（数据可重放的凭证，随计划保留）
+   ├─ e2e/*.spec.ts             # E2E 用例（按需求隔离）
+   ├─ lessons-*.jsonl           # run 内经验采集（learn 闭环消费）
+   └─ archive/                  # 过程产物唯一归档处（历史报告快照/中间文件）
+```
+
+**生命周期三阶段**：
+
+| 阶段 | 动作 |
+|---|---|
+| **流转中** | 产物按树归位，**禁止散落工作区根/全局位置**；E2E 临时执行位（`playwright-report/`、`test-results/`、根 `e2e/`）跑完即清；登录态文件用后即删 |
+| **终态钩子** | `resource --op cleanup` 出清单逐项处置（Apifox 侧 TMP 资产删除/升级共享）；本地的 lessons 先经 learn 升级审批再清理 |
+| **终态后** | `<iid>/` 整目录**保留**（spec 是团队 Docs-as-Code 资产、du.json 是审计证据、fixtures 是数据重放凭证——Issue 关闭不等于文档作废）；仅在「同需求 reopen 重做」或 workspace 容量治理时按用户指示清理 |
+
+### Apifox 云端资产治理
+
+- **资产归位**：场景按业务域、数据集按矩阵域、套件按用途（冒烟/回归/发布回归）建目录归位，不放根目录；空目录及时删（见 `sub-skills/test-design.md`）。
+- **TMP → 共享升级**：`TMP-<iid>-` 临时资产上线且矩阵稳定后去前缀升级共享（终态清理清单触发）；真实数据优先升级保留，占位数据删除。
+- **报告累积**：执行报告由 Apifox 云端保留（团队可查，**不在本地归档报告文件**——E4 回读后证据指针进 DU 即完成使命）；测试问题排查所需的报告详情直接给云端链接。
+- **凭据持久化**：测试账密可持久化到 Apifox 环境/全局变量（已裁定），`apifox-vars.json` 相应精简为环境切换所需的最小集。
 
 | 节点 | 工作agent | 产出 | 门禁 | 流转写回 |
 |---|---|---|---|---|
