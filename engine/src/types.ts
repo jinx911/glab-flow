@@ -236,34 +236,6 @@ export type LatestWeekPlan =
 
 export type RunMode = 'semi-auto' | 'full-auto';
 
-export type AutomationEvent =
-  | { kind: 'completed' }
-  | { kind: 'transient_failure'; detail: string }
-  | { kind: 'test_failed'; detail: string }
-  | { kind: 'git_conflict'; detail: string }
-  | { kind: 'missing_evidence'; detail: string; autoRecoverable: boolean }
-  | { kind: 'material_change'; detail: string }
-  | { kind: 'permission_denied'; detail: string }
-  | { kind: 'hard_gate'; detail: string };
-
-export type AutomationDecision =
-  | { action: 'continue'; reason: string }
-  | { action: 'retry'; remainingRetries: number; reason: string }
-  | { action: 'repair'; reason: string }
-  | {
-      action: 'pause';
-      code:
-        | 'transient_failure_exhausted'
-        | 'test_failed'
-        | 'git_conflict'
-        | 'missing_human_evidence'
-        | 'material_change'
-        | 'permission_denied'
-        | 'hard_gate';
-      reason: string;
-      requiredInput: string;
-    };
-
 /** 动作分层（spec §3.3）：L1 可逆/非生产自动执行；L2 业务判断批量确认；L3 不可逆恒人工。 */
 export type ActionTier = 'L1' | 'L2' | 'L3';
 
