@@ -74,12 +74,14 @@ gateMatrix:
     mrReview: true
     regression: full
     rollbackPlan: false
+    minUnitCases: 1
   rules:
     - scopes: [frontend-copy]
       skipStates: [测试中]
       environments: [local]
       mrReview: false
       regression: affected-cases
+      minUnitCases: 0
     - scopes: [functional]
       environments: [local, test]
       mrReview: false
@@ -93,3 +95,4 @@ gateMatrix:
       mrReview: true
       regression: full
       rollbackPlan: true
+      minUnitCases: 3
