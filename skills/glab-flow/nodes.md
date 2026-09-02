@@ -87,7 +87,7 @@ asset: TP-001 | suite-or-group
    - 输出的 `apifox.envId` 直接喂 Apifox CLI（`--project <projectId> --environment <envId>`）；`databases.*` 查 `config.md` 的 databases 得 MCP；`testData.prefix` 已替换 iid。
    - 文件不存在 → 引导用户按 `test-config.example.md` 建一次（每项目一次），**不让自测在无测试配置下裸跑**。字段细节见 `test-config.example.md`。
 1. **接口/API、E2E、数据、手工验证**：仅执行 test-plan 中对 local 声明的方法。接口和 E2E 均被计划要求时，两者都要完成；纯后端需求没有 e2e 用例时才不执行 E2E。
-2. **执行环境与版本**：先执行 `test-config --env local`，完成三段链路健康检查和本地运行版本校验；API 与 E2E 执行细节分别遵循 `sub-skills/test-flow-apifox.md` / `sub-skills/test-flow-e2e.md`。
+2. **执行环 E0–E4（`sub-skills/test-flow-apifox.md`）**：E0 上下文注入+**本环境数据整理**（跑前置 fixture、从本环境库取真实行值灌数据集，禁跨环境行值——数据要沉淀保留，假行值=毒资产）→ E1 预检（三段链路/运行版本/凭据/参数完备）→ E2 资产审计 → E3 执行 → E4 回读三核（saveDetailType/environmentName/stats）。失败按「失败回环」分流：改代码→该环境重跑；改资产→回 local 重跑；改计划→版本递增（三类改判据定是否开变更单）。
 3. **资产盘点并回读**：先查现有场景、套件/场景分组、测试数据和场景实例；复用优先，只有业务步骤/断言确有差异才新建。场景按“业务域/功能能力”命名，套件/分组仅承载稳定的冒烟/模块回归/发布回归入口；环境差异用 Profile、数据集或场景实例，不复制场景。临时数据使用 `TMP-<iid>-` 前缀（`resource --op check` 强制校验），创建即 `resource --op register` 登记，需求结束前清理或升级为共享资产。对计划声明 `presentation:` 的入口，额外回读 Apifox 页面名称、目录、标签和运行环境，并与报告 `environmentName` 核对；对 `auth-profile:`，回读登录后置临时变量和统一鉴权引用，但不记录任何凭据/token 值。以 `asset-audit` 生成并回读当前环境审计（事实记 DU），空场景、空套件/分组、空数据集、重复/孤儿资产、展示漂移或未清理临时数据均停止。
 4. **生成 TestRun 事实**：将每个计划用例的 `passed`、代码版本、`asset-audit: v3/local` 和 API/E2E/数据/手工证据记入 DU（`kind: test-run`、`environment: local`、`planVersion`、`outcome`、`detailRef` 指向报告/明细）；存量 Issue 也可发评论 marker 后回读。门禁只认该环境最新事实：
 

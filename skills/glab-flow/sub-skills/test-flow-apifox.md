@@ -109,6 +109,29 @@ auth-profile: TP-001 | client-user | auth_token
 
 人工执行也必须提供 reportId 并完成下述 `test-report get` 回读；没有可回读的详情报告就不能形成 TestRun。
 
+## 执行环（E0–E4，local 与 test 各跑一遍，环境有序不可跳）
+
+每次进入一个环境（local 在开发中收尾、test 在测试中第一步），按固定环执行；任一步失败停在该步，指明具体段，不裸跑：
+
+| 步 | 内容 | 失败处置 |
+|---|---|---|
+| **E0 上下文注入+数据整理** | `test-config --env <环境>` 拿全 envId/凭据/数据库 MCP/数据前缀；跑本环境前置 fixture（按 test-plan「前置 fixture」节顺序）；从**本环境库**取真实行值灌入本环境数据集（追加式，重灌先删旧行）；**禁跨环境行值** | 配置缺失/库不可连 → 停，报告缺口 |
+| **E1 预检** | 三段链路健康（下节）+ 运行版本校验 + 凭据解析 + 命令参数完备表 | 任一失败 → 停，指明哪段 |
+| **E2 审计** | 按 test-plan `asset:` 声明逐项回读盘点（上方「资产治理与审计」）；生成 `asset-audit` 记 DU | 空壳/漂移/未清理临时数据 → 停，处置后重审 |
+| **E3 执行** | 全参命令跑计划用例（下方 CLI 模板，`-e` 切环境） | 失败 → 走「失败回环」 |
+| **E4 回读三核** | `test-report get`：saveDetailType=all / environmentName=本环境 / stats 与 CLI 输出核对 | `none` 或环境不符 → 执行无效，带全参重跑 |
+
+E4 三核通过 + 最新资产审计通过 → `cli du record` 记本环境 TestRun 事实（kind/environment/planVersion/outcome/detailRef=报告指针），门禁消费。
+
+## 失败回环（执行侧规则，引擎版本失效之外的过程纪律）
+
+执行失败后按改动对象分流，**不笼统「修了重跑」**：
+
+1. **改了代码/环境**（实现缺陷，方案没错）→ 修复后**该环境重跑 E3-E4**，plan-version 不动——这是实施调整（见 SKILL.md「三类改」决策树），不开变更单。
+2. **改了资产**（场景步骤/断言/数据集结构）→ local 已跑过则**回 local 重跑** E2-E4（local 验证过的不是最终资产），再跑 test。
+3. **改了计划**（用例/范围/环境要求实质变化）→ 递增 `plan-version`，旧 TestRun/AssetAudit 自动失效；是否开变更单按「三类改」判据（改完后 proposal/design/test-plan 有话变假才开，T3+ 才强制版本递增闭环）。
+4. 修复动作跨环境（改了共享场景）→ 两环境都要重跑，不能只补失败的那个环境。
+
 ## 执行前预检（强制，任一失败停止执行）
 
 1. **三段链路健康**：登录入口（PHP 站，返回登录页/JSON，HTML 404 = API 配到了前端站）→ 接口网关（业务前缀非 text/html）→ 后端 service（健康检查）。失败时指明哪段断，修好前不跑套件。
@@ -173,7 +196,7 @@ apifox test-suite run <suiteId> --project <projectId> \
 - **环境轴**（每环境恰好一个值：账号/密码、供应商ID映射、company_id、data_prefix）→ `apifox-vars.json` 对应环境条目，场景里写 `{{key}}` 占位符，`-e` 切换自动跟随。**不放测试数据**——`-d` 是"把所有行跑一遍"，放环境参数会在同一 base_url 下用别环境的凭据跑一轮，必挂。
 - **轮次轴**（同环境内要跑 N 组：case_id/类型枚举/边界矩阵/员工号）→ **Apifox 云端数据集**（自动化测试 → 测试数据，按需求建目录归位），执行 `-d <testDataId>` 一行一轮迭代。矩阵通常与环境无关，建一份两环境共用。
 - **逻辑常量**（如 `end_date=9999-12-31`、`years=99`）→ 留在 case 请求体，抽到数据集丢语义。
-- **行值必须来自真实库**（编造员工号→业务 code≠0 假失败）；有前置 seed 的场景先跑 SQL fixture。
+- **行值必须来自本环境真实库**（编造员工号→业务 code≠0 假失败；且数据要沉淀保留，假行值=长期毒资产）；有前置 seed 的场景先跑 SQL fixture（E0 按计划顺序）。禁跨环境行值——详见 test-design.md「数据真实性铁律」。
 - **数据集写入通道**（实测打通）：元数据 CLI 建（`test-data create`，只收 name/type/folderId）；**行数据走 UI 内部 API**——浏览器登录 app.apifox.com 后同源 `POST /api/v1/projects/<pid>/test-data`，body `{relatedId:0, dataSetId, environmentId:0, data:"<CSV文本>", columns:{列:{generator:{type:"rule",config:{callee:"$special.manual"}}}}, relatedType:3}`；**POST 是追加不是覆盖**，重灌后删旧行（`DELETE /test-data/<rowId>`，先 `GET /test-data?dataSetId=` 列出）。CLI 官方 schema 无行字段。
   - ⚠️ **建数据集必须显式 `relatedType: "PUBLIC"`**：省略时服务端默认 `TEST_SCENARIO + relatedId=0`（绑定到不存在的场景）——数据集**从全局列表/目录树消失**（按 ID 直查还在，`-d` 也能跑，但页面看不见、无法管理）。踩坑实录：批量建 13 个漏了该字段，次日检查发现"只剩 1 个"，PUT 补 `relatedType:PUBLIC` 后全部恢复可见。
   - **沉淀后必检**：`test-data list` 数量与预期一致——不一致立即按 ID 直查排 relatedType。
