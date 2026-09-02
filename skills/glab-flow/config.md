@@ -30,7 +30,7 @@ stdin 是整份 markdown 文件内容，stdout 是 `GlabConfig` JSON。解析器
 - `gitlab.harness_clone` —— 目标 GitLab 项目的本地克隆路径（如 `/path/to/project`）。配了之后 Leader 可在该目录直接跑 `glab issue ...`，glab 自动从 remote 推断 host/project；不配则用 `glab api --hostname <host> "<path>"` 显式调用。
 - `branch_naming.format` —— 分支命名模板，默认 `"{type}/{iid}"`。
 - `branch_naming.type_map` —— Issue 类型到分支前缀的映射，默认 `{ story: feat, bug: fix }`。
-- `run_mode` —— `semi-auto`（默认）或 `full-auto`；决定门禁预览是展示后 AskUserQuestion 还是护栏 ok 即自动应用（hard_gate 两模式都强制人工，见 `gate.md`）。
+- `run_mode` —— `semi-auto`（默认）或 `full-auto`；**审计字段**：随 state 记录运行模式偏好，不参与确认判定——确认行为由动作分层决定（L1 自动 / L2 批量确认 / L3 hard_gate 恒人工，见 `gate.md`）。
 - `deploy_branch` —— 自动部署目标分支（如 `"test"`）；不配则发布节点跳过合并这一步。
 - `roles` —— 角色 → 默认 `@用户` 映射（如 `{ 产品: "@a", 研发: "@b", 测试: "@c" }`）。Issue 正文无「交付协同」表时，引擎按目标节点 `assigneeRole` 从此兜底，免去每个节点反复反问。
 - `jenkins.job_name` / `jenkins.branch_param` / `jenkins.default_params` —— 单仓 Jenkins 构建参数；`branch_param` 默认 `"branch"`。
@@ -80,7 +80,7 @@ Leader 启动 glab-flow 时按下面的顺序找第一份存在的配置文件�
 | `workspace.root` | 必填 | `workspace.root` | 业务工作区根；`.glab-flow/` 与 `<iid>/spec/` 落点 |
 | `branch_naming.format` | 可选 | `branchNaming.format` | 分支命名模板，默认 `"{type}/{iid}"` |
 | `branch_naming.type_map` | 可选 | `branchNaming.typeMap` | 类型→分支前缀映射，默认 `{ story: feat, bug: fix }` |
-| `run_mode` | 可选 | `runMode` | `semi-auto`（默认）或 `full-auto`；门禁执行模式 |
+| `run_mode` | 可选 | `runMode` | `semi-auto`（默认）或 `full-auto`；审计字段，不参与确认判定 |
 | `deploy_branch` | 可选 | `deployBranch` | 自动部署分支；不配则发布节点跳过合并 |
 | `roles` | 可选 | `roles` | 角色→默认 `@用户` 映射；无交付协同表时兜底 |
 | `jenkins.job_name` | 可选 | `jenkins.jobName` | 单仓 Jenkins 构建作业名 |

@@ -1,6 +1,8 @@
-import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep } from './types.js';
+import type { ActionTier, StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep } from './types.js';
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
-import { validateTransition } from './guard.js';
+import { validateTransition, effectiveRequiredFields } from './guard.js';
+import { deriveGateSet } from './gate-set.js';
+import { classifyAction, shouldConfirmFor } from './action-policy.js';
 import { parseAssigneeTable } from './parse.js';
 import { buildForwardPlan, buildWeekMilestoneSyncIntent } from './plan.js';
 import { parseLatestWeekPlan } from './week-plan.js';
@@ -140,7 +142,7 @@ const FIELD_TO_SLOT: ReadonlyMap<string, string> = (() => {
   return m;
 })();
 
-function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, playbook: PlaybookStep[], nodeProgress: string[]): string {
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, tier: ActionTier, playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
   const code = playbook.filter((s) => s.phase === 'pre-writeback');
@@ -158,7 +160,7 @@ function previewText(from: string, to: string, payload: Payload, validateOk: boo
   if (postReadback.length) {
     lines.push(`回读后动作（不得与状态写回并行）：\n${postReadback.map((s, i) => `  ${i + 1}. ${s.desc}`).join('\n')}`);
   }
-  lines.push(`run 模式：${runMode} → ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
+  lines.push(`动作分层：${tier} → ${shouldConfirm ? '批量确认后写回（Jenkins 参数并入本次确认）' : '自动写回（可逆/非门禁流转）'}；run 模式 ${runMode} 仅作审计记录`);
   return lines.join('\n');
 }
 
@@ -195,6 +197,14 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     };
   }
 
+  // 跳状态投影（GateSet.skipStates）：被跳过的节点直接推进到其下一节点。只跳一层。
+  // 校验/payload 仍按原转换（字段/门禁不放松——保守），仅标签写回与 next 输出用 effectiveTarget。
+  const skip = input.du?.gateSet?.skipStates ?? [];
+  const skipped = skip.includes(tr.to);
+  const effectiveTarget = skipped
+    ? (model[input.type].transitions.find((t) => t.from === tr.to)?.to ?? tr.to)
+    : tr.to;
+
   // 解析 Assignee：交付协同表 → config.roles → 输入；自动补 @
   const table = parseAssigneeTable(input.body);
   const role = tr.assigneeRole as string;
@@ -230,6 +240,7 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     to: tr.to,
     fields: { ...prefillFields, ...input.fields },
     ...(input.testPlan !== undefined ? { testPlan: input.testPlan } : {}),
+    ...(input.du ? { du: input.du } : {}),
     ...(input.gateOutcome ? { gateOutcome: input.gateOutcome } : {}),
     ...(input.reviewType ? { reviewType: input.reviewType } : {}),
     ...(input.reviewEvidence ? { reviewEvidence: input.reviewEvidence } : {}),
@@ -254,13 +265,17 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     ? buildWeekMilestoneSyncIntent({ ...payload, ...(bugWeekPlan ? { weekPlan: bugWeekPlan } : {}) })
     : undefined;
   const playbook = buildPlaybook(tr, input.config, !!weekMilestoneSync);
+  // 已评审→开发中 且声明维度 + 矩阵存在：推导 GateSet 提案（Leader 批量确认后写入 du——引擎不写）。
+  const proposedGateSet = input.type === 'story' && current === '已评审' && tr.to === '开发中' && input.declaredScopes?.length && model.gateMatrix
+    ? deriveGateSet(model.gateMatrix, input.declaredScopes)
+    : undefined;
 
-  // 缺口（必填未填）带 hint
+  // 缺口（必填未填）带 hint；豁免口径与 guard 一致（G14 按 GateSet），避免幽灵缺口（I3）
   const missing: MissingItem[] = [];
   if (!assigneeUser) {
     missing.push({ field: 'assigneeUser', hint: `@用户（角色=${role}）——来自交付协同表 / config.roles / 显式传入` });
   }
-  for (const f of tr.requiredFields) {
+  for (const f of effectiveRequiredFields(tr, input.du?.gateSet)) {
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
   }
@@ -274,31 +289,41 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     missing.push({ field: 'reviewEvidence', hint: '补齐图片 OCR/视觉摘要、页面地址的路由代码证据和 grilling 决策账本；页面地址无法确认或存在未决问题时，先在同一批评审问题中向产品确认' });
   }
   const runMode = input.runMode ?? 'semi-auto';
+  const action = classifyAction(tr);
+  const shouldConfirm = shouldConfirmFor(tr, validate.ok);
+  // 跳状态时标签写回用 effectiveTarget（校验已按原转换完成，字段不放松）。
+  const planPayload = skipped
+    ? (weekMilestoneSync && payload.type === 'bug' ? { ...payload, weekPlan: weekMilestoneSync.plan, to: effectiveTarget } : { ...payload, to: effectiveTarget })
+    : (weekMilestoneSync && payload.type === 'bug' ? { ...payload, weekPlan: weekMilestoneSync.plan } : payload);
   const plan = validate.ok
     ? buildForwardPlan(
-      weekMilestoneSync && payload.type === 'bug' ? { ...payload, weekPlan: weekMilestoneSync.plan } : payload,
+      planPayload,
       input.iid,
     )
     : undefined;
   const nodeProgress = progressStepsFor(model, current);
-  const shouldConfirm = runMode === 'semi-auto' || !!tr.hardGate || !validate.ok;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, playbook, nodeProgress);
+  const preview = previewText(current, effectiveTarget, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, action.tier, playbook, nodeProgress);
 
   return {
     node: current,
-    next: tr.to,
+    next: effectiveTarget,
     dirty: false,
     transition: tr,
     prefilled,
     missing,
     payload,
     validate,
-    comment: renderNodeComment(payload),
+    // 跳状态时评论头也写 effectiveTarget——评论须与标签写回一致（P5 reconcile 据评论对账）；
+    // NODE_CONTENT 未命中 from:to 会走 tail 兜底，安全。
+    comment: renderNodeComment(skipped ? { ...payload, to: effectiveTarget } : payload),
     plan,
     playbook,
     nodeProgress,
     preview,
     shouldConfirm,
+    actionTier: action.tier,
+    confirmBatchTitle: action.batchTitle,
+    ...(proposedGateSet ? { proposedGateSet } : {}),
     applied: false,
   };
 }

@@ -1,6 +1,6 @@
 # Artifact Receipt Contract Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** 逐任务执行本计划（每任务独立实现+审查）。Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Block state progression and node-step completion until every applicable formal artifact has an append-only GitLab/MR receipt that the Leader has read back and verified.
 

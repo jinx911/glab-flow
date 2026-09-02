@@ -31,7 +31,15 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 - 工具面：`codegraph_search` / `codegraph_context` / `codegraph_callers` / `codegraph_callees` / `codegraph_impact` / `codegraph_node` / `codegraph_explore` / `codegraph_files`。
 - 全量安装使用官方 `@colbymchenry/codegraph` CLI，执行 `codegraph install --target=auto --yes` 接入已发现的 Agent，并对业务工作区执行 `codegraph init`。`doctor` 要求 `.codegraph/` 和 `codegraph status` 都通过；缺失时 flow 不启动。
 
-### 3. `*-reviewer` agents —— 可选的栈专用加速器
+### 3. `grill-me` skill —— 需求/方案拷问（评审问题清单生成器）
+
+`grill-me`（`~/.claude/skills/grill-me/`）是独立的一次问全拷问 skill：五类分支决策账本（目标与范围/角色与权限/业务规则与边界/数据与兼容/验收与多环境验证）+ 条件式默认裁定 + 每题推荐答案，产出「一条合并问题评论 + JSON 决策账本」。
+
+- 使用方：`agents/review-preview.md`（待评审节点的问题清单与 reviewEvidence.grilling 填充）、`sub-skills/spec-author.md`（设计前 grilling）。
+- 消费契约：账本 `decisions[].question/recommendation` → `GrillingDecision`；`coverage` → G15 覆盖矩阵；`unresolved` 为空才可建议通过（引擎校验不变）。
+- **可选增强，非硬依赖**：未安装时按 grill-me 同款铁律（一次问全/条件式默认/事实自查/每题推荐）手工执行，产出等价的两份产物——flow 不因此中断。
+
+### 4. `*-reviewer` agents —— 可选的栈专用加速器
 
 栈专用 reviewer 可由 Leader 从 `~/.claude/agents/` 调用（不修改代码，只产出评审意见），但不是完整 flow 的外部前置依赖：未安装时，Leader 必须将本仓 `sub-skills/code-review.md` 的对应栈检查表作为 prompt 注入 `general-purpose` reviewer，产出同样的严重度结论；不得降级成不做评审。
 
@@ -43,7 +51,7 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 - 使用方：`sub-skills/code-review.md` 按改动文件的技术栈挑选调用；优先专用 agent，否则使用 vendor 的检查表生成通用 reviewer prompt。
 - 未安装某栈 reviewer → 记录该加速器缺失，但仍完成完整代码评审与门禁判断。
 
-### 4. Apifox CLI —— API 测试
+### 5. Apifox CLI —— API 测试
 
 接口测试**执行**直接使用全量安装的 Apifox CLI（用例设计归 `sub-skills/test-design.md`，执行归 `sub-skills/test-flow-apifox.md`）。本仓的子 skill 已包含编排、回读与证据契约，不依赖其他 Agent skill 包。
 
@@ -51,7 +59,7 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 - glab-flow **不自带 Apifox 云端资源**，但全量安装会安装最新 Apifox CLI 并要求安全登录；`doctor` 的 `apifox whoami` 未通过时 flow 不启动。具体项目/环境/测试数据仍由 `/init-glab-flow` 现场配置和回读。
 - 资产治理：场景、套件/场景分组、测试数据与场景实例由 Leader 通过当前 CLI `list/get` 回读后形成 `apifox-asset-audit`；引擎只校验该审计，不直接读写 Apifox。测试套件是否可用以当前项目 UI/CLI 为准，不硬编码为全项目必备能力。
 
-### 5. MySQL MCP —— 数据库查验（可选）
+### 6. MySQL MCP —— 数据库查验（可选）
 
 只读数据库访问（`mysql_query` 只读模式），用于验证生产/测试库的真实状态以佐证 Issue 判断。
 
@@ -61,14 +69,14 @@ CodeGraph 是基于 tree-sitter 的代码知识图谱（每个符号、边、文
 
 数据型需求（涉及库存/金额/统计等数据流）：技术方案必须说明代码数据流、数据源决策；如问题要求生产数据，必须附上只读生产取证与路由/授权限制。无法取得所需只读证据时，停止并请用户决定。
 
-### 6. `mr-review-lite` —— MR 评审（可选）
+### 7. `mr-review-lite` —— MR 评审（可选）
 
 feature→master MR 的评审运行时 skill（推断需求目标 / 需求↔代码一致性 / 识别需求外改动 / bug/回归）。
 
 - 使用方：`sub-skills/mr-review.md`（测试中→待发布 的 `mr_review` 步骤，G14）。
 - 优先用它；未安装 → mr-review 降级为自带 `code-review` sub-skill（含跨栈激活维度），结论标注「未用 mr-review-lite」。
 
-### 7. `e2e-runner` / Playwright —— 前端 E2E 执行（可选）
+### 8. `e2e-runner` / Playwright —— 前端 E2E 执行（可选）
 
 驱动真实浏览器跑 UI 关键流程（Vercel Agent Browser 的 `e2e-runner` 首选，Playwright 降级）。
 
@@ -76,7 +84,7 @@ feature→master MR 的评审运行时 skill（推断需求目标 / 需求↔代
 - 目标环境从 config 的 `test_environments` 取 URL + 账号，不依赖工作区 playwright.config 硬编码 baseURL。
 - 未安装 → 用 Playwright 或项目自带 E2E runner 按 test-plan.md 手动执行，标注降级。
 
-### 8. Jenkins 能力发现与手工降级
+### 9. Jenkins 能力发现与手工降级
 
 Jenkins 配置存在、或 skill 显示已安装，均不等于当前运行时可调用。每次 Jenkins-backed 提测前，Leader 先做**能力发现**：确认可调用的 Jenkins 工具、可读取的 job，以及已选择的 job/分支/环境参数。发现结果（automation 构建号/版本，或 manual 降级原因）写进「提测说明」合并评论。
 

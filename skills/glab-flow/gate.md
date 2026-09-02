@@ -1,17 +1,17 @@
 ---
 name: glab-flow-gate
-description: 每节点门禁仪式（取证→校验→计划→预览→确认→应用）+ semi/full-auto。
+description: 每节点门禁仪式（取证→校验→计划→预览→确认→应用）+ 动作分层 L1/L2/L3。
 ---
 
 # glab-flow 节点门禁仪式
 
-门禁是 glab-flow 流转的安全阀：在每个节点，Leader 必须按固定的 6 步仪式走完，才能把 Issue 推到下一节点。仪式把"取证 → 校验 → 计划 → 预览 → 确认 → 应用"串成一条不可跳序的管线，再叠加 run 模式（semi/full-auto）与 hard_gate 红线，确保每一次状态变更都可审计、可回溯、可中止。本文件规定仪式每一步的命令与判定，以及 run 模式如何影响"预览→应用"那一跳。
+门禁是 glab-flow 流转的安全阀：在每个节点，Leader 必须按固定的 6 步仪式走完，才能把 Issue 推到下一节点。仪式把"取证 → 校验 → 计划 → 预览 → 确认 → 应用"串成一条不可跳序的管线，再叠加动作分层（L1/L2/L3，决定"预览→应用"那一跳是否需要人）与 hard_gate 红线，确保每一次状态变更都可审计、可回溯、可中止。本文件规定仪式每一步的命令与判定，以及动作分层如何决定确认行为。
 
 ## 节点门禁仪式（transition 一键，每节点固定）
 
 仪式仍是「取证 → 校验 → 计划 → 预览 → 确认 → 应用」不可跳序的管线；前 4 步（取证/校验/计划/预览）由 `transition` **一次调用**完成，Leader 只在「确认 → 应用」那一跳介入。
 
-1. **一键 transition（取证+校验+计划+预览）**。Leader 先只读 glab：`glab issue view <iid> --output json` 取 labels/body/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100"` 取父 Issue 评论；有受影响 MR 时逐个取该 MR 的 notes。把刚回读的结果喂给：
+1. **一键 transition（取证+校验+计划+预览）**。Leader 先只读 glab：`glab issue view <iid> --output json` 取 labels/body/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100&page=1"` 取父 Issue 评论（**逐页翻到取空**——G16/G11b 依赖旧评论，单页截断=门禁失明，见 SKILL.md「notes 必须翻页取全」）；有受影响 MR 时逐个取该 MR 的 notes（同样翻页）。把刚回读的结果喂给：
 
    ```bash
    pnpm cli transition
@@ -26,8 +26,8 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
    `transition` 内部即「评论字段扫描（取证 + 预填）→ `validate`（校验）→ `plan`（计划）→ `render`（预览）」的顺序编排；`evidence` 命令是独立的结构化取证工具（不参与内部预填）；退回（G2 二值）仍走 `plan-return`。
 
-2. **执行 playbook + 确认/应用**。`playbook` 的相位固定为代码侧 `pre-writeback` → Issue 写回/回读 `issue-writeback` → 条件同步 `post-readback`。按 run 模式（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
-   - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——与 run_mode 无关**：full-auto 也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认 ≠ 参数确认，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
+2. **执行 playbook + 确认/应用**。`playbook` 的相位固定为代码侧 `pre-writeback` → Issue 写回/回读 `issue-writeback` → 条件同步 `post-readback`。按动作分层（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
+   - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等）。**每步完成即记 `state-writeback` 审计**（stage=`code-commit`/`code-merge`/`code-jenkins`，detail 含构建号/commit SHA）——E4 断点审计：任一步失败，恢复时只重试首个未完成的代码侧动作（Jenkins 已触发的看构建结果而不是重新触发），**不整链重放、已成功动作不再确认**。**test/非生产构建参数默认值直用**（测试数据与凭据同理，不逐参数确认；缺定义无默认值才一次问全）；**生产部署参数逐项确认**（L3 红线，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
    - **mr-review**：测试中→待发布 时，对每个受影响 feature→master MR 跑评审（G14，无 CRITICAL/HIGH 残留才放行），评审结论作为评论发到该 MR；父 Issue 汇总不能替代 MR-local 评审。
    - **issue_writeback（合并评论 + 三阶段串行，每阶段记 `writebackAudit`）**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令。按严格串行：**metadata**（标签 add/unlabel + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）→（终态时 close）→ **readback**（最终 Issue 回读）。内容体按节点类型见 `nodes.md`「节点内容评论」。
    - **post-readback `sync_week_milestone`**：仅当 `plan.postWriteback.action === 'sync_week_milestone'` 执行。回读最新有效且启用的周排期，按 Asia/Shanghai 日期选目标周（未开始=计划开始周，执行中=当天周，已结束=跳过），幂等创建/关联 Week Milestone。标题必须是 Harness 同一格式 `Week YYYY-Www`，创建时 `start_date`/`due_date` 为该 ISO 周的周一/周日；不能自行发明标题或日期。用项目数字 ID 的 GitLab API：先列出 active milestones 并精确匹配标题；缺失时 `POST projects/:project_id/milestones`，并发冲突则重新读取；最后仅 `PUT projects/:project_id/issues/:iid` 的 `milestone_id`。它只能调整 Milestone；绝不改 Issue 状态、负责人、正文或评论。失败记录 `week-milestone-sync` 后重试，不撤回已成功的 Issue 写回。
@@ -41,29 +41,32 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
    - **G7 不改原文**：永不 `glab issue update <iid> --description ...`，Issue 正文一旦创建即冻结。
    - **G8 不编评论**：永不 edit/delete 已发评论；评论只新增，不改写历史。
 
-   门禁**二值**（G2）——通过走 `transition`/`plan`，退回走 `plan-return`，没有"附带条件通过"；`hard_gate`（待发布 / 生产验收中 / 已完成）必须 `humanConfirmed`（G3），无论 run 模式如何都要人工拍板，这是不可关闭的红线。
+   门禁**二值**（G2）——通过走 `transition`/`plan`，退回走 `plan-return`，没有"附带条件通过"；`hard_gate`（待发布 / 生产验收中 / 已完成）必须 `humanConfirmed`（G3，恒 L3），无论何种动作分层都要人工拍板，这是不可关闭的红线。
 
-4. **变更闭环**（G16）。实施中发现需求、技术方案或既有实现错误，Leader 先回读 Issue notes 和当前 `test-plan.md`，以 `change-impact` 预览并确认新增 open 影响单。按其 `requiredArtifacts` 更新所有关联产物；需要返回评审/开发节点时用 `plan-return`，排期变化另走 `week-plan-change`。全部完成、测试计划版本递增及受影响环境重测后，使用刚回读的 notes 调 `change-close` 写 closed 回执。open 单存在时不允许调用普通 `transition` 继续推进。
+4. **变更闭环**（G16）。**先过「三类改」判据：改完后，proposal / design / test-plan 里有没有任何一句话变成假的？** 没有一句话变假 → 这不是变更，是**实施调整**，不开影响单——开发中=自测迭代重跑 local（节点内循环）；测试中=测试问题评论（renderTestIssue）+ 阻塞修复 + 复测，G11 收口。**有话变假**（偏差在产物层）才走本闭环：Leader 回读 Issue notes 和当前 `test-plan.md`，以 `change`（含 T1–T4 自动定级与 GateSet 棘轮扩容）预览并确认新增 open 影响单——`source` 表达「谁发现的偏差」（requirement=需求口径假 / technical-design=方案契约假 / implementation·test=实现或测试时才发现方案不可行，分别建议回退 待评审/已评审/开发中）。按其 `requiredArtifacts` 更新所有关联产物；需要返回评审/开发节点时用 `plan-return`，排期变化另走 `week-plan-change`。全部完成、按定级满足关闭要求（T3+ 须测试计划版本递增）及受影响环境重测后，使用刚回读的 notes 调 `change-close` 写 closed 回执。open 单存在时不允许调用普通 `transition` 继续推进。
 
 ### 脏状态（`transition.dirty=true` 直接识别）
 
 Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 
 - **0/≥2 状态标签**：状态标签被清掉或冲突（`pnpm cli node` 推不出唯一节点）。
-- **closed 但非终态**：Issue 已关闭但节点 ≠ 已完成（疑似被提前关闭）——reopen 或人工对账标签后重跑（详见 `resume.md`）。
+- **closed 但非终态**：Issue 已关闭但节点 ≠ 已完成（疑似被提前关闭）——先 `reconcile` 对账（`external-close` verdict 给出处理方向），或 reopen 后重跑（详见 `resume.md`）。
 
 两种都不写回 GitLab、不更新 `cachedNode`。用户在 GitLab UI 修好后重跑 `transition` 会重新识别。
 
-## run 模式（表）
+## 动作分层（表）
 
-`run_mode` 来自配置（`config.md` 的 `run_mode` 键）或 state 文件（`RunState.runMode`）。两模式只影响第 5 步"确认/应用"那一跳，前面 1–4 步（取证/校验/计划/预览）完全一致。
+`shouldConfirm` 由**动作分层**决定（`transition` 输出 `actionTier` + `confirmBatchTitle`）：转换带不带业务 gate、带不带回不可逆动作，决定这一跳是自动执行还是人工批量确认。`run_mode`（config `run_mode` 键 / `RunState.runMode`）退化为**审计字段**，仅随 state 记录运行模式偏好，不参与确认判定。
 
-| run 模式 | 门禁预览 | 自动应用范围 | hard_gate（待发布/验收/关闭） |
+| 分层 | 定义 | 例子 | 确认行为 |
 |---|---|---|---|
-| `semi-auto`（默认） | 展示 diff + `AskUserQuestion` 确认后再应用 | 不自动应用——每个节点都要用户点头 | **强制人工**（G3，不可关） |
-| `full-auto` | 仍展示 diff（可审计），但不阻塞 | 护栏 `ok:true` 即自动应用 glab 命令 | **强制人工**（G3，不可关） |
+| `L1`（gate===null） | 无业务判断的机械流转 | 草稿中→待评审、bug 已确认缺陷→开发中 | `validate.ok` 即自动执行，不打断 |
+| `L2`（gate!==null） | 带业务评审/放行判断的流转 | 待评审→已评审、已评审→开发中、开发中→测试中、测试中→待发布 | 以 `confirmBatchTitle` 为题做**一次** `AskUserQuestion` 批量确认 |
+| `L3`（hardGate） | 不可逆动作，恒人工 | 待发布→生产验收中、生产验收中→已完成 | 必须 `humanConfirmed`（G3），任何配置不可豁免 |
 
-**hard_gate 是红线**：待发布、生产验收中、已完成这三个节点带 `hard_gate` 标记（见 `nodes.md`），无论 semi 还是 full-auto，都必须 `humanConfirmed`（G3）才能流转——full-auto 在这里也要停下问人。原因：发布与验收的代价不可逆（生产流量、用户可见、关闭即归档），不能由护栏单独放行。这一条不接受配置覆盖。
+**Jenkins 参数（test 环境）不再独立确认**：默认值直用直接触发，参数清单进执行记录事后审计（已裁定打通，见 `sub-skills/jenkins-deploy.md`）；提测的 L2 批量确认只覆盖流转放行判断。缺参数定义且无默认值时才一次问全。生产部署参数确认不在此列（L3）。
+
+**hard_gate 是红线**：待发布、生产验收中、已完成这三个节点带 `hard_gate` 标记（见 `nodes.md`），L3 语义不变——无论 L1/L2 如何自动化，都必须 `humanConfirmed`（G3）才能流转。原因：发布与验收的代价不可逆（生产流量、用户可见、关闭即归档），不能由护栏单独放行。这一条不接受配置覆盖。
 
 ## 证据不足时
 
@@ -77,6 +80,8 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 
 agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 步重新取证、第 2 步重新校验，直到 `ok:true` 再建计划。换句话说：**门禁不通过 → 回去干活，而不是改门禁**。
 
+**证据源（DU 优先）**：local/test 的 AssetAudit 与 TestRun 优先从 DU 读取（`transition`/`validate` 的 stdin 传 `du`，引擎取该环境最新执行事实）；无 DU 的存量 Issue 自动回落 Issue 评论 marker 解析，不迁移。执行明细不再要求发 Issue 评论——Issue 只保留状态流转评论。
+
 ## 周排期门禁与独立变更
 
 Story `待评审→已评审` 的一键 `transition` 必须带有效 `weekPlan`；通过后，引擎把完整的 `## 周排期` 区块附加到这一次合并状态评论。Story `已评审→开发中` 必须以本轮刚读取的 Issue notes 检查**最新**区块：有效的「启用」和「暂停」都可通过，缺失则停。
@@ -89,13 +94,13 @@ Harness 的周一任务是**后续 rollover writer**，不是周内初始挂载�
 
 ## 需求/方案变更闭环
 
-`change-impact` 与 `change-close` 均是仅评论路径，和 `week-plan-change` 一样不修改标签、Assignee、正文或历史评论。区别是它们成对工作：open 记录冻结推进，closed 记录逐项完成证据。引擎只校验结构、清单和测试计划版本；Leader 负责实际修改产物、运行 local/test，以及每次评论写入后的回读。
+`change`（首选分级入口）与兼容保留的 `change-impact`/`change-close` 均是仅评论路径，和 `week-plan-change` 一样不修改标签、Assignee、正文或历史评论。区别是它们成对工作：open 记录冻结推进，closed 记录逐项完成证据。`change` 在此之上输出 T1–T4 定级（tier 从 open 单 scopes 重推导、禁自报）、GateSet 棘轮扩容提案（`expandedGateSet`，Leader 确认后写回 DU）与 `closeRequiresPlanVersionBump`（T3+ 才要求测试计划版本递增）。引擎只校验结构、清单和测试计划版本；Leader 负责实际修改产物、运行 local/test，以及每次评论写入后的回读。
 
 ## 引用
 
 - 护栏 G1–G16 的完整判定与触发条件见 `guards.md`。
 - 各节点的下一节点、必填项、门禁类型、Assignee 角色见 `nodes.md`。
-- run 模式在恢复场景下的取值（state vs config）见 `resume.md`。
+- `run_mode` 作为审计字段的取值（state vs config）见 `resume.md`；对账（`reconcile`）见 `resume.md`「脏状态」。
 # Apifox v2 资产审计补充
 
 当 `test-plan.md` 声明 `presentation: <case> | <asset-type>` 或 `auth-profile: <case> | <profile>` 时，local/test 的最新审计必须是 `glab-flow:apifox-asset-audit:v2`。v2 逐项记录预期页面环境、实际页面环境、报告环境，以及 profile 与临时 token 变量名；三种环境不一致、缺认证回执、未知声明或任何凭据/token 值均阻断对应的 AssetAudit 与 TestRun。

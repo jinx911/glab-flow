@@ -5,6 +5,8 @@ import { toFacts } from './gitlab.js';
 import { renderStatusChange } from './render.js';
 import { buildReturnPlan, buildForwardPlan, buildWeekPlanChangePlan } from './plan.js';
 import { runTransition } from './transition.js';
+import { computeNextStep } from './next-step.js';
+import type { NextStepInput } from './next-step.js';
 import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
@@ -12,12 +14,23 @@ import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
 import type { ApifoxAssetAudit, IssueNote, Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
 import type { ChangeCloseInput, ChangeImpactInput } from './types.js';
 import { buildChangeClosePlan, buildChangeImpactPlan, validateChangeClose, validateChangeImpactInput } from './change-impact.js';
+import { planChange } from './change.js';
+import type { ChangePlanInput } from './change.js';
+import { reconcileLabels } from './reconcile.js';
+import type { ReconcileInput } from './reconcile.js';
 import { progressCommand, stateWritebackCommand } from './cli-commands.js';
 import { checkRuntimeVersion } from './version.js';
 import { parseTestConfig, buildTestContext } from './test-config.js';
 import { parseLatestTestRun, parseTestPlan, renderTestRun, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, renderApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
-import type { TestRun } from './types.js';
+import { initDu, recordEvidence, bindGateSet, setCachedNode } from './du.js';
+import { parseAssetCatalog, renderAssetCatalog, searchCatalog, upsertCatalogEntry, catalogEntriesFromDisposal } from './asset-catalog.js';
+import type { AssetCatalogEntry } from './asset-catalog.js';
+import { buildReviewPack } from './review-pack.js';
+import type { ReviewPackInput } from './review-pack.js';
+import { checkResources, cleanupChecklist, disposeResource, registerResource } from './resource.js';
+import { recordMetric, summarizeMetrics } from './metrics.js';
+import type { DuMetricEvent, DuResourceEntry, DuState, TestRun } from './types.js';
 
 const model = loadModel();
 
@@ -68,6 +81,11 @@ async function main() {
     case 'transition': {
       const input = JSON.parse(readStdin()) as TransitionInput;
       console.log(JSON.stringify(runTransition(model, input)));
+      break;
+    }
+    case 'next': {
+      const input = JSON.parse(readStdin()) as NextStepInput;
+      console.log(JSON.stringify(computeNextStep(model, input)));
       break;
     }
     case 'test-run': {
@@ -209,8 +227,198 @@ async function main() {
       console.log(JSON.stringify(stateWritebackCommand(input)));
       break;
     }
+    case 'resource': {
+      // P4 资源登记表：DU 名下资源创建即登记，终态出清理清单，处置后回写。
+      const input = JSON.parse(readStdin()) as {
+        du?: DuState;
+        op?: 'register' | 'check' | 'cleanup' | 'dispose';
+        entry?: Omit<DuResourceEntry, 'disposedAt' | 'disposal'>;
+        resourceId?: string;
+        disposal?: 'deleted' | 'promoted-shared' | 'kept';
+        now?: string;
+      };
+      const ops = ['register', 'check', 'cleanup', 'dispose'] as const;
+      if (!input.du || !input.now || !ops.includes(input.op!)) {
+        throw new Error('resource: stdin requires du, now, and op (register|check|cleanup|dispose)');
+      }
+      if (input.op === 'register' && !input.entry) {
+        throw new Error('resource: register requires entry');
+      }
+      if (input.op === 'dispose' && (!input.resourceId || !input.disposal)) {
+        throw new Error('resource: dispose requires resourceId and disposal');
+      }
+      if (input.op === 'dispose' && !input.du.resources.some((r) => r.id === input.resourceId)) {
+        throw new Error(`resource: dispose unknown resourceId ${input.resourceId}`);
+      }
+      switch (input.op) {
+        case 'register':
+          console.log(JSON.stringify(registerResource(input.du, input.entry!, input.now)));
+          break;
+        case 'check':
+          console.log(JSON.stringify(checkResources(input.du)));
+          break;
+        case 'cleanup':
+          console.log(JSON.stringify(cleanupChecklist(input.du)));
+          break;
+        case 'dispose':
+          console.log(JSON.stringify(disposeResource(input.du, input.resourceId!, input.disposal!, input.now)));
+          break;
+        default:
+          throw new Error(`resource: unknown op ${String(input.op)}`);
+      }
+      break;
+    }
+    case 'change': {
+      // P5 变化分级：change-impact 闭环 + 定级 T1-T4 + GateSet 棘轮扩容（expandedGateSet 由 Leader 写回 DU）。
+      const input = JSON.parse(readStdin()) as ChangePlanInput;
+      if (!input.du || typeof input.du !== 'object') {
+        throw new Error('change: du required');
+      }
+      const result = planChange(model, input);
+      console.log(JSON.stringify(result));
+      if (!result.ok) process.exitCode = 1;
+      break;
+    }
+    case 'reconcile': {
+      // P5 对账：labels 与 DU cachedNode 漂移时给出二选一处理方向，不再当脏状态异常。
+      const input = JSON.parse(readStdin()) as ReconcileInput;
+      if ((input.type !== 'story' && input.type !== 'bug') || !Array.isArray(input.labels) || (input.state !== 'opened' && input.state !== 'closed') || !input.du || typeof input.du !== 'object') {
+        throw new Error('reconcile: stdin requires type (story|bug), labels (array), state (opened|closed), du');
+      }
+      console.log(JSON.stringify(reconcileLabels(model, input)));
+      break;
+    }
+    case 'metrics': {
+      // P6 交付指标：event 存在 → 记事件返回新 du（Leader 落盘）；否则纯汇总。
+      const input = JSON.parse(readStdin()) as { du: DuState; event?: DuMetricEvent };
+      if (!input.du || typeof input.du !== 'object') {
+        throw new Error('metrics: du required');
+      }
+      console.log(JSON.stringify(input.event ? recordMetric(input.du, input.event) : summarizeMetrics(input.du)));
+      break;
+    }
+    case 'du': {
+      // DU 写入面（终审遗留 Medium）：init/record/bind-gateset/cached-node 消除 Leader 手写 du.json。
+      // 引擎纯计算——返回新 DU 对象，落盘仍归 Leader（与 state 文件同模式）。
+      const input = JSON.parse(readStdin()) as {
+        op: 'init' | 'record' | 'bind-gateset' | 'cached-node';
+        iid?: number;
+        type?: 'story' | 'bug';
+        now?: string;
+        du?: DuState;
+        entry?: Parameters<typeof recordEvidence>[1];
+        scopes?: Parameters<typeof bindGateSet>[2];
+        node?: string;
+      };
+      const now = input.now ?? new Date().toISOString();
+      switch (input.op) {
+        case 'init': {
+          if (!input.iid || (input.type !== 'story' && input.type !== 'bug')) {
+            throw new Error('du: init requires iid (number) and type (story|bug)');
+          }
+          console.log(JSON.stringify(initDu({ iid: input.iid, type: input.type, now })));
+          break;
+        }
+        case 'record': {
+          const entry = input.entry;
+          if (!input.du || typeof input.du !== 'object') throw new Error('du: record requires du');
+          if (!entry || typeof entry !== 'object' || !entry.kind || !entry.environment || !entry.planVersion || !entry.outcome || !entry.recordedAt) {
+            throw new Error('du: record requires entry {kind, environment, planVersion, outcome, recordedAt, version?, detailRef?}');
+          }
+          if (entry.kind !== 'test-run' && entry.kind !== 'asset-audit') throw new Error(`du: record entry.kind must be test-run|asset-audit, got ${String(entry.kind)}`);
+          // H2：环境白名单硬校验（原逻辑写反，'Local'/'tset'/'prod' 全放行——错标环境=local 结果冒充 test 证据）。
+          if (entry.environment !== 'local' && entry.environment !== 'test') {
+            throw new Error(`du: record entry.environment must be exactly 'local'|'test', got '${String(entry.environment)}'`);
+          }
+          // H2：detailRef 环境注记双写校验——记录的环境必须与报告指针注记一致，错标从静默变必错。
+          if (entry.detailRef) {
+            const m = String(entry.detailRef).match(/(?:^|[^a-z])(local|test)(?![a-z])/i);
+            if (m && m[1]!.toLowerCase() !== entry.environment) {
+              throw new Error(`du: record detailRef 环境注记 '${m[1]}' 与 entry.environment '${entry.environment}' 不符——请核对报告归属环境`);
+            }
+          }
+          // H1：test-run 必须带被测版本（E4 从报告/actuator 回读），占位符拒绝——防「复测跑在旧版本上」无人察觉。
+          if (entry.kind === 'test-run' && (!entry.version || !String(entry.version).trim() || String(entry.version).trim() === 'du')) {
+            throw new Error("du: record test-run requires entry.version（本环境实际运行版本，从报告回读/actuator——不许占位）");
+          }
+          console.log(JSON.stringify(recordEvidence(input.du, entry, now)));
+          break;
+        }
+        case 'bind-gateset': {
+          if (!input.du || typeof input.du !== 'object') throw new Error('du: bind-gateset requires du');
+          if (!Array.isArray(input.scopes) || input.scopes.length === 0) throw new Error('du: bind-gateset requires scopes (non-empty ChangeScope[])');
+          if (!model.gateMatrix) throw new Error('du: bind-gateset requires gateMatrix in state-machine.yaml');
+          console.log(JSON.stringify(bindGateSet(input.du, model.gateMatrix, input.scopes, now)));
+          break;
+        }
+        case 'cached-node': {
+          if (!input.du || typeof input.du !== 'object') throw new Error('du: cached-node requires du');
+          if (typeof input.node !== 'string' || !input.node.trim()) throw new Error('du: cached-node requires node (non-empty)');
+          console.log(JSON.stringify(setCachedNode(input.du, input.node, now)));
+          break;
+        }
+        default:
+          throw new Error(`du: unknown op ${String(input.op)}`);
+      }
+      break;
+    }
+    case 'catalog': {
+      // R1/E5 资产目录：workspace 级共享资产检索。stdin {op, ...}；文件由 Leader 落盘
+      // <workspace.root>/.glab-flow/asset-catalog.md（与 state/du 同模式，引擎只算）。
+      const input = JSON.parse(readStdin()) as {
+        op: 'search' | 'upsert' | 'render' | 'from-disposal';
+        catalog?: string;
+        domain?: string;
+        keyword?: string;
+        entry?: AssetCatalogEntry;
+        du?: DuState;
+        now?: string;
+      };
+      switch (input.op) {
+        case 'search': {
+          const parsed = parseAssetCatalog(input.catalog);
+          if (!parsed.ok) throw new Error(`catalog: ${parsed.errors.join('；')}`);
+          console.log(JSON.stringify(searchCatalog(parsed.entries, input.domain, input.keyword)));
+          break;
+        }
+        case 'upsert': {
+          const parsed = parseAssetCatalog(input.catalog);
+          if (!parsed.ok) throw new Error(`catalog: ${parsed.errors.join('；')}`);
+          if (!input.entry || typeof input.entry !== 'object' || !input.entry.domain || !input.entry.name || !input.entry.apifoxId || !input.entry.kind || !input.entry.covers) {
+            throw new Error('catalog: upsert requires entry {domain, name, apifoxId, kind, covers, registeredAt?}');
+          }
+          console.log(renderAssetCatalog(upsertCatalogEntry(parsed.entries, input.entry)));
+          break;
+        }
+        case 'render': {
+          const parsed = parseAssetCatalog(input.catalog);
+          if (!parsed.ok) throw new Error(`catalog: ${parsed.errors.join('；')}`);
+          console.log(renderAssetCatalog(parsed.entries));
+          break;
+        }
+        case 'from-disposal': {
+          if (!input.du || typeof input.du !== 'object') throw new Error('catalog: from-disposal requires du');
+          console.log(JSON.stringify(catalogEntriesFromDisposal(input.du, input.now ?? new Date().toISOString())));
+          break;
+        }
+        default:
+          throw new Error(`catalog: unknown op ${String(input.op)}`);
+      }
+      break;
+    }
+    case 'review-pack': {
+      // 评审上下文包：spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令，标准化喂给 reviewer。
+      const input = JSON.parse(readStdin()) as ReviewPackInput;
+      const result = buildReviewPack(model, input);
+      if ('error' in result) {
+        console.error(`review-pack: ${result.error}`);
+        process.exit(1);
+      }
+      console.log(JSON.stringify(result));
+      break;
+    }
     default:
-      console.error('commands: node | validate | render | plan | transition | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | evidence | config | version | test-config | state-init | state-writeback | progress');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics | du | review-pack | catalog');
       process.exit(1);
   }
 }

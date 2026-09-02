@@ -1,6 +1,6 @@
 # Apifox 资产治理实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement task-by-task. Per user instruction, implement each task first, then add or update focused tests and run verification.
+> **For agentic workers:** 逐任务执行本计划。 Per user instruction, implement each task first, then add or update focused tests and run verification.
 
 **Goal:** 让场景、套件/场景分组、测试数据和场景实例成为可复用、可回读、可审计的 Apifox 测试资产，并使有效资产审计成为 local/test TestRun 的前置。
 
@@ -63,7 +63,7 @@
 
 **Files:**
 - Modify: `engine/src/process-contract.test.ts`
-- Modify: `docs/superpowers/plans/2026-08-24-multi-environment-test-runs.md`
+- Modify: `docs/plans/2026-08-24-multi-environment-test-runs.md`
 
 - [x] 增加流程契约断言：资产审计 marker、四类资产、套件能力发现、临时数据生命周期、无审计则不能 TestRun、Apifox I/O 仍由 Leader 负责。
 - [x] 将前一份多环境计划标记为已完成，并在本计划完成后标记本计划全部步骤。

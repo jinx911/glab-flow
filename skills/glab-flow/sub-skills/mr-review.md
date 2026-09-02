@@ -22,8 +22,9 @@ MR 评审优先用 **`mr-review-lite`**（外部运行时 skill，见 `../tools.
 调用约定（与 `test-flow-apifox.md` 一致）：
 
 - **同步取结果**：拿到结构化问题清单（严重度/文件/行/问题/建议）再判定，不异步丢任务。
-- **对齐需求**：把父 Issue 正文 + proposal.md/design.md 喂给评审，让它对齐需求目标。
+- **对齐需求**：把父 Issue 正文 + proposal.md/design.md 喂给评审，让它对齐需求目标。标准化材料用 `review-pack` 命令产出（spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令），与 MR diff 一起注入，不手工拼。
 - **降级标注**：用 `code-review` 降级时，结论里标注「未用 mr-review-lite，code-review 评审」。
+- **增量评审（Q3：不与开发期评审重复劳动）**：开发期 code-review 已评过 feature diff。评审输入追加「开发期评审结论 + 评审基线 commit（code-review 完成时的 HEAD）」——与 MR HEAD 比对：无新提交且无 CRITICAL/HIGH 残留时，重叠维度（正确性/安全/性能/栈实践）不重评，只做下方 MR 专属三维度；有新提交则重叠维度只评 `基线..HEAD` 增量。第一轮已显式记录「接受理由+确认人」的遗留项不重复报告（除非增量触碰同一文件）。
 
 ## 评审维度（MR 专属，区别于开发期代码评审）
 

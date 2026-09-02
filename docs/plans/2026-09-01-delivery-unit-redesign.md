@@ -1,14 +1,14 @@
 # 交付工作包核心模型重设计 实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** 逐任务执行本计划（每任务派独立实现 agent + 规格审查 + 质量审查，或本会话内按序执行）。Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 把 glab-flow 从「状态机中心」重构为「交付工作包（DU）中心」：动作分层（L1/L2/L3）、维度推导门禁集（GateSet）、资源一等模型、最短路径视图、变化分级与对账。
 
 **Architecture:** 引擎保持纯计算（零 I/O、GitLab 写回仍由 Leader 跑 glab）。新增 `DuState`（本地主档：事实/门禁集/资源/指标）；`transition` 输入接入 DU 后按 GateSet 跳状态、按动作分层决定确认；Issue 评论只保留状态流转。护栏 G1–G16 不删，改为按 GateSet 生效。
 
-**Tech Stack:** TypeScript (Node 20+, ESM)、yaml、vitest、tsx CLI。spec 见 `docs/superpowers/specs/2026-09-01-delivery-unit-redesign.md`。
+**Tech Stack:** TypeScript (Node 20+, ESM)、yaml、vitest、tsx CLI。spec 见 `docs/specs/2026-09-01-delivery-unit-redesign.md`。
 
-**验证方式（用户明确不要 TDD）:** 每任务先写实现，再写验证测试（实现后验证），跑定向测试 + `pnpm test` 全量 + `pnpm typecheck`，绿了才 commit。禁止测试先行仪式。
+**验证方式（用户明确不要测试先行）:** 每任务先写实现，再写验证测试（实现后验证），跑定向测试 + `pnpm test` 全量 + `pnpm typecheck`，绿了才 commit。禁止测试先行仪式。
 
 **术语:** DU = DeliveryUnit 交付工作包；DU 本地文件 = `<workspace.root>/.glab-flow/<iid>/du.json`（Leader 落盘，引擎只算，与 state 文件同目录同模式）。
 
@@ -1261,7 +1261,7 @@ git commit -m "feat(reconcile): 外部事实对账——投影漂移二选一 + 
 - [ ] **Step 1: types.ts 定义**
 
 ```typescript
-/** DU 指标事件（spec §7）：Leader 记事件，引擎终态算汇总。 */
+/** DU 指标事件（指标事件）：Leader 记事件，引擎终态算汇总。 */
 export interface DuMetricEvent {
   at: string;
   kind: 'confirm' | 'transition' | 'rerun' | 'env-block' | 'rework' | 'manual-intervention';
