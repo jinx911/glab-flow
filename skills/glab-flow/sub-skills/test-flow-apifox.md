@@ -127,7 +127,7 @@ E4 三核通过 + 最新资产审计通过 → `cli du record` 记本环境 Test
 
 执行失败后按改动对象分流，**不笼统「修了重跑」**：
 
-1. **改了代码/环境**（实现缺陷，方案没错）→ 修复后**该环境重跑 E3-E4**，plan-version 不动——这是实施调整（见 SKILL.md「三类改」决策树），不开变更单。
+1. **改了代码/环境**（实现缺陷，方案没错）→ 修复后**test 环境先重新部署并核对版本**（E1 版本校验对 Jenkins 部署产物），再该环境重跑 E3-E4，plan-version 不动——这是实施调整（见 SKILL.md「三类改」决策树），不开变更单。**禁止跳过重部署直接复测**：复测跑在修复前旧版本上，全绿也是假证据。
 2. **改了资产**（场景步骤/断言/数据集结构）→ local 已跑过则**回 local 重跑** E2-E4（local 验证过的不是最终资产），再跑 test。
 3. **改了计划**（用例/范围/环境要求实质变化）→ 递增 `plan-version`，旧 TestRun/AssetAudit 自动失效；是否开变更单按「三类改」判据（改完后 proposal/design/test-plan 有话变假才开，T3+ 才强制版本递增闭环）。
 4. 修复动作跨环境（改了共享场景）→ 两环境都要重跑，不能只补失败的那个环境。
@@ -135,7 +135,7 @@ E4 三核通过 + 最新资产审计通过 → `cli du record` 记本环境 Test
 ## 执行前预检（强制，任一失败停止执行）
 
 1. **三段链路健康**：登录入口（PHP 站，返回登录页/JSON，HTML 404 = API 配到了前端站）→ 接口网关（业务前缀非 text/html）→ 后端 service（健康检查）。失败时指明哪段断，修好前不跑套件。
-2. **运行版本校验**（本地环境）：优先 `/actuator/info` 读 commit SHA，与当前工作树 `git log -1` 比对；不一致 → 要求重建重启，不跑源码新/旧 class 的假验证。
+2. **运行版本校验**（每环境必做，不只 local）：优先 `/actuator/info` 读 commit SHA——local 与当前工作树 `git log -1` 比对；**test 与本次 Jenkins 部署产物比对**（提测/复测重部署的构建号或部署后 actuator 回读的 SHA）。不一致 → local 要求重建重启、test 要求重新部署，不跑源码新/旧 class 的假验证。版本值回读后作为 `du record` 的 `version` 必填字段——它就是「复测没跑在旧版本上」的核对物。
 3. **凭据运行时注入**：从 test-flow 项目配置读凭据（keychain:// 或环境变量引用），解析失败停下问用户，不跑假登录；凭据不持久化到 Apifox 全局变量。
 4. **命令参数完备**：套件/场景 run 命令必须逐项含 `-e <envId>`、`--variables <vars文件>`、`--carry-runtime-variables`、`--upload-report detail`、（矩阵场景）`-d <testDataId>`——发命令前对照模板逐项核对，缺任一即废命令重拼，**不跑缺参命令**。
 
@@ -194,7 +194,7 @@ apifox test-suite run <suiteId> --project <projectId> \
 区分标准是**参数在哪根轴上有多个值**，不是参数种类（账号和业务参数走同一机制）：
 
 - **环境轴**（每环境恰好一个值：账号/密码、供应商ID映射、company_id、data_prefix）→ `apifox-vars.json` 对应环境条目，场景里写 `{{key}}` 占位符，`-e` 切换自动跟随。**不放测试数据**——`-d` 是"把所有行跑一遍"，放环境参数会在同一 base_url 下用别环境的凭据跑一轮，必挂。
-- **轮次轴**（同环境内要跑 N 组：case_id/类型枚举/边界矩阵/员工号）→ **Apifox 云端数据集**（自动化测试 → 测试数据，按需求建目录归位），执行 `-d <testDataId>` 一行一轮迭代。矩阵通常与环境无关，建一份两环境共用。
+- **轮次轴**（同环境内要跑 N 组：case_id/类型枚举/边界矩阵/员工号）→ **Apifox 云端数据集**（自动化测试 → 测试数据，按需求建目录归位），执行 `-d <testDataId>` 一行一轮迭代。**testDataId 从 test-plan 映射表当前环境行取**——行值含环境业务键（员工号/单号）时每环境各建一份（同名、环境属性区分），仅行值在两环境库都真实存在才共用一份（映射表标「共用」）。
 - **逻辑常量**（如 `end_date=9999-12-31`、`years=99`）→ 留在 case 请求体，抽到数据集丢语义。
 - **行值必须来自本环境真实库**（编造员工号→业务 code≠0 假失败；且数据要沉淀保留，假行值=长期毒资产）；有前置 seed 的场景先跑 SQL fixture（E0 按计划顺序）。禁跨环境行值——详见 test-design.md「数据真实性铁律」。
 - **数据集写入通道**（实测打通）：元数据 CLI 建（`test-data create`，只收 name/type/folderId）；**行数据走 UI 内部 API**——浏览器登录 app.apifox.com 后同源 `POST /api/v1/projects/<pid>/test-data`，body `{relatedId:0, dataSetId, environmentId:0, data:"<CSV文本>", columns:{列:{generator:{type:"rule",config:{callee:"$special.manual"}}}}, relatedType:3}`；**POST 是追加不是覆盖**，重灌后删旧行（`DELETE /test-data/<rowId>`，先 `GET /test-data?dataSetId=` 列出）。CLI 官方 schema 无行字段。

@@ -24,7 +24,7 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 
 工具是**运行时依赖**（见 `../tools.md`），glab-flow 不自带浏览器能力，只提供执行方法论与结果契约。调用约定（与 `test-flow-apifox.md` 一致）：
 
-- **目标环境从 config 取**：`test_environments`（见 `../test-config.md`）选定环境 URL + 账号，不依赖工作区 playwright.config 的硬编码 baseURL。
+- **目标环境唯一取 test-config 的 `webUrl`**（`test-config --env <环境>` 输出，见 nodes.md「三个入口」）：E2E 入口与 API 的 Apifox 环境 baseUrl **必须同源同环境**——执行前核对 webUrl 主机与该环境 Apifox baseUrl 指向同一环境（同 host 域段或人工确认一致），**禁止 API 跑 test、浏览器打 local** 的分裂配置；两源不一致 → 停下修配置，不带着分裂跑。不依赖工作区 playwright.config 的硬编码 baseURL。
 - **同步取结果**：执行后必须拿到结构化结果（通过/失败 + 失败明细 + 截图/trace），不异步丢任务。
 - **对齐 test-plan.md**：执行范围对齐 test-design 的 e2e 用例编号，结果回填到用例编号，便于追溯。
 - **未装 e2e-runner 时降级**：Leader 不报错中止，改用 Playwright（或项目自带 E2E runner）按 test-plan.md 手动执行，结果标注「未用 e2e-runner，Playwright 执行」。降级结果同样须满足下面的证据三段式。

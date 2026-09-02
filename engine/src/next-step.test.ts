@@ -46,7 +46,7 @@ describe('computeNextStep', () => {
       iid: 88, type: 'story' as const, cachedNode: '开发中', affectedScopes: [], updatedAt: '2026-09-01T00:00:00Z',
       evidence: [
         { kind: 'asset-audit' as const, environment: 'local', planVersion: 'v1', outcome: '0', recordedAt: '2026-09-01T00:00:00Z', detailRef: 'list-get:https://apifox.example/local' },
-        { kind: 'test-run' as const, environment: 'local', planVersion: 'v1', outcome: 'passed', recordedAt: '2026-09-01T00:00:00Z' },
+        { kind: 'test-run' as const, environment: 'local', planVersion: 'v1', outcome: 'passed', recordedAt: '2026-09-01T00:00:00Z', version: 'svc:abc123' },
       ],
       resources: [], metricEvents: [],
     };

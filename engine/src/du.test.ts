@@ -57,3 +57,19 @@ describe('bindGateSet / setCachedNode (du CLI 写入面)', () => {
     expect(setCachedNode(next, '开发中', 'T2')).toBe(next);
   });
 });
+
+describe('latestEvidence 按 recordedAt 时间序（M4 防乱序补录）', () => {
+  it('乱序追加时取时间戳最新的条目，而非最后追加的', () => {
+    let du = initDu(base);
+    // 先追加今天 failed，再补录昨天 passed——旧实现按追加序会取 passed（错误放行）
+    du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v1', outcome: 'failed', recordedAt: '2026-09-02T00:00:00Z' }, base.now);
+    du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v1', outcome: 'passed', recordedAt: '2026-09-01T00:00:00Z' }, base.now);
+    expect(latestEvidence(du, 'test-run', 'local')?.outcome).toBe('failed');
+  });
+  it('时间正序追加行为不变（最新仍胜）', () => {
+    let du = initDu(base);
+    du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v1', outcome: 'failed', recordedAt: '2026-09-01T00:00:00Z' }, base.now);
+    du = recordEvidence(du, { kind: 'test-run', environment: 'local', planVersion: 'v1', outcome: 'passed', recordedAt: '2026-09-02T00:00:00Z' }, base.now);
+    expect(latestEvidence(du, 'test-run', 'local')?.outcome).toBe('passed');
+  });
+});

@@ -35,7 +35,7 @@ environments:
   test:                               # 已部署测试环境完整业务闭环（测试中→待发布门禁）
     apifox: { project: sample_web, env: test }
     databases: { platform: test_platform }
-    test_data: { prefix: "E2E{iid}", cleanup_required: true, prohibited: [本地E2E数据] }
+    test_data: { prefix: "E2E{iid}T", cleanup_required: true, prohibited: [本地E2E数据] }
     credentials: { account: "qa@example.test", password: "<测试密码>" }
     web_url: "https://app.test.example"
     desc: "测试环境；由 CI/Jenkins 构建部署，禁止本地 build"

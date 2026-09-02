@@ -58,5 +58,22 @@ export function setCachedNode(du: DuState, node: string, now: string): DuState {
 
 /** 某环境最新事实（无则 undefined）。按追加序取最后一条，调用方须按时间序追加。 */
 export function latestEvidence(du: DuState, kind: DuEvidenceEntry['kind'], environment: string): DuEvidenceEntry | undefined {
-  return [...du.evidence].reverse().find((e) => e.kind === kind && e.environment === environment);
+  // M4：按 recordedAt 时间序取最新（同刻按追加序 tie-break）——乱序补录/备份恢复时
+  // 旧 passed 事实不会因「后追加」冒充最新；时间戳不可解析的条目退回追加序参与。
+  const stamps = new Map<number, number>();
+  du.evidence.forEach((e, idx) => {
+    const t = Date.parse(e.recordedAt);
+    stamps.set(idx, Number.isNaN(t) ? Number.NEGATIVE_INFINITY : t);
+  });
+  let best: DuEvidenceEntry | undefined;
+  let bestKey = -1;
+  du.evidence.forEach((e, idx) => {
+    if (e.kind !== kind || e.environment !== environment) return;
+    const key = stamps.get(idx) ?? Number.NEGATIVE_INFINITY;
+    if (idx > bestKey && (best === undefined || key >= (stamps.get(bestKey) ?? Number.NEGATIVE_INFINITY))) {
+      best = e;
+      bestKey = idx;
+    }
+  });
+  return best;
 }

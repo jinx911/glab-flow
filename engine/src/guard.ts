@@ -85,6 +85,11 @@ function duTestRunFor(du: DuState | undefined, plan: TestPlan, environment: stri
   if (entry.outcome !== 'passed') {
     return { kind: 'invalid-latest', errors: [`DU 记录 outcome=${entry.outcome}，须重跑后再记录`] };
   }
+  // H1：版本占位符拒绝——旧 DU 无 version 或占位 'du' 时不再合成通过形状，
+  // 要求带真实被测版本（cli du record 已强制新记录必填）后重记。
+  if (!entry.version || !entry.version.trim() || entry.version.trim() === 'du') {
+    return { kind: 'invalid-latest', errors: [`DU test-run 缺少真实被测版本（version 占位/缺失）：请以 cli du record 附 version（报告回读的运行版本）重记`] };
+  }
   const required = plan.cases.filter((item) => item.environments.includes(environment));
   const cases: Record<string, 'passed'> = {};
   for (const item of required) cases[item.id] = 'passed';
@@ -95,7 +100,7 @@ function duTestRunFor(du: DuState | undefined, plan: TestPlan, environment: stri
   const run: TestRun = {
     environment: entry.environment,
     planVersion: entry.planVersion,
-    version: 'du',
+    version: entry.version,
     outcome: 'passed',
     assetAudit: `${entry.planVersion}/${entry.environment}`,
     cases,

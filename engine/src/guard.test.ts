@@ -349,7 +349,7 @@ describe('DU-first evidence (P2)', () => {
   it('accepts local TestRun+AssetAudit from DU evidence without Issue comments', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -385,7 +385,7 @@ describe('DU-first evidence (P2)', () => {
   it('rejects a non-numeric DU asset-audit outcome instead of coercing it to zero (fail-closed)', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: 'abc', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -412,7 +412,7 @@ describe('DU-first evidence (P2)', () => {
   it('surfaces a positive DU unresolved-findings count instead of zeroing it', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '2', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -426,7 +426,7 @@ describe('DU-first evidence (P2)', () => {
   it('rejects when DU evidence plan version drifts from the current test plan', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v2', outcome: '0', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v2', outcome: 'passed', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v2', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -460,7 +460,7 @@ auth-profile: TP-001 | client-user | auth_token
 -->`;
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -469,5 +469,34 @@ auth-profile: TP-001 | client-user | auth_token
     };
     const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: v2Audit }, { body: LOCAL_RUN }]);
     expect(r.ok).toBe(true);
+  });
+});
+
+describe('环境混淆防线（记录侧）', () => {
+  it('rejects DU test-run without real version（占位/缺失不再合成通过形状）', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('缺少真实被测版本'))).toBe(true);
+  });
+  it('rejects DU test-run with placeholder version "du"', () => {
+    const du = duWith([
+      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'du' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    expect(validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []).ok).toBe(false);
   });
 });

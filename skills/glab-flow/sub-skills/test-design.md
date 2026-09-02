@@ -25,7 +25,7 @@ test-plan.md 须包含下列章节，缺一不可：
 - **测试范围**：范围内 / 范围外（明确列出不在本轮测试的模块与原因）。
 - **测试环境与数据集**（集中管理入口，值不复制——只引用 test-config 索引 + Apifox ID）：
   - **环境矩阵**：本地 / Stage 各一行——web_url、Apifox envId、凭据变量名（`credentials.vars`，值在 apifox-vars.json）、数据前缀（`E2E{iid}L/T`）、数据库 MCP 引用。
-  - **场景 ↔ 数据集映射表**：每行 `场景 ID | 场景名 | testDataId | 数据集名`——执行 `-d` 传什么一目了然，不靠人脑记忆或文件名猜测。
+  - **场景 ↔ 数据集映射表**：每行 `场景 ID | 场景名 | 环境 | testDataId | 数据集名`——**环境列必填**（每环境一行）：行值来自本环境真实库时两环境各一条（各自的 testDataId）；仅当行值在两环境库都真实存在才可共用一份（映射表合并为一行标「共用」）。执行 `-d` 按当前环境取对应行的 testDataId，杜绝拿 local 数据集跑 test 轮。
   - **前置 fixture**：哪些场景需先跑哪条 SQL seed（`fixtures/*.sql`），跑的顺序。
 - **用例清单**：按用例编号、标题、类型（unit/integration/e2e/API）、步骤、预期、关联验收标准。
 - **验收标准 → 测试条目映射**：proposal.md 的每条 AC（AC1/AC2…）都映射到至少一个测试条目编号，确保无遗漏。
