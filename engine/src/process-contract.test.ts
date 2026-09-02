@@ -318,13 +318,16 @@ describe('glab-flow process contracts', () => {
     expect(flow).toMatch(/四层.*环境|环境事实/);
   });
 
-  it('treats detailed Apifox report upload as an explicit two-layer authorization gate', () => {
+  it('keeps detailed Apifox report upload paramandatory and never silently downgraded', () => {
     const apifox = readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md');
 
-    expect(apifox).toMatch(/require_escalated/);
-    expect(apifox).toMatch(/外部 AI.*权限/);
-    expect(apifox).toMatch(/不得[\s\S]{0,80}(删除|降级|省略)[\s\S]{0,100}--upload-report detail/);
+    // 用户裁定（2026-09-02）：--upload-report detail 随 CLI 登录态直接上传，无需单独授权预检；
+    // 保留的契约是「参数不可省略/降级 + 报告必须回读」。
+    expect(apifox).toMatch(/不需要单独授权/);
+    expect(apifox).toMatch(/不可省略或降级/);
     expect(apifox).toMatch(/test-report get/);
+    // 旧的两层授权预检表述必须移除，防止流程回退
+    expect(apifox).not.toMatch(/require_escalated/);
   });
 
   it('prohibits test-first workflow and keeps active glab-flow docs free of retired routes', () => {

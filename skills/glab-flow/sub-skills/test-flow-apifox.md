@@ -126,14 +126,13 @@ auth-profile: TP-001 | client-user | auth_token
 - **变量写入分级**：临时值（单次执行内）用 `pm.variables.set`；确需跨场景传递的（token/单号链）依赖 `--carry-runtime-variables`，命名加业务前缀防碰撞（`auth_token`/`order_no`）。
 - **脚本步骤输入输出显式**：脚本读写哪些变量在场景描述里写明，避免隐式全局副作用；清理步骤即使主流程失败也要能执行（放 finally 语义的位置）。
 
-## 报告上传授权预检（强制，未通过停止）
+## 报告上传说明
 
-`--upload-report detail` 会创建 Apifox 云端报告并上传请求/响应详情，因而同时涉及执行平台与 Apifox 项目两道独立授权；“用户已同意本轮测试”不自动穿透任一层。
+`--upload-report detail` **不需要单独授权**——它随 Apifox CLI 登录态直接创建云端报告并上传请求/响应详情，是执行命令的常规参数，正常带上即可。
 
-1. 先展示本次将写入的目标：Apifox `projectId`、branch、environment、suite、数据集前缀，以及会上传请求/响应详情的 `--upload-report detail`。
-2. 在 Codex 等受限执行平台发起 CLI 时，必须申请**仅限** `apifox test-suite run` 的 `require_escalated` 执行授权；不可把它扩展为通用 shell 权限。
-3. 在 Apifox 中确认目标项目/分支已经启用外部 AI 的直接编辑/执行权限。若返回外部 AI 写入拒绝，立即停止：引导在“项目设置 → 功能设置 → AI 功能设置 → 外部 AI 编辑权限”授权该分支，或由人工在同一 suite、环境、变量和数据集下执行。
-4. 不得为绕开拒绝而删除、降级或静默省略 `--upload-report detail`，也不得只凭 stdout 宣称通过。先执行 `apifox test-suite run --help` 确认当前 CLI 是否支持 `detail`；不支持则停止并升级/修复 CLI，不臆造替代值。
+1. 执行前展示本次将写入的目标（信息同步，非授权申请）：Apifox `projectId`、branch、environment、suite、数据集前缀。
+2. 若 CLI 实际返回外部 AI 写入拒绝（项目侧分支未开外部 AI 编辑权限），按 apifox-cli-checkup 排查：引导在“项目设置 → 功能设置 → AI 功能设置 → 外部 AI 编辑权限”开启，或由人工在同一 suite、环境、变量和数据集下执行。
+3. `--upload-report detail` 不可省略或降级（`none` 报告页空、不能当证据），也不得只凭 stdout 宣称通过。先执行 `apifox test-suite run --help` 确认当前 CLI 支持 `detail`；不支持则升级 CLI，不臆造替代值。
 
 人工执行也必须提供 reportId 并完成下述 `test-report get` 回读；没有可回读的详情报告就不能形成 TestRun。
 
