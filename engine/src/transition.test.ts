@@ -88,6 +88,13 @@ const DEVELOPMENT_START_FIELDS = {
   风险与对策: '灰度验证',
   回滚方案: '回滚版本与迁移',
 };
+const PRODUCTION_RELEASE_FIELDS = {
+  部署顺序: '先服务后前端',
+  数据迁移: '无',
+  配置清单: '生产配置已核对',
+  上线后验证: '主流程与监控告警验证',
+  回滚方案: '回滚应用版本与配置',
+};
 
 const REVIEW_FIELDS = {
   评审日期: '2026-08-07',
@@ -259,7 +266,7 @@ describe('transition — plan + preview + shouldConfirm', () => {
   it('full-auto still confirms hardGate (待发布→生产验收中)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
-      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', ...PRODUCTION_RELEASE_FIELDS },
       datesConfirmed: true, humanConfirmed: true, runMode: 'full-auto',
     }));
     expect(r.validate.ok).toBe(true);
@@ -455,7 +462,7 @@ describe('transition — per-transition side-effect playbook', () => {
   it('发布 = 执行上线 deploy + issue writeback（生产 deploy 无条件，手动也推进 Issue）', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
-      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', ...PRODUCTION_RELEASE_FIELDS },
       datesConfirmed: true, humanConfirmed: true,
     }));
     expect(r.next).toBe('生产验收中');

@@ -65,6 +65,18 @@ const PUBLIC_RELEASE_FIELDS = {
   回滚方案: '按发布计划回滚',
   发布建议: '建议发布',
 };
+const PRODUCTION_RELEASE_FIELDS = {
+  部署顺序: '先服务后前端',
+  数据迁移: '无',
+  配置清单: '生产配置已核对',
+  上线后验证: '主流程与监控告警验证',
+  回滚方案: '回滚应用版本与配置',
+};
+const ACCEPTANCE_REPORT_FIELDS = {
+  验收范围: '主流程、权限与通知',
+  遗留事项: '无',
+  后续行动: '持续观察监控',
+};
 const VALID_REVIEW_EVIDENCE: RequirementsReviewEvidence = {
   images: [], frontend: { applicable: false, routes: [] },
   grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
@@ -100,11 +112,21 @@ describe('G2 gate outcome binary', () => {
 describe('G3 hard gate needs humanConfirmed', () => {
   it('blocks hard-gate transition without humanConfirmed', () => {
     const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
-      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', ...PRODUCTION_RELEASE_FIELDS },
       assigneeUser: '@pm', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
     expect(r.ok).toBe(false);
     expect(r.reasons.some((x) => x.includes('hard'))).toBe(true);
+  });
+
+  it('requires executable release handoff fields before production deployment', () => {
+    const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
+      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1' },
+      assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true };
+    const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
+    expect(r.ok).toBe(false);
+    expect(r.missing).toContain('部署顺序');
+    expect(r.missing).toContain('上线后验证');
   });
 });
 
@@ -170,7 +192,7 @@ describe('G11 blocking test issues verified', () => {
 describe('G12 terminal atomicity', () => {
   it('blocks terminal transition without closeIssue', () => {
     const p: Payload = { type: 'story', from: '生产验收中', to: '已完成',
-      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok' },
+      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok', ...ACCEPTANCE_REPORT_FIELDS },
       assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true, closeIssue: false };
     const r = validateTransition(model, facts(['type::story', 'story-status::生产验收中']), p);
     expect(r.ok).toBe(false);
@@ -207,7 +229,7 @@ describe('G7/G8/G13 write-plan guards', () => {
 describe('G3 positive — hard gate with humanConfirmed passes', () => {
   it('passes 待发布->生产验收中 when humanConfirmed true', () => {
     const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
-      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', ...PRODUCTION_RELEASE_FIELDS },
       assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
     expect(r.ok).toBe(true);
@@ -217,7 +239,7 @@ describe('G3 positive — hard gate with humanConfirmed passes', () => {
 describe('G12 positive — terminal with closeIssue passes', () => {
   it('passes 生产验收中->已完成 when closeIssue true', () => {
     const p: Payload = { type: 'story', from: '生产验收中', to: '已完成',
-      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok' },
+      fields: { 验收完成日期: '2026-07-28', 具体产品验收人: '@pm', 产品Assignee: '@pm', 验收结论: '通过', 验收依据: 'ok', ...ACCEPTANCE_REPORT_FIELDS },
       assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true, closeIssue: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::生产验收中']), p);
     expect(r.ok).toBe(true);

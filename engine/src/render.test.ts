@@ -149,6 +149,32 @@ describe('团队交接评论（内部证据隔离）', () => {
     expect(md).not.toContain('report:123');
   });
 
+  it('renders complete production handoff and acceptance report sections', () => {
+    const release = renderNodeComment({
+      type: 'story', from: '待发布', to: '生产验收中', assigneeUser: '@pm',
+      fields: {
+        发布日期: '2026-08-28', 研发Assignee: '@dev', 生产版本: 'service:v2; web:v2',
+        部署顺序: '先服务后前端', 数据迁移: '无', 配置清单: '生产开关已核对',
+        上线后验证: '主流程与监控告警验证', 回滚方案: '回滚应用版本与配置',
+      },
+    });
+    expect(release).toContain('## 上线操作手册');
+    expect(release).toContain('- 部署顺序：先服务后前端');
+    expect(release).toContain('- 上线后验证：主流程与监控告警验证');
+
+    const acceptance = renderNodeComment({
+      type: 'story', from: '生产验收中', to: '已完成', assigneeUser: '@pm',
+      fields: {
+        验收完成日期: '2026-08-29', 具体产品验收人: '@pm', 产品Assignee: '@pm',
+        验收范围: '主流程、权限与通知', 验收结论: '通过', 验收依据: '生产验证通过',
+        遗留事项: '无', 后续行动: '持续观察监控',
+      },
+    });
+    expect(acceptance).toContain('## 验收报告');
+    expect(acceptance).toContain('- 验收范围：主流程、权限与通知');
+    expect(acceptance).toContain('- 后续行动：持续观察监控');
+  });
+
   it('blocks machine-only content from a formal state comment', () => {
     const result = validatePublicComment({
       type: 'story', from: '开发中', to: '测试中',

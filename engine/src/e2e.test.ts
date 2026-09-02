@@ -135,7 +135,7 @@ describe('e2e: 开发入口的持久化自动模式护栏', () => {
     const state = selectMode('full-auto');
     const hardGateInput: TransitionInput = {
       type: 'story', iid: 42, labels: ['type::story', 'story-status::待发布'], body, notes: [], state: 'opened',
-      fields: { 发布日期: '2026-08-31', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'release record' },
+      fields: { 发布日期: '2026-08-31', 研发Assignee: '@dev', 生产版本: 'v1', 部署顺序: '先服务后前端', 数据迁移: '无', 配置清单: '生产配置已核对', 上线后验证: '主流程验证通过', 回滚方案: '回滚应用版本与配置' },
       datesConfirmed: true, runMode: state.runMode, runModeSelection: state.runModeSelection,
     };
 
