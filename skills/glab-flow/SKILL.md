@@ -151,7 +151,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `validate`（G1–G16，`reasons` 自带补救动作；G14 按 DU GateSet 生效）
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm` + `actionTier`/`confirmBatchTitle`（动作分层，见 `gate.md`）
 3. **执行 playbook + 确认（Leader）**：`playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。Leader 按序：
-   - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——这与动作分层（L1–L3）无关**：L1 自动流转也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）逐个 AskUserQuestion 交互问 + 展示部署清单确认（粗粒度流转确认不等于参数确认，见 `sub-skills/jenkins-deploy.md`）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。`mr-review` 步骤只在 DU GateSet 的 `mrReview=true` 时必填（G14，见 `guards.md`）。
+   - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等）。**test/非生产构建参数默认值直用不逐参数确认**（测试数据与凭据同理，已裁定打通；缺定义无默认值才一次问全）；**生产部署参数仍必须逐项确认**（L3 红线）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。`mr-review` 步骤只在 DU GateSet 的 `mrReview=true` 时必填（G14，见 `guards.md`）。
    - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
    - **post-readback `sync_week_milestone`（仅 `plan.postWriteback` 存在）**：状态或排期评论回读成功后，Leader 用最新有效、启用的 `## 周排期` 和 Asia/Shanghai 业务日期决定目标 Week：未开始取计划开始日期所在周，执行中取当天所在周，已结束跳过。目标不存在则创建，存在则关联当前 Issue；必须幂等，且只调整 Milestone。失败写入 `week-milestone-sync` 审计并重试，不撤回已确认的标签、Assignee、正文或评论。Harness 周一任务只接手已初始挂载的 Issue 做后续 rollover，不能替代此步骤。
    - `shouldConfirm` 由**动作分层**决定（`gate.md`）：L1（无 gate 的机械流转）且 `validate.ok` → 直接执行；L2（有业务 gate）/ L3（hard_gate）→ 以 `confirmBatchTitle` 为题做一次 `AskUserQuestion` 批量确认后再执行（计划日期、GateSet 提案、Jenkins 参数并入同一次批量对话）；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。`run_mode` 仅作审计记录，不参与确认判定。
@@ -259,7 +259,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - 开发 → `sub-skills/git-ops.md` / `sub-skills/code-review.md`（实现后验证）
 - 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`（API）/ `sub-skills/test-flow-e2e.md`（前端 E2E）
 - 测试→待发布 MR 评审 → `sub-skills/mr-review.md`（G14，无 HIGH 残留才放行）
-- 发布 → `sub-skills/jenkins-deploy.md`（Jenkins 触发前必须单独确认 job/分支/部署参数；发布流转确认不等于构建参数确认）
+- 发布 → `sub-skills/jenkins-deploy.md`（test 构建参数默认值直用；生产部署前必须单独确认 job/分支/部署参数，发布流转确认不等于生产参数确认）
 - 运行时工具（非 vendor）见 `tools.md`（codegraph / *-reviewer / apifox-* / glab / MySQL MCP）
 
 自带 agent（随 skill 一起定义，直接 spawn）：

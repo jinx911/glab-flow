@@ -27,7 +27,7 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
    `transition` 内部即「评论字段扫描（取证 + 预填）→ `validate`（校验）→ `plan`（计划）→ `render`（预览）」的顺序编排；`evidence` 命令是独立的结构化取证工具（不参与内部预填）；退回（G2 二值）仍走 `plan-return`。
 
 2. **执行 playbook + 确认/应用**。`playbook` 的相位固定为代码侧 `pre-writeback` → Issue 写回/回读 `issue-writeback` → 条件同步 `post-readback`。按动作分层（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
-   - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等），**每步按 sub-skill 自身规则确认——与动作分层（L1–L3）无关**：L1 自动流转也必须对 Jenkins 参数（job/分支/`test_version`/`DEPLOY_ENV`/`force_package` 等）交互问 + 展示部署清单确认（粗粒度流转确认 ≠ 参数确认，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
+   - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等）。**test/非生产构建参数默认值直用**（测试数据与凭据同理，不逐参数确认；缺定义无默认值才一次问全）；**生产部署参数逐项确认**（L3 红线，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
    - **mr-review**：测试中→待发布 时，对每个受影响 feature→master MR 跑评审（G14，无 CRITICAL/HIGH 残留才放行），评审结论作为评论发到该 MR；父 Issue 汇总不能替代 MR-local 评审。
    - **issue_writeback（合并评论 + 三阶段串行，每阶段记 `writebackAudit`）**：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令。按严格串行：**metadata**（标签 add/unlabel + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）→（终态时 close）→ **readback**（最终 Issue 回读）。内容体按节点类型见 `nodes.md`「节点内容评论」。
    - **post-readback `sync_week_milestone`**：仅当 `plan.postWriteback.action === 'sync_week_milestone'` 执行。回读最新有效且启用的周排期，按 Asia/Shanghai 日期选目标周（未开始=计划开始周，执行中=当天周，已结束=跳过），幂等创建/关联 Week Milestone。标题必须是 Harness 同一格式 `Week YYYY-Www`，创建时 `start_date`/`due_date` 为该 ISO 周的周一/周日；不能自行发明标题或日期。用项目数字 ID 的 GitLab API：先列出 active milestones 并精确匹配标题；缺失时 `POST projects/:project_id/milestones`，并发冲突则重新读取；最后仅 `PUT projects/:project_id/issues/:iid` 的 `milestone_id`。它只能调整 Milestone；绝不改 Issue 状态、负责人、正文或评论。失败记录 `week-milestone-sync` 后重试，不撤回已成功的 Issue 写回。
@@ -64,7 +64,7 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 | `L2`（gate!==null） | 带业务评审/放行判断的流转 | 待评审→已评审、已评审→开发中、开发中→测试中、测试中→待发布 | 以 `confirmBatchTitle` 为题做**一次** `AskUserQuestion` 批量确认 |
 | `L3`（hardGate） | 不可逆动作，恒人工 | 待发布→生产验收中、生产验收中→已完成 | 必须 `humanConfirmed`（G3），任何配置不可豁免 |
 
-**Jenkins 参数确认并入同一次 L2 批量对话**：提测的 job/分支/`test_version`/`DEPLOY_ENV` 等参数与流转结论、计划日期、GateSet 提案在**同一次**批量确认里问完，不再逐参数单独发起多轮对话（展示部署清单确认的动作本身不变，见 `sub-skills/jenkins-deploy.md`）。
+**Jenkins 参数（test 环境）不再独立确认**：默认值直用直接触发，参数清单进执行记录事后审计（已裁定打通，见 `sub-skills/jenkins-deploy.md`）；提测的 L2 批量确认只覆盖流转放行判断。缺参数定义且无默认值时才一次问全。生产部署参数确认不在此列（L3）。
 
 **hard_gate 是红线**：待发布、生产验收中、已完成这三个节点带 `hard_gate` 标记（见 `nodes.md`），L3 语义不变——无论 L1/L2 如何自动化，都必须 `humanConfirmed`（G3）才能流转。原因：发布与验收的代价不可逆（生产流量、用户可见、关闭即归档），不能由护栏单独放行。这一条不接受配置覆盖。
 

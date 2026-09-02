@@ -104,7 +104,7 @@ auth-profile: TP-001 | client-user | auth_token
 
 1. **登录场景独立且置顶**：需要认证的场景链路，登录步骤放链路开头（这样 `--carry-runtime-variables` 才能把 token 传给后续场景）；独立运行的场景各自带登录步骤。
 2. **登录后置三件事**（一个后置脚本 + 一个提取器）：① `pm.test` 断言业务 code=0/HTTP 200（登录失败立即暴露，不带病跑后续）；② 提取器提取 token 到命名临时变量（如 `auth_token`）；③ 业务请求 Header 统一 `Bearer {{auth_token}}`。
-3. **token 生命周期跟随执行**：token 只进运行时变量（`pm.variables.set`），**不写 `pm.environment.set` 持久化到环境**（会污染下轮执行/其他环境）；凭据（账密）只由 `--variables` 文件按环境注入，不进脚本硬编码。
+3. **token 生命周期跟随执行；凭据可持久化**：token 是每次登录的产物，进运行时变量（`pm.variables.set`）即可，不特意 `pm.environment.set` 持久化（token 本来每次登录都会新取）；**账号密码等测试凭据可持久化到 Apifox 环境/全局变量**（已裁定：减少每轮注入步骤、提效），脚本不硬编码即可。
 4. **401/403 = 失败，禁止自动重登**：业务步骤收到 401/403 保留为失败——静默重登会把「token 过期策略缺陷」掩盖成「通过」；确需验证过期行为，那是专门的测试用例，不是重试逻辑。
 5. **多角色用多 AuthProfile**：client-user / admin / 只读等角色各一个 profile，各自登录场景提取各自变量（`admin_token` 等）；禁止一个 token 通吃多角色（测不出越权）。
 
@@ -163,7 +163,7 @@ E4 三核通过 + 最新资产审计通过 → `cli du record` 记本环境 Test
 
 1. **三段链路健康**：登录入口（PHP 站，返回登录页/JSON，HTML 404 = API 配到了前端站）→ 接口网关（业务前缀非 text/html）→ 后端 service（健康检查）。失败时指明哪段断，修好前不跑套件。
 2. **运行版本校验**（每环境必做，不只 local）：优先 `/actuator/info` 读 commit SHA——local 与当前工作树 `git log -1` 比对；**test 与本次 Jenkins 部署产物比对**（提测/复测重部署的构建号或部署后 actuator 回读的 SHA）。不一致 → local 要求重建重启、test 要求重新部署，不跑源码新/旧 class 的假验证。版本值回读后作为 `du record` 的 `version` 必填字段——它就是「复测没跑在旧版本上」的核对物。
-3. **凭据运行时注入**：从 test-flow 项目配置读凭据（keychain:// 或环境变量引用），解析失败停下问用户，不跑假登录；凭据不持久化到 Apifox 全局变量。
+3. **凭据自动注入（非生产环境无需授权确认，可持久化）**：local/test 环境的账号密码是测试数据，从 test-config 的 `credentials` / apifox-vars.json 直接自动取用注入，**不逐次询问确认**；解析失败（引用缺失/配置错）才停下报告缺口，不跑假登录。**凭据可持久化到 Apifox 环境/全局变量**（减少每轮注入步骤、提高执行效率——测试凭据持久化已裁定可接受）；生产环境凭据不在此机制内（生产操作恒 L3 人工）。
 4. **命令参数完备**：套件/场景 run 命令必须逐项含 `-e <envId>`、`--variables <vars文件>`、`--carry-runtime-variables`、`--upload-report detail`、（矩阵场景）`-d <testDataId>`——发命令前对照模板逐项核对，缺任一即废命令重拼，**不跑缺参命令**。
 
 ## 执行后回读校验（报告有效性门禁）

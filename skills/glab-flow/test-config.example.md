@@ -69,7 +69,7 @@ routes:
 | `environments.<name>.test_data` | — | `{iid}` 占位在 test-context 输出时替换为本 Issue iid |
 | `environments.<name>.credentials.vars` | — | 场景变量名映射:account/password 的 `{{名}}`,执行时按名注入(不落 Apifox) |
 | `environments.<name>.login` | — | 共用登录契约:`owner`(持有登录接口的项目)/`endpoint`/`token_var`(token 变量名);跨项目统一从此拿 token |
-| `environments.<name>.credentials` | — | 测试账号(明文已确认可接受;不持久化到 Apifox) |
+| `environments.<name>.credentials` | — | 测试账号(可持久化到 Apifox 环境/全局变量以减少注入步骤;生产凭据除外) |
 | `environments.<name>.web_url` | — | 前端入口(E2E);API base 不在这里,以 Apifox 环境的 baseUrls 为准 |
 | `apifox_projects.<name>` | ✅ | 项目 ID + 环境名→环境 ID 索引;环境 ID 缺失时 test-context 报错退出 |
 | `routes[]` | ✅ | `repos` 命中任一即用 `apifox` 项目;多项目命中取第一个并 warning |

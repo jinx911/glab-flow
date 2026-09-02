@@ -368,16 +368,18 @@ describe('glab-flow process contracts', () => {
     expect(tools).toMatch(/review-preview/);
   });
 
-  it('separates Jenkins parameter confirmation from broad release approval', () => {
+  it('tiers Jenkins parameter handling: test env auto-runs on defaults, production stays confirmed', () => {
     const jenkinsDeploy = readProjectFile('skills/glab-flow/sub-skills/jenkins-deploy.md');
     const skill = readProjectFile('skills/glab-flow/SKILL.md');
 
-    expect(jenkinsDeploy).toMatch(/test_version/);
-    expect(jenkinsDeploy).toMatch(/DEPLOY_ENV/);
-    expect(jenkinsDeploy).toMatch(/粗粒度授权|笼统授权/);
-    expect(jenkinsDeploy).toMatch(/不等于[\s\S]{0,20}(构建)?参数确认/);
-    expect(jenkinsDeploy).toMatch(/触发前必须展示清单让用户确认/);
-    expect(skill).toMatch(/Jenkins[\s\S]{0,40}部署参数/);
+    // 用户裁定（2026-09-02）：test/非生产构建参数与凭据同理默认值直用，不逐参数确认；
+    // 生产部署参数确认保留（L3 红线：粗粒度授权不等于生产参数确认）。
+    expect(jenkinsDeploy).toMatch(/默认值直用/);
+    expect(jenkinsDeploy).toMatch(/直接触发/);
+    expect(jenkinsDeploy).toMatch(/生产部署.*AskUserQuestion[\s\S]{0,60}逐项确认|生产部署[\s\S]{0,200}必须[\s\S]{0,40}AskUserQuestion/);
+    expect(skill).toMatch(/默认值直用/);
+    // 旧的「触发前必须展示清单让用户确认」全环境表述必须移除，防止回潮
+    expect(jenkinsDeploy).not.toMatch(/触发前必须展示清单让用户确认/);
   });
 
   it('documents the learning-to-versioned-docs cleanup lifecycle', () => {
