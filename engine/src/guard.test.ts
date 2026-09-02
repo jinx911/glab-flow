@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { loadModel } from './model.js';
-import { validateTransition, validateWritePlan, isAffirmative } from './guard.js';
+import { validateTransition, validateWritePlan, isAffirmative, unverifiedBlockingTestIssues } from './guard.js';
 import { initDu, recordEvidence } from './du.js';
 import { deriveGateSet } from './gate-set.js';
-import type { DuState, GateSet, IssueFacts, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
+import type { DuState, GateSet, IssueFacts, IssueNote, Payload, RequirementsReviewEvidence, WritePlan } from './types.js';
 
 describe('isAffirmative — tight prefix (excludes 是否/是吗)', () => {
   it.each(['是', '是(无阻塞)', '是。详细说明…', '是，无问题', '已验证', 'true', ' 是 '])('accepts %s', (v) => {
@@ -498,5 +498,66 @@ describe('环境混淆防线（记录侧）', () => {
       assigneeUser: '@qa', datesConfirmed: true,
     };
     expect(validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []).ok).toBe(false);
+  });
+});
+
+describe('G11b 阻塞问题交叉核对（Q2：自报字段不够，评论必须闭环）', () => {
+  const p = (notes: IssueNote[]): Payload => ({
+    type: 'story', from: '测试中', to: '待发布',
+    fields: { ...GATESET_TEST_DONE_FIELDS, feature分支MR评审结论: '通过' }, testPlan: TEST_PLAN,
+    assigneeUser: '@dev', datesConfirmed: true,
+    du: duWith([
+      { kind: 'asset-audit', environment: 'test', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
+      { kind: 'test-run', environment: 'test', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:t1' },
+    ]),
+  });
+  it('rejects when an unverified blocking test-issue comment exists', () => {
+    const notes: IssueNote[] = [{
+      body: '## 测试问题\n\n- 发现人：@qa\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：未复测',
+      created_at: '2026-09-01T00:00:00Z', id: 1,
+    }];
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p(notes), notes);
+    expect(r.ok).toBe(false);
+    expect(r.reasons.some((x) => x.includes('未验证的阻塞项') && x.includes('导出乱码'))).toBe(true);
+  });
+  it('passes when the blocking issue is verified in the comment', () => {
+    const notes: IssueNote[] = [{
+      body: '## 测试问题\n\n- 发现人：@qa\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（复测绿）',
+      created_at: '2026-09-01T00:00:00Z', id: 1,
+    }];
+    expect(validateTransition(model, facts(['type::story', 'story-status::测试中']), p(notes), notes).ok).toBe(true);
+  });
+  it('newer issue-comment overrides older unverified state（最新块为准）', () => {
+    const notes: IssueNote[] = [
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：未复测', created_at: '2026-09-01T00:00:00Z', id: 1 },
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（修复后复测绿）', created_at: '2026-09-02T00:00:00Z', id: 2 },
+    ];
+    expect(validateTransition(model, facts(['type::story', 'story-status::测试中']), p(notes), notes).ok).toBe(true);
+  });
+  it('non-blocking issue comments do not block', () => {
+    const notes: IssueNote[] = [{
+      body: '## 测试问题\n\n- 是否阻塞发布：否\n- 实际结果：文案建议\n- 验证结果：无需',
+      created_at: '2026-09-01T00:00:00Z', id: 1,
+    }];
+    expect(validateTransition(model, facts(['type::story', 'story-status::测试中']), p(notes), notes).ok).toBe(true);
+  });
+});
+
+describe('G11b 多问题最新状态语义', () => {
+  it('two distinct issues: one verified one not → 未验证的那个拦截', () => {
+    const notes: IssueNote[] = [
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（复测绿）', created_at: '2026-09-01T00:00:00Z', id: 1 },
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：金额少一分\n- 验证结果：未复测', created_at: '2026-09-01T01:00:00Z', id: 2 },
+    ];
+    const r = unverifiedBlockingTestIssues(notes);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toContain('金额少一分');
+  });
+  it('same issue superseded to verified by newer comment → 放行', () => {
+    const notes: IssueNote[] = [
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：未复测', created_at: '2026-09-01T00:00:00Z', id: 1 },
+      { body: '## 测试问题\n\n- 是否阻塞发布：是\n- 实际结果：导出乱码\n- 验证结果：通过（修复后复测绿）', created_at: '2026-09-02T00:00:00Z', id: 2 },
+    ];
+    expect(unverifiedBlockingTestIssues(notes)).toHaveLength(0);
   });
 });

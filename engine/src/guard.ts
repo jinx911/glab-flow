@@ -8,6 +8,7 @@ import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-a
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
 import { validateChangeImpactClosure } from './change-impact.js';
 import { isWaivedByGateSet } from './gate-set.js';
+import { chronologicalNotes } from './notes.js';
 import { latestEvidence } from './du.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
@@ -193,6 +194,48 @@ export function isAffirmative(v: string | undefined): boolean {
   return AFFIRMATIVE_NOTE_PREFIX.some((p) => raw.startsWith(p));
 }
 
+/** 验证结果/结论类字段的肯定判定：接受「通过」「已验证」开头或含「复测绿/复测通过」（G11 字段的 isAffirmative 不认「通过（附注）」，这里语义不同）。 */
+function isVerifiedOutcome(v: string | undefined): boolean {
+  if (!v) return false;
+  const raw = v.trim();
+  if (!raw) return false;
+  if (/^(通过|已验证|已通过|复测通过|复测绿|是|true|yes|无需|不适用)/.test(raw)) return true;
+  return /复测(通过|绿)/.test(raw);
+}
+
+/**
+ * G11b（Q2）：从测试问题评论（renderTestIssue 产出的 `## 测试问题` 块）抽未验证的阻塞项。
+ * 语义：**每个问题**以它的最新评论为准（后发的更正覆盖旧状态）——最新的「是否阻塞发布」
+ * 仍为肯定 且 「验证结果」非肯定 → 该问题未闭环。全部问题的最新状态都核实才返回空。
+ * 注意：一条评论只承载一个测试问题（renderTestIssue 契约），问题以 实际结果/当前结论 摘要区分。
+ */
+export function unverifiedBlockingTestIssues(notes: IssueNote[] = []): string[] {
+  const field = (block: string, key: string): string | undefined => {
+    const m = block.match(new RegExp(`^- ${key}：(.+)$`, 'm'));
+    return m ? m[1]!.trim() : undefined;
+  };
+  // 按时间正序遍历，问题摘要 → 最新状态；后发覆盖先发。
+  const latestByIssue = new Map<string, { blocking?: string; verified?: string; at: string }>();
+  for (const note of chronologicalNotes(notes)) {
+    const idx = note.body.indexOf('## 测试问题');
+    if (idx < 0) continue;
+    const block = note.body.slice(idx);
+    const summary = (field(block, '实际结果') ?? field(block, '当前结论') ?? '未注明').slice(0, 30);
+    latestByIssue.set(summary, {
+      blocking: field(block, '是否阻塞发布'),
+      verified: field(block, '验证结果'),
+      at: note.created_at ?? '',
+    });
+  }
+  const unverified: string[] = [];
+  for (const [summary, state] of latestByIssue) {
+    if (!isAffirmative(state.blocking)) continue;
+    if (isVerifiedOutcome(state.verified)) continue;
+    unverified.push(`${state.at} ${summary}`.trim());
+  }
+  return unverified;
+}
+
 /**
  * G1/G14 联合口径：转换必填字段中 GateSet 实际要求的部分（MR 评审字段在
  * GateSet 关闭 mrReview 时豁免）。guard 校验与 transition 缺口提示共用，
@@ -257,6 +300,11 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (payload.from === '测试中' && payload.to === '待发布') {
     if (!isAffirmative(payload.fields['阻塞发布问题均已验证通过'])) {
       reasons.push('存在未验证的阻塞发布问题，不得进入 待发布（字段「阻塞发布问题均已验证通过」填 是 / 已验证 / 无阻塞 / true / yes）');
+    }
+    // G11b（Q2）：交叉核对测试问题评论——自报字段不够，Issue 上挂着「阻塞=是且未验证」的问题时拒绝放行。
+    const unverified = unverifiedBlockingTestIssues(notes);
+    if (unverified.length) {
+      reasons.push(`测试问题评论存在未验证的阻塞项（${unverified.join('、')}）：阻塞发布=是 且 验证结果≠通过 的问题必须先复测通过，不能只填汇总字段放行`);
     }
   }
 

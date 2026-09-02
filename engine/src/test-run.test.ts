@@ -121,3 +121,33 @@ describe('test plan and environment execution receipts', () => {
     expect(parseTestPlan(planText.replace('-->', 'auth-profile: TP-001 | client-user\nauth-profile: TP-001 | client-user\n-->')).ok).toBe(false);
   });
 });
+
+describe('AC 覆盖硬校验（Q1：漏 AC 映射=漏测，不再自律）', () => {
+  const plan = (extra: string): string => `<!-- glab-flow:test-plan:v1\nplan-version: v1\nac-set: AC1,AC2\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n${extra}-->`;
+  it('rejects when an AC has no case mapping（漏测拦截）', () => {
+    const r = parseTestPlan(plan('ac: TP-001 | AC1\n'));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.some((e) => e.includes('AC2') && e.includes('漏测'))).toBe(true);
+  });
+  it('passes when every AC is mapped', () => {
+    const r = parseTestPlan(plan('ac: TP-001 | AC1,AC2\n'));
+    expect(r.ok).toBe(true);
+  });
+  it('rejects ac mapping to unknown case and out-of-set AC', () => {
+    const r = parseTestPlan(plan('ac: TP-001 | AC1\nac: TP-999 | AC2\n'));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors.some((e) => e.includes('未知 case'))).toBe(true);
+      expect(r.errors.some((e) => e.includes('AC2') && e.includes('漏测'))).toBe(true);
+    }
+  });
+  it('legacy plan without ac-set still parses（存量兼容）', () => {
+    const r = parseTestPlan('<!-- glab-flow:test-plan:v1\nplan-version: v1\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n-->');
+    expect(r.ok).toBe(true);
+  });
+  it('duplicate ac mapping rejected', () => {
+    const r = parseTestPlan(plan('ac: TP-001 | AC1\nac: TP-001 | AC1,AC2\n'));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.some((e) => e.includes('映射重复'))).toBe(true);
+  });
+});
