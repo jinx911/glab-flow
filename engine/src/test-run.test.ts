@@ -7,6 +7,7 @@ const planText = `# 测试计划
 plan-version: v3
 case: TP-001 | local,test | api,e2e
 case: TP-002 | test | data,manual
+case: TP-003 | local,test | unit
 asset: TP-001 | scenario
 -->`;
 
@@ -16,8 +17,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/local
-cases: TP-001=passed
-evidence: api=report:101,e2e=note:https://git.example/1
+cases: TP-001=passed,TP-003=passed
+evidence: api=report:101,e2e=note:https://git.example/1,unit=phpunit:targeted
 -->`;
 
 const testRun = `<!-- glab-flow:test-run:v1
@@ -26,8 +27,8 @@ plan-version: v3
 version: service:abc123
 outcome: passed
 asset-audit: v3/test
-cases: TP-001=passed,TP-002=passed
-evidence: api=report:102,e2e=note:https://git.example/2,data=db:assertion,manual=video:https://git.example/2
+cases: TP-001=passed,TP-002=passed,TP-003=passed
+evidence: api=report:102,e2e=note:https://git.example/2,data=db:assertion,manual=video:https://git.example/2,unit=phpunit:targeted
 -->`;
 
 describe('test plan and environment execution receipts', () => {
@@ -43,10 +44,11 @@ describe('test plan and environment execution receipts', () => {
     const parsed = parseTestPlan(planText);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
-    const missingCase = localRun.replace('cases: TP-001=passed', 'cases:');
-    const missingEvidence = localRun.replace('evidence: api=report:101,e2e=note:https://git.example/1', 'evidence: api=report:101');
+    const missingCase = localRun.replace('cases: TP-001=passed,TP-003=passed', 'cases:');
+    const missingEvidence = localRun.replace('evidence: api=report:101,e2e=note:https://git.example/1,unit=phpunit:targeted', 'evidence: api=report:101');
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: missingCase }], 'local')).ok).toBe(false);
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: missingEvidence }], 'local')).errors).toContain('local 缺 e2e 执行证据');
+    expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: missingEvidence }], 'local')).errors).toContain('local 缺 unit 执行证据');
   });
 
   it('rejects a stale plan version', () => {
@@ -66,16 +68,26 @@ describe('test plan and environment execution receipts', () => {
     expect(parseLatestTestRun([{ body: localRun }, { body: failed }], 'local').kind).toBe('invalid-latest');
   });
 
+  it('uses GitLab created_at rather than newest-first API array order', () => {
+    const older = localRun.replace('version: service:abc123', 'version: service:older');
+    const latest = localRun.replace('version: service:abc123', 'version: service:latest');
+    expect(parseLatestTestRun([
+      { id: 20, created_at: '2026-08-26T09:01:00Z', body: latest },
+      { id: 10, created_at: '2026-08-25T09:01:00Z', body: older },
+    ], 'local')).toMatchObject({ kind: 'valid', run: { version: 'service:latest' } });
+  });
+
   it('round-trips a rendered run and rejects unknown cases', () => {
     const parsed = parseTestPlan(planText);
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     const rendered = renderTestRun({
       environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'passed', assetAudit: 'v3/local',
-      cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/1' },
+      cases: { 'TP-001': 'passed', 'TP-003': 'passed' },
+      evidence: { api: 'report:101', e2e: 'note:https://git.example/1', unit: 'phpunit:targeted' },
     });
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: rendered }], 'local'))).toEqual({ ok: true, errors: [] });
-    const unexpected = rendered.replace('cases: TP-001=passed', 'cases: TP-001=passed,TP-999=passed');
+    const unexpected = rendered.replace('cases: TP-001=passed,TP-003=passed', 'cases: TP-001=passed,TP-003=passed,TP-999=passed');
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: unexpected }], 'local')).errors).toContain('local 记录含非本环境计划 case：TP-999');
   });
 
@@ -107,5 +119,35 @@ describe('test plan and environment execution receipts', () => {
     expect(governed.plan.cases[0]).toMatchObject({ presentations: ['scenario'], authProfiles: ['client-user'] });
     expect(parseTestPlan(planText.replace('-->', 'presentation: TP-001 | test-data\n-->')).ok).toBe(false);
     expect(parseTestPlan(planText.replace('-->', 'auth-profile: TP-001 | client-user\nauth-profile: TP-001 | client-user\n-->')).ok).toBe(false);
+  });
+});
+
+describe('AC 覆盖硬校验（Q1：漏 AC 映射=漏测，不再自律）', () => {
+  const plan = (extra: string): string => `<!-- glab-flow:test-plan:v1\nplan-version: v1\nac-set: AC1,AC2\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n${extra}-->`;
+  it('rejects when an AC has no case mapping（漏测拦截）', () => {
+    const r = parseTestPlan(plan('ac: TP-001 | AC1\n'));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.some((e) => e.includes('AC2') && e.includes('漏测'))).toBe(true);
+  });
+  it('passes when every AC is mapped', () => {
+    const r = parseTestPlan(plan('ac: TP-001 | AC1,AC2\n'));
+    expect(r.ok).toBe(true);
+  });
+  it('rejects ac mapping to unknown case and out-of-set AC', () => {
+    const r = parseTestPlan(plan('ac: TP-001 | AC1\nac: TP-999 | AC2\n'));
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors.some((e) => e.includes('未知 case'))).toBe(true);
+      expect(r.errors.some((e) => e.includes('AC2') && e.includes('漏测'))).toBe(true);
+    }
+  });
+  it('legacy plan without ac-set still parses（存量兼容）', () => {
+    const r = parseTestPlan('<!-- glab-flow:test-plan:v1\nplan-version: v1\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n-->');
+    expect(r.ok).toBe(true);
+  });
+  it('duplicate ac mapping rejected', () => {
+    const r = parseTestPlan(plan('ac: TP-001 | AC1\nac: TP-001 | AC1,AC2\n'));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors.some((e) => e.includes('映射重复'))).toBe(true);
   });
 });

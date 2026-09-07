@@ -1,8 +1,9 @@
-import type { ApifoxAssetType, LatestTestRun, TestEnvironment, TestMethod, TestPlan, TestPlanCase, TestRun, TestRunValidation } from './types.js';
+import type { ApifoxAssetType, IssueNote, LatestTestRun, TestEnvironment, TestMethod, TestPlan, TestPlanCase, TestRun, TestRunValidation } from './types.js';
+import { chronologicalNotes } from './notes.js';
 
 const PLAN_MARKER = '<!-- glab-flow:test-plan:v1';
 const RUN_MARKER = '<!-- glab-flow:test-run:v1';
-const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual']);
+const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual', 'unit']);
 const ASSET_TYPES = new Set<ApifoxAssetType>(['scenario', 'suite-or-group', 'test-data', 'scenario-instance']);
 const ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const ENVIRONMENT = /^[a-z][a-z0-9-]*$/;
@@ -63,6 +64,15 @@ function parsePlanAuthProfile(value: string): { caseId: string; profile: string 
   return { caseId: parts[0]!, profile: parts[1]! };
 }
 
+/** Q1：AC↔case 映射行（ac: TP-001 | AC1,AC2）。AC 标识符宽松（AC1/AC-1/1 均可），只要求非空。 */
+function parsePlanAc(value: string): { caseId: string; acs: string[] } | string {
+  const parts = value.split('|').map((part) => part.trim());
+  const acs = parts[1] ? splitList(parts[1]) : [];
+  if (parts.length !== 2 || !ID.test(parts[0] ?? '') || !acs.length) return `ac 格式无效：${value}（应为 ac: <case> | <AC1,AC2…>）`;
+  if (new Set(acs).size !== acs.length) return `ac 映射含重复 AC：${value}`;
+  return { caseId: parts[0]!, acs };
+}
+
 /** Parses the one strict machine manifest inside a human-readable test-plan.md. */
 export function parseTestPlan(text: string | undefined): { ok: true; plan: TestPlan } | { ok: false; errors: string[] } {
   if (!text) return { ok: false, errors: ['测试计划缺失'] };
@@ -73,10 +83,12 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
 
   const errors: string[] = [];
   let version: string | undefined;
+  let requiredAcs: string[] | undefined;
   const cases: TestPlanCase[] = [];
   const assets: { caseId: string; type: ApifoxAssetType }[] = [];
   const presentations: { caseId: string; type: ApifoxAssetType }[] = [];
   const authProfiles: { caseId: string; profile: string }[] = [];
+  const acMappings: { caseId: string; acs: string[] }[] = [];
   for (const rawLine of block.body.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) continue;
@@ -86,6 +98,16 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
     if (key === 'plan-version') {
       if (version !== undefined) errors.push('测试计划 plan-version 重复');
       else version = value!.trim();
+      continue;
+    }
+    if (key === 'ac-set') {
+      // Q1：proposal 的 AC 全集声明（ac-set: AC1,AC2,…）——给出即启用「每条 AC 至少一个 case」硬校验。
+      if (requiredAcs !== undefined) errors.push('测试计划 ac-set 重复');
+      else {
+        requiredAcs = splitList(value!);
+        if (!requiredAcs.length) errors.push('ac-set 声明了但为空');
+        else if (new Set(requiredAcs).size !== requiredAcs.length) errors.push('ac-set 含重复 AC');
+      }
       continue;
     }
     if (key === 'case') {
@@ -110,6 +132,12 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
       const parsed = parsePlanAuthProfile(value!);
       if (typeof parsed === 'string') errors.push(parsed);
       else authProfiles.push(parsed);
+      continue;
+    }
+    if (key === 'ac') {
+      const parsed = parsePlanAc(value!);
+      if (typeof parsed === 'string') errors.push(parsed);
+      else acMappings.push(parsed);
       continue;
     }
     errors.push(`测试计划含未知字段：${key}`);
@@ -149,6 +177,32 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
   }
   for (const testCase of cases) {
     if (testCase.methods.includes('api') && !testCase.assets.includes('scenario')) errors.push(`case ${testCase.id} 的 API 测试必须声明 scenario 资产`);
+  }
+  // Q1：AC 覆盖硬校验——ac-set 声明后每条 AC 必须至少映射一个 case；映射的 case 必须存在。
+  // 未声明 ac-set 时按存量兼容放行（老计划无此字段），但 test-design 已要求新计划必带。
+  const seenAcByCase = new Map<string, Set<string>>();
+  for (const mapping of acMappings) {
+    const testCase = byId.get(mapping.caseId);
+    if (!testCase) {
+      errors.push(`ac 映射引用了未知 case：${mapping.caseId}`);
+      continue;
+    }
+    const seen = seenAcByCase.get(mapping.caseId) ?? new Set<string>();
+    for (const ac of mapping.acs) {
+      if (seen.has(ac)) errors.push(`ac 映射重复：${mapping.caseId} → ${ac}`);
+      seen.add(ac);
+    }
+    seenAcByCase.set(mapping.caseId, seen);
+  }
+  if (requiredAcs !== undefined) {
+    const mappedAcs = new Set(acMappings.flatMap((mapping) => (byId.has(mapping.caseId) ? mapping.acs : [])));
+    const unmapped = requiredAcs.filter((ac) => !mappedAcs.has(ac));
+    if (unmapped.length) errors.push(`以下验收标准没有任何测试条目映射（漏测）：${unmapped.join('、')}`);
+    for (const mapping of acMappings) {
+      for (const ac of mapping.acs) {
+        if (!requiredAcs.includes(ac)) errors.push(`ac 映射引用了 ac-set 之外的 AC：${ac}`);
+      }
+    }
   }
   return errors.length ? { ok: false, errors } : { ok: true, plan: { version: version!, cases } };
 }
@@ -219,10 +273,10 @@ function declaredEnvironment(block: MarkerBlock): string | undefined {
   return matches.length === 1 && matches[0] ? matches[0] : undefined;
 }
 
-/** Selects the newest execution marker for an environment. Notes must be in GitLab readback order. */
-export function parseLatestTestRun(notes: { body: string }[] = [], environment: TestEnvironment): LatestTestRun {
+/** Selects the newest execution marker for an environment from GitLab readback. */
+export function parseLatestTestRun(notes: IssueNote[] = [], environment: TestEnvironment): LatestTestRun {
   let latest: MarkerBlock | undefined;
-  for (const note of notes) {
+  for (const note of chronologicalNotes(notes)) {
     for (const block of markerBlocks(note.body, RUN_MARKER)) {
       const declared = declaredEnvironment(block);
       if (!declared || declared === environment) latest = block;
@@ -254,7 +308,7 @@ export function validateTestRun(plan: TestPlan, environment: TestEnvironment, la
   return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
 }
 
-/** Renders a strict internal receipt for the persisted evidence ledger. */
+/** Renders an immutable, human-readable Issue comment plus its strict machine receipt. */
 export function renderTestRun(run: TestRun): string {
   const cases = Object.entries(run.cases).sort(([a], [b]) => a.localeCompare(b)).map(([id, outcome]) => `${id}=${outcome}`).join(',');
   const evidence = Object.entries(run.evidence).sort(([a], [b]) => a.localeCompare(b)).map(([method, value]) => `${method}=${value}`).join(',');

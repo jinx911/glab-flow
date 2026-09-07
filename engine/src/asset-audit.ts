@@ -9,7 +9,9 @@ import type {
   LatestApifoxAssetAudit,
   TestEnvironment,
   TestPlan,
+  IssueNote,
 } from './types.js';
+import { chronologicalNotes } from './notes.js';
 
 const MARKERS = [
   { marker: '<!-- glab-flow:apifox-asset-audit:v1', version: 'v1' as const },
@@ -154,9 +156,9 @@ function declaredEnvironment(block: MarkerBlock): string | undefined {
 }
 
 /** Selects the newest audit for one environment without falling back past malformed evidence. */
-export function parseLatestApifoxAssetAudit(notes: { body: string }[] = [], environment: TestEnvironment): LatestApifoxAssetAudit {
+export function parseLatestApifoxAssetAudit(notes: IssueNote[] = [], environment: TestEnvironment): LatestApifoxAssetAudit {
   let latest: MarkerBlock | undefined;
-  for (const note of notes) {
+  for (const note of chronologicalNotes(notes)) {
     for (const block of markerBlocks(note.body)) {
       const declared = declaredEnvironment(block);
       if (!declared || declared === environment) latest = block;
@@ -221,7 +223,7 @@ export function validateApifoxAssetAudit(plan: TestPlan, environment: TestEnviro
   return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
 }
 
-/** Renders a strict internal audit receipt. Leader persists it in run-state after test-platform readback. */
+/** Renders an immutable, readable audit comment. It is a preview only; Leader writes it after Apifox readback. */
 export function renderApifoxAssetAudit(audit: ApifoxAssetAudit): string {
   const assets = [...audit.assets].sort((a, b) => `${a.caseId}/${a.type}`.localeCompare(`${b.caseId}/${b.type}`));
   const presentations = [...(audit.presentations ?? [])].sort((a, b) => `${a.caseId}/${a.type}`.localeCompare(`${b.caseId}/${b.type}`));

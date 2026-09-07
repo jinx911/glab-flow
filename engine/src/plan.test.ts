@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { buildReturnPlan } from './plan.js';
+import { buildForwardPlan, buildReturnPlan } from './plan.js';
+import type { Payload } from './types.js';
+
+describe('buildForwardPlan public comment boundary', () => {
+  it('rejects internal execution material before producing a write plan', () => {
+    const payload: Payload = {
+      type: 'story', from: '开发中', to: '测试中', assigneeUser: '@qa',
+      fields: { 可测试版本或环境: 'local build' },
+    };
+    expect(() => buildForwardPlan(payload, 123)).toThrow(/内部执行证据/);
+  });
+});
 
 describe('buildReturnPlan', () => {
   it('builds from→target labels + assignee + 退回 comment', () => {

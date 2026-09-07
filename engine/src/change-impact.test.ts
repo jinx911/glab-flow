@@ -88,12 +88,93 @@ describe('change-impact closure', () => {
     expect(validateChangeImpactClosure([{ body: open }, { body: closed }])).toEqual({ ok: true, missing: [], reasons: [] });
   });
 
-  it('requires proposal plus schedule evidence for a requirement change', () => {
-    const { impact } = buildChangeImpactPlan({
-      ...input, currentNode: '开发中', source: 'requirement', scopes: ['functional', 'schedule'], testPlan: undefined,
+  it('releases a close receipt even when GitLab returns notes newest-first', () => {
+    const { plan } = buildChangeImpactPlan(input);
+    const open = (plan.ops[0] as { body: string }).body;
+    const close = buildChangeClosePlan({
+      iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes: [{ body: open }], testPlan: PLAN_V4,
+      completed: {
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#v4', 'apifox-assets': 'audit:123',
+        'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
+      },
     });
-    expect(impact.requiredArtifacts).toEqual(['proposal', 'design', 'test-plan', 'apifox-assets', 'local-rerun', 'week-plan']);
+    const closed = (close.ops[0] as { body: string }).body;
+    expect(validateChangeImpactClosure([
+      { id: 20, created_at: '2026-08-26T09:01:00Z', body: closed },
+      { id: 10, created_at: '2026-08-25T09:01:00Z', body: open },
+    ])).toEqual({ ok: true, missing: [], reasons: [] });
+  });
+
+  it('requires proposal plus test evidence for a requirement change', () => {
+    const { impact } = buildChangeImpactPlan({
+      ...input, currentNode: '开发中', source: 'requirement', scopes: ['functional'], testPlan: undefined,
+    });
+    expect(impact.requiredArtifacts).toEqual(['proposal', 'design', 'test-plan', 'apifox-assets', 'local-rerun']);
     expect(impact.returnTarget).toBe('待评审');
+  });
+
+  it('lightweight close: derived T1/T2 skips the strict plan-version advance', () => {
+    const { plan } = buildChangeImpactPlan({ ...input, scopes: ['frontend-copy'] });
+    const notes = [{ body: (plan.ops[0] as { body: string }).body }];
+    const base = {
+      iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes, testPlan: PLAN_V3,
+      completed: {
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#unchanged', 'apifox-assets': 'audit:123',
+        'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
+      },
+    } as const;
+    // 未传 tier：按 open 单 scopes（frontend-copy）推导 T1 → 轻量关闭仍工作。
+    expect(validateChangeClose(base)).toEqual({ ok: true, missing: [], reasons: [] });
+    // 与推导一致的自报 tier 放行。
+    expect(validateChangeClose({ ...base, tier: 'T1' })).toEqual({ ok: true, missing: [], reasons: [] });
+  });
+
+  it('derives close tier from the open receipt scopes and rejects self-reported downgrade', () => {
+    // open 单声明 data-model（T4）；客户端自报 T1 试图绕过版本递增。
+    const { plan } = buildChangeImpactPlan({ ...input, scopes: ['data-model'] });
+    const notes = [{ body: (plan.ops[0] as { body: string }).body }];
+    const base = {
+      iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes, testPlan: PLAN_V3,
+      completed: {
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#unchanged', 'apifox-assets': 'audit:123',
+        'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
+      },
+    } as const;
+    expect(validateChangeClose({ ...base, tier: 'T1' })).toMatchObject({
+      ok: false,
+      missing: ['tier'],
+      reasons: [expect.stringContaining('close tier 与 open 单 scopes 推导不符')],
+    });
+    // 不传 tier → 用推导值 T4：版本未前进仍拒绝。
+    expect(validateChangeClose(base)).toMatchObject({ ok: false, missing: ['testPlan'] });
+    expect(validateChangeClose({ ...base, testPlan: PLAN_V4 })).toEqual({ ok: true, missing: [], reasons: [] });
+  });
+
+  it('rejects sensitive change-impact fields before producing a public WritePlan', () => {
+    expect(() => buildChangeImpactPlan({ ...input, reason: 'token=supersecret' })).toThrow(/公共评论字段/);
+    expect(() => buildChangeImpactPlan({ ...input, changeId: 'deadbeef' })).toThrow(/内部执行证据|安全标识符/);
+  });
+
+  it('rejects control characters in currentNode before producing a machine marker', () => {
+    expect(() => buildChangeImpactPlan({ ...input, currentNode: '开发中\n伪造节点' })).toThrow(/currentNode/);
+    expect(() => buildChangeImpactPlan({ ...input, currentNode: '开发中 伪造节点' })).toThrow(/currentNode/);
+  });
+
+  it('does not publish completion evidence values in a close receipt', () => {
+    const { plan } = buildChangeImpactPlan(input);
+    const open = (plan.ops[0] as { body: string }).body;
+    const close = buildChangeClosePlan({
+      iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes: [{ body: open }], testPlan: PLAN_V4,
+      completed: {
+        design: 'token=supersecret', 'test-plan': '/Users/private/test-plan.md', 'apifox-assets': 'report:123',
+        'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
+      },
+    });
+    const body = (close.ops[0] as { body: string }).body;
+    expect(body).not.toContain('token=supersecret');
+    expect(body).not.toContain('/Users/private');
+    expect(body).not.toContain('report:123');
+    expect(body).toContain('已完成产物');
   });
 
   it('places the single shared test plan before coding and local self-test', () => {

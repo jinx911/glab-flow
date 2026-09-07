@@ -2,6 +2,12 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
+import { loadModel } from './model.js';
+import { SCOPE_RANK } from './gate-set.js';
+import { TIER_BY_SCOPE } from './tier.js';
+import type { ChangeScope } from './types.js';
+
+const ALL_SCOPES: ChangeScope[] = ['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'release'];
 
 const PROJECT_ROOT = process.cwd();
 const ENGINE_SRC = 'engine/src';
@@ -88,6 +94,41 @@ function assertNoPattern(text: string, patterns: RegExp[]): void {
 }
 
 describe('glab-flow process contracts', () => {
+  it('state machine carries the gate matrix (P3 维度→门禁推导)', () => {
+    const matrix = loadModel().gateMatrix;
+    expect(matrix?.rules?.length).toBeGreaterThan(0);
+    // defaults 必须齐备：deriveGateSet 未命中规则时以其为基准
+    expect(matrix?.defaults).toMatchObject({ mrReview: true, regression: 'full', rollbackPlan: false });
+    expect(matrix?.defaults.environments.length).toBeGreaterThan(0);
+    // frontend-copy 规则必须可跳过测试中并免 MR 评审（轻量需求直达待发布）
+    const frontendCopy = matrix?.rules.find((rule) => rule.scopes.includes('frontend-copy'));
+    expect(frontendCopy).toMatchObject({ mrReview: false, regression: 'affected-cases' });
+    expect(frontendCopy?.skipStates).toContain('测试中');
+    // 高危维度必须全量回归 + 回滚方案
+    const dataModel = matrix?.rules.find((rule) => rule.scopes.includes('data-model'));
+    expect(dataModel).toMatchObject({ mrReview: true, regression: 'full', rollbackPlan: true });
+  });
+
+  it('keeps gate-matrix scopes aligned with the ChangeScope union and SCOPE_RANK (I5)', () => {
+    const matrix = loadModel().gateMatrix;
+    expect(matrix).toBeDefined();
+    const ruleScopes = matrix!.rules.flatMap((rule) => rule.scopes);
+    // 1) rules 中每个 scope 都是合法 ChangeScope（yaml 手写不漂移）
+    expect(ruleScopes.every((scope) => ALL_SCOPES.includes(scope as ChangeScope))).toBe(true);
+    // 2) SCOPE_RANK 编译期穷尽 ChangeScope；运行时同样核对无遗漏/无多余
+    expect(Object.keys(SCOPE_RANK).sort()).toEqual([...ALL_SCOPES].sort());
+    // 3) 同一 scope 不得出现在两条 rule（否则最高档命中哪条取决于 rules 顺序，破坏确定性）
+    const duplicated = ruleScopes.filter((scope, index) => ruleScopes.indexOf(scope) !== index);
+    expect(duplicated).toEqual([]);
+  });
+
+  it('keeps TIER_BY_SCOPE exhaustive over the ChangeScope union (P5 定级)', () => {
+    // 编译期 Record<ChangeScope, ChangeTier> 已强制穷尽；运行时同样核对无遗漏/无多余。
+    expect(Object.keys(TIER_BY_SCOPE).sort()).toEqual([...ALL_SCOPES].sort());
+    // 每个维度都必须落在合法档位（yaml/手写漂移防呆）。
+    expect(Object.values(TIER_BY_SCOPE).every((tier) => ['T1', 'T2', 'T3', 'T4'].includes(tier))).toBe(true);
+  });
+
   it('keeps the engine free of GitLab writeback and shell/network side effects', () => {
     // issue 22 豁免:version.ts 用 execFileSync 只读本地 git ref(零网络/零写入),
     // 用于运行时版本守卫——检测本地副本是否落后 origin/master,防静默漂移(issue 22)。
@@ -147,52 +188,6 @@ describe('glab-flow process contracts', () => {
   it('keeps reusable docs free of artifact-receipt marker as content source', () => {
     const nodes = readProjectFile('skills/glab-flow/nodes.md');
     expect(nodes).not.toMatch(/<!-- glab-flow:artifact-receipt:v1/);
-  });
-
-  it('documents the canonical Week Plan protocol and Leader initial sync / Harness rollover boundary', () => {
-    const skill = readProjectFile('skills/glab-flow/SKILL.md');
-    const nodes = readProjectFile('skills/glab-flow/nodes.md');
-    const gate = readProjectFile('skills/glab-flow/gate.md');
-    const resume = readProjectFile('skills/glab-flow/resume.md');
-    const canonicalWeekPlan = [
-      '## 周排期',
-      '',
-      '- 计划开始：2026-08-17',
-      '- 计划完成：2026-09-06',
-      '- 计划覆盖周：W34 ～ W36',
-      '- 自动 rollover：启用',
-    ].join('\n');
-
-    expect(skill).toContain(canonicalWeekPlan);
-    expect(nodes).toMatch(/待评审[\s\S]{0,80}已评审[\s\S]{0,160}周排期/);
-    expect(nodes).toMatch(/已评审[\s\S]{0,80}开发中[\s\S]{0,160}(最新|latest).*周排期/);
-    expect(gate).toMatch(/week-plan-change[\s\S]{0,160}(仅评论|comment-only)/i);
-    expect(gate).toMatch(/最新[\s\S]{0,80}(无效|invalid)[\s\S]{0,120}(停止|停)/);
-    expect(resume).toMatch(/最新[\s\S]{0,80}周排期[\s\S]{0,120}(无效|invalid)/);
-    expect(resume).toMatch(/不得[\s\S]{0,80}(回退|fallback)[\s\S]{0,80}(旧|更早)/);
-    const docs = [skill, nodes, gate, resume].join('\n');
-    expect(docs).toMatch(/初始挂载/);
-    expect(docs).toMatch(/postWriteback/);
-    expect(docs).toMatch(/周一[\s\S]{0,120}rollover/i);
-    expect(docs).toMatch(/Week YYYY-Www/);
-    expect(docs).toMatch(/milestone_id/);
-    expect(docs).toMatch(/不回滚[\s\S]{0,120}(状态|标签|评论)/);
-
-    const engineProduction = listFiles(ENGINE_SRC)
-      .filter((filePath) => filePath.endsWith('.ts'))
-      .filter((filePath) => !filePath.endsWith('.test.ts'))
-      .map(readProjectFile)
-      .join('\n');
-    expect(engineProduction).toMatch(/sync_week_milestone/);
-    expect(engineProduction).not.toMatch(/glab\s+(api|issue)|fetch\(/i);
-  });
-
-  it('documents notes for legacy CLI Week Plan validation and planning', () => {
-    const skill = readProjectFile('skills/glab-flow/SKILL.md');
-
-    expect(skill).toMatch(/`validate`[\s\S]{0,360}notes/);
-    expect(skill).toMatch(/`plan`[\s\S]{0,360}notes/);
-    expect(skill).toMatch(/已评审\s*→\s*开发中[\s\S]{0,240}(最新|latest).*周排期/);
   });
 
   it('requires one versioned plan and separately evidenced local/test TestRuns', () => {
@@ -277,13 +272,16 @@ describe('glab-flow process contracts', () => {
     expect(flow).toMatch(/四层.*环境|环境事实/);
   });
 
-  it('treats detailed Apifox report upload as an explicit two-layer authorization gate', () => {
+  it('keeps detailed Apifox report upload paramandatory and never silently downgraded', () => {
     const apifox = readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md');
 
-    expect(apifox).toMatch(/require_escalated/);
-    expect(apifox).toMatch(/外部 AI.*权限/);
-    expect(apifox).toMatch(/不得[\s\S]{0,80}(删除|降级|省略)[\s\S]{0,100}--upload-report detail/);
+    // 用户裁定（2026-09-02）：--upload-report detail 随 CLI 登录态直接上传，无需单独授权预检；
+    // 保留的契约是「参数不可省略/降级 + 报告必须回读」。
+    expect(apifox).toMatch(/不需要单独授权/);
+    expect(apifox).toMatch(/不可省略或降级/);
     expect(apifox).toMatch(/test-report get/);
+    // 旧的两层授权预检表述必须移除，防止流程回退
+    expect(apifox).not.toMatch(/require_escalated/);
   });
 
   it('prohibits test-first workflow and keeps active glab-flow docs free of retired routes', () => {
@@ -324,54 +322,18 @@ describe('glab-flow process contracts', () => {
     expect(tools).toMatch(/review-preview/);
   });
 
-  it('separates Jenkins parameter confirmation from broad release approval', () => {
+  it('tiers Jenkins parameter handling: test env auto-runs on defaults, production stays confirmed', () => {
     const jenkinsDeploy = readProjectFile('skills/glab-flow/sub-skills/jenkins-deploy.md');
     const skill = readProjectFile('skills/glab-flow/SKILL.md');
 
-    expect(jenkinsDeploy).toMatch(/test_version/);
-    expect(jenkinsDeploy).toMatch(/DEPLOY_ENV/);
-    expect(jenkinsDeploy).toMatch(/粗粒度授权|笼统授权/);
-    expect(jenkinsDeploy).toMatch(/不等于[\s\S]{0,20}(构建)?参数确认/);
-    expect(jenkinsDeploy).toMatch(/触发前必须展示清单让用户确认/);
-    expect(skill).toMatch(/Jenkins[\s\S]{0,40}部署参数/);
-  });
-
-  it('documents locked development-entry automation and its pause red lines', () => {
-    const skill = readProjectFile('skills/glab-flow/SKILL.md');
-    const gate = readProjectFile('skills/glab-flow/gate.md');
-    const resume = readProjectFile('skills/glab-flow/resume.md');
-    const nodes = readProjectFile('skills/glab-flow/nodes.md');
-    const init = readProjectFile('skills/init-glab-flow/SKILL.md');
-    const config = readProjectFile('skills/glab-flow/config.md');
-    const example = readProjectFile('skills/glab-flow/config.example.md');
-    const readme = readProjectFile('README.md');
-    const docs = [skill, gate, resume, nodes, init, config, example, readme].join('\n');
-
-    expect(docs).toMatch(/已评审\s*→\s*开发中/);
-    expect(docs).toMatch(/run-mode-select/);
-    expect(docs).toMatch(/runModeSelection/);
-    expect(docs).toMatch(/不可变|不可改|锁定/);
-    expect(docs).toMatch(/重读[\s\S]{0,80}transition/);
-    expect(config).toMatch(/兼容默认/);
-    expect(init).toMatch(/不能授权自动写回/);
-
-    expect(docs).toMatch(/技术方案[\s\S]{0,180}测试计划[\s\S]{0,180}编码/);
-    expect(docs).toMatch(/local API \+ E2E/);
-    expect(docs).toMatch(/test API \+ E2E/);
-    expect(docs).toMatch(/commit\/push[\s\S]{0,80}MR/);
-    expect(docs).toMatch(/测试分支合并/);
-    expect(docs).toMatch(/Jenkins[\s\S]{0,80}唯一推导/);
-    expect(docs).toMatch(/progress[\s\S]{0,80}(审计|audit)/i);
-    expect(docs).toMatch(/GitLab 写回并回读/);
-
-    expect(docs).toMatch(/automation-decision/);
-    expect(docs).toMatch(/一次重试/);
-    expect(docs).toMatch(/自动修复[\s\S]{0,80}(重验|重新验证)/);
-    expect(docs).toMatch(/测试失败[\s\S]{0,160}(语义冲突|Git\/语义冲突)[\s\S]{0,180}hard_gate/);
-    expect(gate).toMatch(/action:\s*pause[\s\S]{0,500}resumeCommand/);
-    expect(docs).toMatch(/material_change[\s\S]{0,120}change-impact/);
-    expect(docs).toMatch(/change-close[\s\S]{0,120}(恢复|继续)/);
-    expect(docs).toMatch(/生产部署[\s\S]{0,120}(恒为人工|始终人工)/);
+    // 用户裁定（2026-09-02）：test/非生产构建参数与凭据同理默认值直用，不逐参数确认；
+    // 生产部署参数确认保留（L3 红线：粗粒度授权不等于生产参数确认）。
+    expect(jenkinsDeploy).toMatch(/默认值直用/);
+    expect(jenkinsDeploy).toMatch(/直接触发/);
+    expect(jenkinsDeploy).toMatch(/生产部署.*AskUserQuestion[\s\S]{0,60}逐项确认|生产部署[\s\S]{0,200}必须[\s\S]{0,40}AskUserQuestion/);
+    expect(skill).toMatch(/默认值直用/);
+    // 旧的「触发前必须展示清单让用户确认」全环境表述必须移除，防止回潮
+    expect(jenkinsDeploy).not.toMatch(/触发前必须展示清单让用户确认/);
   });
 
   it('documents the learning-to-versioned-docs cleanup lifecycle', () => {

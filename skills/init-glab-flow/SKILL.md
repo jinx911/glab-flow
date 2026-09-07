@@ -29,10 +29,10 @@ description: 探测 GitLab 环境并生成 <workspace.root>/.glab-flow/config.md
 
 3. **探测项目**。`AskUserQuestion` 问用户给 `project_id`（数字 ID）或 `project_path`（`namespace/name` 全路径）。不确定时 Leader 可辅助查询：`glab api --hostname <host> "projects?search=<关键字>&per_page=20"` 列出候选项目的 `id` 与 `path_with_namespace`，让用户从列表里挑。最终在配置里写用户确认的那一个。
 
-4. **设兼容默认 `run_mode`**。`AskUserQuestion` 二选一，作为旧 state 与未进入开发前的默认值：
+4. **选 `run_mode`**。`AskUserQuestion` 二选一：
    - `semi-auto`（默认，推荐）：每个节点门禁预览后 `AskUserQuestion` 确认再应用。
-   - `full-auto`：仅作为默认偏好；它本身不能授权自动写回。
-   真正的 Issue 级授权只会在「已评审 → 开发中」时问一次半自动/自动，并由 `run-mode-select` 持久化、重读后传给 `transition`；选择不可变。两模式的红线一致——生产部署、验收、关闭和所有 hard_gate 永远人工（G3），不可关。
+   - `full-auto`：护栏全 ok 即自动应用，仅在 hard_gate（待发布/验收/关闭）强制人工。
+   两模式的红线一致——hard_gate 永远人工（G3），不可关。
 
 5. **可选项**（一次性逐项问，用户说"跳过"就不配）：
    - `deploy_branch`：是否要自动部署到某分支（如 `test`）？是 → 填分支名；否 → 不配（发布节点跳过合并）。

@@ -1,103 +1,137 @@
-import type { InternalEvidenceReceipt, StateMachine, IssueFacts, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput } from './types.js';
+import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, TestRun, TestPlan, ApifoxAssetAudit, ApifoxAssetRecord, LatestTestRun, LatestApifoxAssetAudit, TestMethod, DuState, Transition, GateSet } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
-import { parseLatestWeekPlan, validateWeekPlan } from './week-plan.js';
 import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
 import { validateChangeImpactClosure } from './change-impact.js';
-import { validatePublicComment } from './render.js';
+import { gateSetValidationErrors, isWaivedByGateSet } from './gate-set.js';
+import { chronologicalNotes } from './notes.js';
+import { latestEvidence } from './du.js';
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
 const unique = (values: string[]): string[] => [...new Set(values)];
 
-const WEEK_PLAN_INPUT_HINT = '提供 weekPlan: { startDate: YYYY-MM-DD, endDate: YYYY-MM-DD, autoRollover: true|false }';
-const WEEK_PLAN_READBACK_HINT = '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段';
 
-function isWeekPlanInput(value: unknown): value is NonNullable<Payload['weekPlan']> {
-  if (!value || typeof value !== 'object') return false;
-  const plan = value as Record<string, unknown>;
-  return typeof plan.startDate === 'string' && typeof plan.endDate === 'string' && typeof plan.autoRollover === 'boolean';
+/** 当前计划在该环境是否要求 v2 审计（presentation/auth-profile 证据 DU 尚无法承载）。 */
+function planRequiresV2Audit(plan: TestPlan, environment: string): boolean {
+  return plan.cases.some((item) => item.environments.includes(environment) && (item.presentations.length || item.authProfiles.length));
 }
 
-const CHANGE_FACTS = ['changeDate', 'originalPlan', 'reason', 'impact', 'nextStep', 'owner'] as const;
-
-/** Validates the complete, comment-only schedule-change command payload. */
-export function validateWeekPlanChange(input: unknown): GuardResult {
-  if (!input || typeof input !== 'object') {
-    return fail(['排期变更输入必须是对象'], ['iid', 'weekPlan', ...CHANGE_FACTS]);
+/**
+ * DU 本地证据 → TestRun 形状（评论瘦身，P2）。
+ * cases/evidence 按当前计划推导填充（DU 明细在本地 detailRef，评论格式的
+ * 回读锚点以中性占位满足结构）；assetAudit 拼成 `${planVersion}/${environment}`
+ * 与评论标记约定一致，让关联校验照常工作。outcome 非 passed 一律不合成
+ * 通过形状，直接以 invalid-latest 带根因拒绝——fail-closed，用户看到
+ * 「须重跑」而不是合成形状缺 case 的逐项噪音。
+ */
+function duTestRunFor(du: DuState | undefined, plan: TestPlan, environment: string): LatestTestRun | undefined {
+  const entry = du ? latestEvidence(du, 'test-run', environment) : undefined;
+  if (!entry) return undefined;
+  if (entry.outcome !== 'passed') {
+    return { kind: 'invalid-latest', errors: [`DU 记录 outcome=${entry.outcome}，须重跑后再记录`] };
   }
-
-  const value = input as Partial<WeekPlanChangeInput>;
-  const missing: string[] = [];
-  const reasons: string[] = [];
-  if (!Number.isInteger(value.iid) || value.iid! <= 0) missing.push('iid');
-
-  for (const field of CHANGE_FACTS) {
-    if (typeof value[field] !== 'string' || !value[field]!.trim()) missing.push(field);
+  // H1：版本占位符拒绝——旧 DU 无 version 或占位 'du' 时不再合成通过形状，
+  // 要求带真实被测版本（cli du record 已强制新记录必填）后重记。
+  if (!entry.version || !entry.version.trim() || entry.version.trim() === 'du') {
+    return { kind: 'invalid-latest', errors: [`DU test-run 缺少真实被测版本（version 占位/缺失）：请以 cli du record 附 version（报告回读的运行版本）重记`] };
   }
-
-  if (!isWeekPlanInput(value.weekPlan)) {
-    missing.push('weekPlan');
-  } else {
-    const validation = validateWeekPlan(value.weekPlan);
-    if (!validation.ok) reasons.push(`周排期无效：${validation.errors.join('；')}`);
+  const required = plan.cases.filter((item) => item.environments.includes(environment));
+  const cases: Record<string, 'passed'> = {};
+  for (const item of required) cases[item.id] = 'passed';
+  const evidence: Partial<Record<TestMethod, string>> = {};
+  for (const method of new Set(required.flatMap((item) => item.methods))) {
+    evidence[method] = `ok:${entry.detailRef ?? 'du'}`;
   }
-
-  return missing.length || reasons.length ? fail(reasons, missing) : ok();
+  const run: TestRun = {
+    environment: entry.environment,
+    planVersion: entry.planVersion,
+    version: entry.version,
+    outcome: 'passed',
+    assetAudit: `${entry.planVersion}/${entry.environment}`,
+    cases,
+    evidence,
+  };
+  return { kind: 'valid' as const, run };
 }
 
-/** Applies the schedule contract to any forward entry point, including legacy CLI commands. */
-export function validateWeekPlanTransition(payload: Payload, notes: { body: string }[] = []): GuardResult {
-  if (payload.type !== 'story') return ok();
-  if (payload.from === '待评审' && payload.to === '已评审') {
-    if (!isWeekPlanInput(payload.weekPlan)) return fail([`周排期缺失：${WEEK_PLAN_INPUT_HINT}`], ['weekPlan']);
-    const validation = validateWeekPlan(payload.weekPlan);
-    return validation.ok ? ok() : fail([`周排期无效：${validation.errors.join('；')}`], ['weekPlan']);
+/**
+ * DU 本地证据 → ApifoxAssetAudit 形状（评论瘦身，P2）。
+ * project/branch 是展示字段，DU 不登记（明细在本地 detailRef）；审计语义由
+ * 「计划内资产全覆盖 + 计划版本一致 + 无未处置问题 + 有本地明细指针」表达。
+ * outcome 即未处置问题数：非法值（空/非整数/负数）fail-closed 以
+ * invalid-latest 拒绝，不静默归 0——主源不允许弱于兜底源。
+ */
+function duAssetAuditFor(du: DuState | undefined, plan: TestPlan, environment: string): LatestApifoxAssetAudit | undefined {
+  const entry = du ? latestEvidence(du, 'asset-audit', environment) : undefined;
+  if (!entry) return undefined;
+  // DU 无法承载 presentation/auth-profile 证据，回落 Issue 评论（spec 留待后续阶段补齐）。
+  if (planRequiresV2Audit(plan, environment)) return undefined;
+  const raw = entry.outcome.trim();
+  const unresolved = Number(raw);
+  if (!raw || !Number.isInteger(unresolved) || unresolved < 0) {
+    return { kind: 'invalid-latest', errors: [`DU asset-audit outcome 无效（须为非负整数）：${entry.outcome}`] };
   }
-  if (payload.from === '已评审' && payload.to === '开发中') {
-    const latest = parseLatestWeekPlan(notes);
-    if (latest.kind === 'absent') return fail([`最新周排期缺失：${WEEK_PLAN_READBACK_HINT}`], ['latestWeekPlan']);
-    if (latest.kind === 'invalid-latest') return fail([`最新周排期无效：${latest.errors.join('；')}`], ['latestWeekPlan']);
-  }
-  return ok();
+  const assets = plan.cases
+    .filter((item) => item.environments.includes(environment))
+    .flatMap((item) => item.assets.map((type): ApifoxAssetRecord => ({ caseId: item.id, type, id: entry.detailRef ?? 'du', action: 'reuse' })));
+  const audit: ApifoxAssetAudit = {
+    environment: entry.environment,
+    planVersion: entry.planVersion,
+    project: '',
+    branch: '',
+    unresolvedFindings: unresolved,
+    evidence: entry.detailRef ?? 'du',
+    assets,
+  };
+  return { kind: 'valid' as const, audit };
 }
 
 /** Applies one versioned test plan to the local and test acceptance gates. */
-function evidenceNotes(evidence: InternalEvidenceReceipt[] = [], legacyNotes: { body: string }[] = []): { body: string }[] {
-  // Existing flows may contain receipts written before the ledger migration.
-  // New flows always pass the ledger; this fallback is read-only compatibility,
-  // never a reason to emit machine evidence into the Issue again.
-  return evidence.length ? evidence.map((item) => ({ body: item.receipt })) : legacyNotes;
-}
-
-export function validateTestRunTransition(payload: Payload, evidence: InternalEvidenceReceipt[] = [], legacyNotes: { body: string }[] = []): GuardResult {
+export function validateTestRunTransition(payload: Payload, notes: IssueNote[] = []): GuardResult {
   const environment = payload.from === '开发中' && payload.to === '测试中'
     ? 'local'
     : payload.from === '测试中' && payload.to === '待发布'
       ? 'test'
       : undefined;
   if (!environment) return ok();
+  if (payload.du?.gateSet && !payload.du.gateSet.environments.includes(environment)) return ok();
 
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
-  const validation = validateTestRun(parsedPlan.plan, environment, parseLatestTestRun(evidenceNotes(evidence, legacyNotes), environment));
+  // Q4：GateSet 按维度要求的最少 unit 用例数（纯逻辑防线：数据模型/权限类改动的计算逻辑须有单测）。
+  // 无 GateSet 的存量路径不要求（兼容）；frontend-copy 等轻量维度为 0。
+  const minUnits = payload.du?.gateSet?.minUnitCases ?? 0;
+  if (minUnits > 0) {
+    const unitCases = parsedPlan.plan.cases.filter((c) => c.methods.includes('unit')).length;
+    if (unitCases < minUnits) {
+      return fail([`测试计划 unit 用例不足：当前门禁单要求 ≥${minUnits} 条（改动了计算/状态/数据逻辑），实际 ${unitCases} 条——纯逻辑分支需单测兜底（test-plan 的 case 行 methods 加 unit）`], ['testPlan']);
+    }
+  }
+  // DU 优先：本地有该环境事实就不看评论（存量 Issue 无 DU 仍走评论兜底）。
+  const parsedLatest = duTestRunFor(payload.du, parsedPlan.plan, environment) ?? parseLatestTestRun(notes, environment);
+  const validation = validateTestRun(parsedPlan.plan, environment, parsedLatest);
   return validation.ok ? ok() : fail(validation.errors, [`${environment}TestRun`]);
 }
 
 /** Requires a current, read-back Apifox asset audit before each environment TestRun can pass. */
-export function validateApifoxAssetAuditTransition(payload: Payload, evidence: InternalEvidenceReceipt[] = [], legacyNotes: { body: string }[] = []): GuardResult {
+export function validateApifoxAssetAuditTransition(payload: Payload, notes: IssueNote[] = []): GuardResult {
   const environment = payload.from === '开发中' && payload.to === '测试中'
     ? 'local'
     : payload.from === '测试中' && payload.to === '待发布'
       ? 'test'
       : undefined;
   if (!environment) return ok();
+  if (payload.du?.gateSet && !payload.du.gateSet.environments.includes(environment)) return ok();
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
-  const validation = validateApifoxAssetAudit(parsedPlan.plan, environment, parseLatestApifoxAssetAudit(evidenceNotes(evidence, legacyNotes), environment));
+  // DU 优先（同上）：明细归 DU，Issue 评论仅兜底；计划要求 v2 审计时适配器
+  // 自行回落评论（presentation/auth-profile 证据 DU 尚无法承载）。
+  const parsedLatest = duAssetAuditFor(payload.du, parsedPlan.plan, environment) ?? parseLatestApifoxAssetAudit(notes, environment);
+  const validation = validateApifoxAssetAudit(parsedPlan.plan, environment, parsedLatest);
   return validation.ok ? ok() : fail(validation.errors, [`${environment}AssetAudit`]);
 }
 
@@ -119,9 +153,97 @@ export function isAffirmative(v: string | undefined): boolean {
   return AFFIRMATIVE_NOTE_PREFIX.some((p) => raw.startsWith(p));
 }
 
-export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: { body: string }[] = [], evidence: InternalEvidenceReceipt[] = []): GuardResult {
+/** 验证结果/结论类字段的肯定判定：接受「通过」「已验证」开头或含「复测绿/复测通过」（G11 字段的 isAffirmative 不认「通过（附注）」，这里语义不同）。 */
+function isVerifiedOutcome(v: string | undefined): boolean {
+  if (!v) return false;
+  const raw = v.trim();
+  if (!raw) return false;
+  if (/^(通过|已验证|已通过|复测通过|复测绿|是|true|yes|无需|不适用)/.test(raw)) return true;
+  return /复测(通过|绿)/.test(raw);
+}
+
+/**
+ * G11b（Q2）：从测试问题评论（renderTestIssue 产出的 `## 测试问题` 块）抽未验证的阻塞项。
+ * 语义：**每个问题**以它的最新评论为准（后发的更正覆盖旧状态）——最新的「是否阻塞发布」
+ * 仍为肯定 且 「验证结果」非肯定 → 该问题未闭环。全部问题的最新状态都核实才返回空。
+ * 注意：一条评论只承载一个测试问题（renderTestIssue 契约），问题以 实际结果/当前结论 摘要区分。
+ */
+export function unverifiedBlockingTestIssues(notes: IssueNote[] = []): string[] {
+  const field = (block: string, key: string): string | undefined => {
+    const m = block.match(new RegExp(`^- ${key}：(.+)$`, 'm'));
+    return m ? m[1]!.trim() : undefined;
+  };
+  // 按时间正序遍历，问题摘要 → 最新状态；后发覆盖先发。
+  const latestByIssue = new Map<string, { blocking?: string; verified?: string; at: string }>();
+  for (const note of chronologicalNotes(notes)) {
+    const idx = note.body.indexOf('## 测试问题');
+    if (idx < 0) continue;
+    const block = note.body.slice(idx);
+    const summary = (field(block, '实际结果') ?? field(block, '当前结论') ?? '未注明').slice(0, 30);
+    latestByIssue.set(summary, {
+      blocking: field(block, '是否阻塞发布'),
+      verified: field(block, '验证结果'),
+      at: note.created_at ?? '',
+    });
+  }
+  const unverified: string[] = [];
+  for (const [summary, state] of latestByIssue) {
+    if (!isAffirmative(state.blocking)) continue;
+    if (isVerifiedOutcome(state.verified)) continue;
+    unverified.push(`${state.at} ${summary}`.trim());
+  }
+  return unverified;
+}
+
+/**
+ * G1/G14 联合口径：转换必填字段中 GateSet 实际要求的部分（MR 评审字段在
+ * GateSet 关闭 mrReview 时豁免）。guard 校验与 transition 缺口提示共用，
+ * 避免「校验过、提示仍要补」的幽灵缺口（I3）。
+ */
+export function effectiveRequiredFields(t: Pick<Transition, 'requiredFields'>, gateSet: GateSet | undefined): string[] {
+  return t.requiredFields.filter((f) => !isWaivedByGateSet(gateSet, f));
+}
+
+function validateGateSet(gateSet: GateSet | undefined): GuardResult {
+  if (!gateSet) return ok();
+  const errors = gateSetValidationErrors(gateSet);
+  return errors.length ? fail(errors, ['gateSet']) : ok();
+}
+
+/** GateSet fields must be consumed as executable constraints, not presentation metadata. */
+function validateGateSetRequirements(payload: Payload): GuardResult {
+  const gateSet = payload.du?.gateSet;
+  if (!gateSet) return ok();
+  const reasons: string[] = [];
+  const missing: string[] = [];
+  const isProductionReleaseTransition = payload.from === '待发布'
+    && (payload.to === '生产验收中' || payload.to === '生产验证中');
+  if (gateSet.rollbackPlan && isProductionReleaseTransition
+    && !payload.fields['回滚方案'] && !payload.fields['发布记录或回滚信息']) {
+    missing.push('回滚方案');
+    reasons.push('GateSet 要求回滚方案：填写「回滚方案」或「发布记录或回滚信息」');
+  }
+  if (gateSet.regression === 'full' && (payload.from === '开发中' || payload.from === '测试中')) {
+    const evidence = payload.fields['回归范围或证据'] ?? '';
+    const environment = payload.from === '开发中' ? 'local' : 'test';
+    const duRun = payload.du ? latestEvidence(payload.du, 'test-run', environment) : undefined;
+    const duAudit = payload.du ? latestEvidence(payload.du, 'asset-audit', environment) : undefined;
+    const hasStructuredFullEvidence = duRun?.outcome === 'passed'
+      && duAudit?.outcome === '0'
+      && duRun.planVersion === duAudit.planVersion;
+    if (!hasStructuredFullEvidence && !/全量|完整|full/i.test(evidence)) {
+      missing.push('回归范围或证据');
+      reasons.push('GateSet 要求 full 回归：提供通过的 DU TestRun/AssetAudit，或明确记录全量/完整回归');
+    }
+  }
+  return missing.length ? fail(reasons, missing) : ok();
+}
+
+export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: IssueNote[] = []): GuardResult {
   const t = transitionFor(model, payload.type, payload.from, payload.to);
   if (!t) return fail([`transition ${payload.from}->${payload.to} not allowed`]);
+  const gateSetShape = validateGateSet(payload.du?.gateSet);
+  if (!gateSetShape.ok) return gateSetShape;
 
   const missing: string[] = [];
   const reasons: string[] = [];
@@ -132,8 +254,9 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (statusLabels.length !== 1) return fail([`脏状态：期望 1 个 ${prefix}* 标签，实际 ${statusLabels.length} 个（人工修复后继续）`]);
   if (facts.labels.filter((l) => l.startsWith('type::')).length !== 1) return fail(['脏状态：期望 1 个 type::* 标签']);
 
-  // G1 required fields (G9: no placeholder 待确认)
-  for (const f of t.requiredFields) {
+  // G1 required fields (G9: no placeholder 待确认); G14 waives MR review per GateSet
+  // （skipStates 含 测试中 的路线永远不触发 测试中→待发布 本转换）
+  for (const f of effectiveRequiredFields(t, payload.du?.gateSet)) {
     const v = payload.fields[f];
     if (v === undefined || v === '' || v === '待确认') missing.push(f);
   }
@@ -174,23 +297,27 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
     if (!isAffirmative(payload.fields['阻塞发布问题均已验证通过'])) {
       reasons.push('存在未验证的阻塞发布问题，不得进入 待发布（字段「阻塞发布问题均已验证通过」填 是 / 已验证 / 无阻塞 / true / yes）');
     }
+    // G11b（Q2）：交叉核对测试问题评论——自报字段不够，Issue 上挂着「阻塞=是且未验证」的问题时拒绝放行。
+    const unverified = unverifiedBlockingTestIssues(notes);
+    if (unverified.length) {
+      reasons.push(`测试问题评论存在未验证的阻塞项（${unverified.join('、')}）：阻塞发布=是 且 验证结果≠通过 的问题必须先复测通过，不能只填汇总字段放行`);
+    }
   }
 
   // G12 terminal atomicity
   if (t.terminal && !payload.closeIssue) reasons.push('终态需同一次操作关闭 Issue(closeIssue)');
 
-  const weekPlanGate = validateWeekPlanTransition(payload, notes);
+  const gateSetRequirements = validateGateSetRequirements(payload);
   const reviewEvidenceGate = payload.type === 'story' && payload.from === '待评审' && payload.to === '已评审'
     ? validateRequirementsReviewEvidence(facts.body, notes, payload.reviewEvidence)
     : ok();
-  const assetAuditGate = validateApifoxAssetAuditTransition(payload, evidence, notes);
-  const testRunGate = validateTestRunTransition(payload, evidence, notes);
+  const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
+  const testRunGate = validateTestRunTransition(payload, notes);
   const changeImpactGate = validateChangeImpactClosure(notes);
-  const publicCommentGate = validatePublicComment(payload);
-  if (missing.length || reasons.length || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok || !publicCommentGate.ok) {
+  if (missing.length || reasons.length || !gateSetRequirements.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok) {
     return fail(
-      unique([...reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons, ...publicCommentGate.reasons]),
-      unique([...missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing, ...publicCommentGate.missing]),
+      unique([...reasons, ...gateSetRequirements.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons]),
+      unique([...missing, ...gateSetRequirements.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing]),
     );
   }
   return ok();

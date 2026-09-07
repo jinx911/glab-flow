@@ -1,11 +1,14 @@
-import type { StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep } from './types.js';
+import type { ActionTier, StateMachine, TransitionInput, TransitionOutput, MissingItem, Payload, Transition, PlaybookStep, GateSet, GateEnvironment, GuardResult } from './types.js';
 import { currentNode, transitionFor, allowedTransitions, progressStepsFor } from './model.js';
-import { validateTransition } from './guard.js';
+import { validateTransition, effectiveRequiredFields } from './guard.js';
+import { deriveGateSet, gateScopeValidationErrors, gateSetConsistencyErrors, gateSetValidationErrors } from './gate-set.js';
+import { classifyAction } from './action-policy.js';
 import { parseAssigneeTable } from './parse.js';
-import { buildForwardPlan, buildWeekMilestoneSyncIntent } from './plan.js';
-import { parseLatestWeekPlan } from './week-plan.js';
-import { renderNodeComment } from './render.js';
+import { buildForwardPlan } from './plan.js';
+import { renderNodeComment, validatePublicComment } from './render.js';
 import { STATUS_PREFIX, TERMINAL, ROLES } from './constants.js';
+import { chronologicalNotes } from './notes.js';
+import { reconcileLabels } from './reconcile.js';
 
 /** 角色名不是用户；其余自动补 @ 前缀。 */
 function ensureAt(user: string | undefined): string | undefined {
@@ -27,27 +30,24 @@ const FIELD_HINTS: Record<string, string> = {
   计划提测时间: '计划提测日期',
   计划上线时间: '计划上线日期',
   代码评审结论: '代码评审结论（通过/退回）',
+  测试计划版本: 'test-plan.md 的 glab-flow:test-plan:v1 中 plan-version',
+  Apifox资产审计记录: '刚回读的 glab-flow:apifox-asset-audit:v1 评论链接/摘要；引擎校验计划版本、资源回读、未处置问题与当前环境',
+  local测试执行记录: '刚回读的 local glab-flow:test-run:v1 评论链接/摘要；引擎会校验，不以该文本本身取信',
+  test测试执行记录: '刚回读的 test glab-flow:test-run:v1 评论链接/摘要；引擎会校验，不以该文本本身取信',
   提测日期: '本次提测日期',
-  涉及项目与提测分支: '项目名:提测分支；多项目用分号分隔，只列本次改动项目',
-  可测试版本: '团队可识别的测试版本或发布候选版本（不填提交哈希）',
-  本次改动: '面向测试的改动摘要',
-  测试范围: '需验证的业务流程与边界',
-  环境准备与配置: '测试前必须完成的部署、初始化和后台配置',
-  测试重点: '高风险规则、边界和权限',
-  已知限制: '明确无阻塞限制，或记录已确认的限制与处理方式',
+  可测试版本或环境: '可测试版本号 / 环境（多仓分别列出）',
+  测试说明: '测试说明 + 上线步骤与配置清单（A 随代码 / B 各环境手动）',
   测试完成日期: '测试完成日期',
   测试Assignee: '@测试用户',
   测试结论: '通过 / 退回',
   回归范围或证据: '回归范围或证据链接',
+  测试环境: '执行测试的环境名 + URL（来自 config 的 test_environments，如 test https://app.test.example）',
+  测试账号: '测试使用的账号（来自 config 的 test_environments.<env>.account）',
+  reportId与环境: '执行证据：云端 reportId + 链接 + test-report get 回读的 environmentName 与 saveDetailType=all（缺 --upload-report detail 的 none 报告页空、不算证据须重跑）',
+  请求与断言统计: '执行证据：报告回读 stats（requests/passed/failed/assertions），与 CLI 输出核对',
+  Apifox资产状态: '资产治理：场景/套件/测试数据是否归位、命名分组区分 local/test、页面展示与执行是否一致；不得混写「Apifox 已完整沉淀」',
   阻塞发布问题均已验证通过: '是 / 已验证 / 无阻塞（来自测试问题评论的验证结果）',
   feature分支MR评审结论: 'feature→master MR 代码评审结论（用 code-review sub-skill 跑全 MR diff）；填「通过，无 HIGH 残留」或退回',
-  业务覆盖范围: '用业务语言说明已验证的流程与边界',
-  缺陷处理结果: '阻塞与重要问题的处理、复测结论',
-  遗留风险: '无阻塞遗留风险，或明确风险、影响和责任人',
-  上线步骤: '团队可执行的上线顺序',
-  配置清单: '随代码和人工配置的交接清单',
-  回滚方案: '可执行的回滚条件、步骤和责任人',
-  发布建议: '建议发布 / 暂缓及原因',
   发布日期: '发布日期',
   生产版本: '各仓部署版本号（多仓用分号分隔）',
   发布记录或回滚信息: '发布记录 + 回滚方案（来自 release-check 产出）',
@@ -78,39 +78,218 @@ const PLAYBOOK_ACTIONS: Record<string, { subskill?: string; desc: string }> = {
   deploy: { subskill: 'jenkins-deploy', desc: '执行生产部署——当前手动触发（你在 Jenkins/平台点击生产部署），完成后把生产版本号告诉 Leader；未来配了 prod job 可由 jenkins-deploy 驱动。部署确认后才推进 Issue' },
 };
 
+const REGRESSION_EDGES: ReadonlyMap<string, GateEnvironment> = new Map([
+  ['开发中→测试中', 'local'],
+  ['测试中→待发布', 'test'],
+]);
+
+function environmentForGate(tr: Transition): GateEnvironment | undefined {
+  return REGRESSION_EDGES.get(`${tr.from}→${tr.to}`);
+}
+
+function isGateSetBindingTransition(type: TransitionInput['type'], current: string): boolean {
+  return (type === 'story' && current === '已评审')
+    || (type === 'bug' && current === '已确认缺陷');
+}
+
+function mergeValidation(...results: GuardResult[]): GuardResult {
+  const missing = [...new Set(results.flatMap((result) => result.missing))];
+  const reasons = [...results.flatMap((result) => result.reasons)];
+  return { ok: results.every((result) => result.ok), missing, reasons };
+}
+
+function gateSetBindingValidation(
+  model: StateMachine,
+  input: TransitionInput,
+  current: string,
+  transition: Transition,
+  proposedGateSet: GateSet | undefined,
+): GuardResult {
+  // Story keeps the historical optional proposal path; Bug development entry is
+  // the hard binding boundary because a defect must carry its root-cause gates.
+  if (input.type !== 'bug' || current !== '已确认缺陷' || transition.to !== '开发中') {
+    return { ok: true, missing: [], reasons: [] };
+  }
+  if (input.du?.gateSet?.frozenAt) return { ok: true, missing: [], reasons: [] };
+  if (!input.declaredScopes?.length) {
+    return {
+      ok: false,
+      missing: ['gateSetBinding'],
+      reasons: ['进入开发中前必须绑定并冻结 GateSet：提供非空 declaredScopes，或传入已有 frozen GateSet'],
+    };
+  }
+  const scopeErrors = gateScopeValidationErrors(input.declaredScopes);
+  if (scopeErrors.length) {
+    return { ok: false, missing: ['gateSetBinding'], reasons: scopeErrors };
+  }
+  if (!model.gateMatrix || !proposedGateSet) {
+    return {
+      ok: false,
+      missing: ['gateSetBinding'],
+      reasons: ['无法从 declaredScopes 推导 GateSet：state-machine 必须声明 gateMatrix'],
+    };
+  }
+  return {
+    ok: false,
+    missing: ['gateSetBinding'],
+    reasons: ['GateSet 提案待绑定：Leader 必须先写入并冻结 DU，完成 Issue 写回/回读后重新运行 transition'],
+  };
+}
+
+function modelGateSetValidationErrors(model: StateMachine, type: TransitionInput['type'], gateSet: GateSet): string[] {
+  const errors: string[] = [];
+  const permittedSkips = new Set(model.gateMatrix?.rules.flatMap((rule) => rule.skipStates ?? []) ?? []);
+  for (const state of gateSet.skipStates) {
+    if (!model[type].states.includes(state)) {
+      errors.push(`GateSet.skipStates 包含未知节点：${state}`);
+      continue;
+    }
+    if (!permittedSkips.has(state)) errors.push(`GateSet.skipStates 未经 gateMatrix 声明：${state}`);
+    const outgoing = allowedTransitions(model, type, state);
+    if (outgoing.length !== 1) errors.push(`GateSet.skipStates 节点 ${state} 必须恰好有一条后继转换`);
+    if (outgoing[0]?.to === state) errors.push(`GateSet.skipStates 节点 ${state} 形成自循环`);
+  }
+  return errors;
+}
+
+function gateSetSteps(
+  tr: Transition,
+  gateSet: GateSet | undefined,
+  validation: GuardResult,
+  bindingGateSet?: GateSet,
+): { before: PlaybookStep[]; after: PlaybookStep[] } {
+  if (!gateSet && !bindingGateSet) return { before: [], after: [] };
+
+  const before: PlaybookStep[] = [];
+  const after: PlaybookStep[] = [];
+  if (bindingGateSet) {
+    before.push({
+      action: 'bind_gateset',
+      subskill: 'glab-flow',
+      desc: `将 GateSet（${bindingGateSet.scopes.join('、')}）写入并冻结 DU，完成后重新运行 transition；通过校验后再执行 Issue 写回并回读`,
+      phase: 'pre-writeback',
+      isWriteback: false,
+    });
+  }
+  if (tr.hardGate && tr.gate === '发布' && gateSet?.rollbackPlan) {
+    before.push({
+      action: 'verify_rollback_ready',
+      subskill: 'release-check',
+      desc: '核对已生成且已回读的生产回滚方案（GateSet 要求；不重新生成发布计划）',
+      phase: 'pre-writeback',
+      isWriteback: false,
+    });
+  }
+
+  const environment = environmentForGate(tr);
+  const evidenceGap = environment && gateSet?.environments.includes(environment)
+    && (validation.missing.includes(`${environment}TestRun`)
+      || validation.missing.includes(`${environment}AssetAudit`)
+      || (gateSet.regression === 'full' && validation.reasons.some((reason) => reason.includes('full 回归'))));
+  if (evidenceGap) {
+    const regression = gateSet?.regression ?? 'affected-cases';
+    const action = regression === 'full' ? 'run_full_regression' : 'run_affected_regression';
+    const scope = regression === 'full' ? '全量' : '受影响用例';
+    after.push({
+      action,
+      subskill: 'test-flow-e2e',
+      environment,
+      desc: `在 ${environment} 环境执行${scope}回归（GateSet）；记录 DU TestRun/AssetAudit 后重新运行 transition`,
+      phase: 'pre-writeback',
+      isWriteback: false,
+    });
+  }
+  return { before, after };
+}
+
+const ACTION_TIER_RANK: Record<ActionTier, number> = { L1: 1, L2: 2, L3: 3 };
+
+function classifyPathAction(transitions: Transition[]): { tier: ActionTier; batchTitle: string } {
+  return transitions.reduce((selected, transition) => {
+    const action = classifyAction(transition);
+    return ACTION_TIER_RANK[action.tier] > ACTION_TIER_RANK[selected.tier] ? action : selected;
+  }, classifyAction(transitions[0]!));
+}
+
 function conditionActive(when: string | undefined, config?: { deployBranch?: string; jenkins?: boolean }): boolean {
   if (when === 'config.deployBranch') return !!config?.deployBranch;
   if (when === 'config.jenkins') return !!config?.jenkins;
   return true;
 }
 
-/** 把转换声明的 playbook（仅代码侧步骤）按 config 过滤，再追加 Issue 写回与条件性回读后同步。 */
-function buildPlaybook(tr: Transition, config: TransitionInput['config'], hasWeekMilestoneSync: boolean): PlaybookStep[] {
+/** 把转换声明与 GateSet runtime actions 按 config/GateSet 过滤，再追加 Issue 写回。 */
+function buildPlaybook(
+  transitions: Transition[],
+  config: TransitionInput['config'],
+  gateSet?: GateSet,
+  validation: GuardResult = { ok: true, missing: [], reasons: [] },
+  bindingGateSet?: GateSet,
+  writebackAllowed = true,
+): PlaybookStep[] {
   const steps: PlaybookStep[] = [];
-  for (const decl of tr.playbook ?? []) {
-    if (!conditionActive(decl.when, config)) continue;
-    const meta = PLAYBOOK_ACTIONS[decl.action] ?? { desc: decl.action };
-    steps.push({ action: decl.action, subskill: meta.subskill, when: decl.when, desc: meta.desc, phase: 'pre-writeback', isWriteback: false });
+  const seen = new Set<string>();
+  for (const [index, tr] of transitions.entries()) {
+    const gateSteps = gateSetSteps(
+      tr,
+      gateSet,
+      validation,
+      index === 0 ? bindingGateSet : undefined,
+    );
+    for (const generated of gateSteps.before) {
+      const key = `${generated.action}:${generated.environment ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      steps.push(generated);
+    }
+    const appendGenerated = (generated: PlaybookStep): void => {
+      const key = `${generated.action}:${generated.environment ?? ''}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      steps.push(generated);
+    };
+    const regressionSteps = gateSteps.after;
+    if (regressionSteps.length) {
+      // Missing environment evidence is a remediation checkpoint, not permission
+      // to run merge/MR/release actions against a stale validation snapshot.
+      if (regressionSteps.some((step) => step.environment === 'local')) {
+        const commit = tr.playbook?.find((decl) => decl.action === 'commit_push_feature');
+        if (commit) {
+          const meta = PLAYBOOK_ACTIONS[commit.action] ?? { desc: commit.action };
+          steps.push({ action: commit.action, subskill: meta.subskill, when: commit.when, desc: meta.desc, phase: 'pre-writeback', isWriteback: false });
+        }
+      }
+      for (const generated of regressionSteps) appendGenerated(generated);
+      break;
+    }
+    for (const decl of tr.playbook ?? []) {
+      if (!conditionActive(decl.when, config)) continue;
+      if (gateSet && gateSet.mrReview === false && ['create_mr_to_master', 'mr_review'].includes(decl.action)) continue;
+      const key = `${decl.action}:${decl.when ?? ''}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const meta = PLAYBOOK_ACTIONS[decl.action] ?? { desc: decl.action };
+      steps.push({ action: decl.action, subskill: meta.subskill, when: decl.when, desc: meta.desc, phase: 'pre-writeback', isWriteback: false });
+      // Local validation must happen after the feature commit but before merge or deployment actions.
+      if (decl.action === 'commit_push_feature') {
+        for (const generated of gateSteps.after.filter((step) => step.environment === 'local')) appendGenerated(generated);
+      }
+    }
+    for (const generated of gateSteps.after.filter((step) => step.environment !== 'local')) appendGenerated(generated);
   }
-  steps.push({ action: 'issue_writeback', desc: '应用 WritePlan 写回 Issue（标签 / Assignee / 评论 / 关闭）并最终回读', phase: 'issue-writeback', isWriteback: true });
-  if (hasWeekMilestoneSync) {
-    steps.push({
-      action: 'sync_week_milestone',
-      desc: 'Issue 状态/排期评论回读成功后，按最新有效周排期幂等创建或关联当前 Week Milestone；失败只记录审计并重试，不回滚状态、Assignee、正文或评论',
-      phase: 'post-readback',
-      isWriteback: false,
-    });
+  if (!bindingGateSet && writebackAllowed) {
+    steps.push({ action: 'issue_writeback', desc: '应用 WritePlan 写回 Issue（标签 / Assignee / 评论 / 关闭）并最终回读', phase: 'issue-writeback', isWriteback: true });
   }
   return steps;
 }
 
 /**
  * 扫全部评论里「- 字段：值」行（renderStatusChange / renderTestIssue 等产物格式），按精确 key 建字段→值映射。
- * 同名字段后出现的覆盖先出现的（GitLab notes 默认时间升序，后出现≈最新）。仅精确匹配，不做模糊推断。
+ * 同名字段后出现的覆盖先出现的；`chronologicalNotes` 会先把 GitLab 默认
+ * newest-first 的 API 回读归一为时间升序。仅精确匹配，不做模糊推断。
  */
-function scanFieldsFromNotes(notes: { body: string }[]): Map<string, string> {
+function scanFieldsFromNotes(notes: TransitionInput['notes']): Map<string, string> {
   const map = new Map<string, string>();
-  for (const n of notes) {
+  for (const n of chronologicalNotes(notes)) {
     for (const line of n.body.split('\n')) {
       const m = line.match(/^-\s+(.+?)[：:](.+)$/);
       if (!m) continue;
@@ -141,18 +320,7 @@ const FIELD_TO_SLOT: ReadonlyMap<string, string> = (() => {
   return m;
 })();
 
-/** JSON CLI input is untrusted: only a complete persisted selection authorizes development-entry automation. */
-function isValidRunModeSelection(value: unknown): value is NonNullable<TransitionInput['runModeSelection']> {
-  if (!value || typeof value !== 'object') return false;
-  const selection = value as { mode?: unknown; selectedAt?: unknown; selectedBy?: unknown };
-  return (selection.mode === 'semi-auto' || selection.mode === 'full-auto')
-    && typeof selection.selectedAt === 'string'
-    && selection.selectedAt.trim().length > 0
-    && typeof selection.selectedBy === 'string'
-    && selection.selectedBy.trim().length > 0;
-}
-
-function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, modeSelectionRequired: boolean, runModeSelection: TransitionInput['runModeSelection'], playbook: PlaybookStep[], nodeProgress: string[]): string {
+function previewText(from: string, to: string, payload: Payload, validateOk: boolean, missing: MissingItem[], hardGate: boolean, shouldConfirm: boolean, runMode: string, tier: ActionTier, playbook: PlaybookStep[], nodeProgress: string[]): string {
   const lines: string[] = [`状态变更：${from} → ${to}`];
   if (nodeProgress.length) lines.push(`当前节点子步骤：${nodeProgress.join(' / ')}`);
   const code = playbook.filter((s) => s.phase === 'pre-writeback');
@@ -170,12 +338,7 @@ function previewText(from: string, to: string, payload: Payload, validateOk: boo
   if (postReadback.length) {
     lines.push(`回读后动作（不得与状态写回并行）：\n${postReadback.map((s, i) => `  ${i + 1}. ${s.desc}`).join('\n')}`);
   }
-  const modeAudit = runModeSelection
-    ? `已持久化选择：${runModeSelection.selectedBy} 于 ${runModeSelection.selectedAt} 用 run-mode-select 写入 Issue state`
-    : modeSelectionRequired
-      ? '开发入口尚未持久化选择；裸 runMode 不可作为自动写回授权，须先运行 run-mode-select'
-      : '兼容模式：来自本次 runMode 输入或 semi-auto 默认值';
-  lines.push(`run 模式：${runMode}（${modeAudit}）→ ${shouldConfirm ? '需 AskUserQuestion 确认后再写回' : '护栏 ok 即可自动写回'}`);
+  lines.push(`动作分层：${tier} → ${shouldConfirm ? '批量确认后写回（Jenkins 参数并入本次确认）' : '自动写回（可逆/非门禁流转）'}；run 模式 ${runMode} 仅作审计记录`);
   return lines.join('\n');
 }
 
@@ -196,8 +359,37 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (dirtyReason) {
     return {
       node, next: null, dirty: true, dirtyReason, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
-      validate: { ok: false, missing: [], reasons: [dirtyReason] },      preview: dirtyReason, modeSelectionRequired: false, shouldConfirm: true, applied: false,
+      validate: { ok: false, missing: [], reasons: [dirtyReason] },      preview: dirtyReason, shouldConfirm: true, applied: false,
     };
+  }
+
+  if (input.du?.gateSet) {
+    const gateSetErrors = gateSetValidationErrors(input.du.gateSet);
+    const consistencyErrors = model.gateMatrix
+      ? gateSetConsistencyErrors(model.gateMatrix, input.du.gateSet, input.du.affectedScopes)
+      : ['GateSet 无法校验：state-machine 必须声明 gateMatrix'];
+    const modelErrors = modelGateSetValidationErrors(model, input.type, input.du.gateSet);
+    const allGateSetErrors = [...new Set([...gateSetErrors, ...consistencyErrors, ...modelErrors])];
+    if (allGateSetErrors.length) {
+      const reason = `GateSet 无效：${allGateSetErrors.join('；')}`;
+      return {
+        node, next: null, dirty: true, dirtyReason: reason, prefilled: {},
+        missing: [{ field: 'gateSet', hint: '修复 DU GateSet 后重跑' }], playbook: [], nodeProgress: [],
+        validate: { ok: false, missing: ['gateSet'], reasons: allGateSetErrors }, preview: reason, shouldConfirm: true, applied: false,
+      };
+    }
+  }
+
+  if (input.du) {
+    const reconciliation = reconcileLabels(model, { type: input.type, labels: input.labels, state: input.state, du: input.du });
+    if (reconciliation.kind !== 'in-sync') {
+      const reason = `DU/Issue 对账未通过（${reconciliation.kind}）：${reconciliation.resolution}`;
+      return {
+        node, next: null, dirty: true, dirtyReason: reason, prefilled: {},
+        missing: [{ field: 'duReconciliation', hint: reconciliation.resolution }], playbook: [], nodeProgress: [],
+        validate: { ok: false, missing: ['duReconciliation'], reasons: [reason] }, preview: reason, shouldConfirm: true, applied: false,
+      };
+    }
   }
 
   const current = node as string;
@@ -205,25 +397,38 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   const tr = target ? transitionFor(model, input.type, current, target) : undefined;
 
   if (!tr) {
-    const msg = `无可用转换：from=${current} to=${target ?? '(未指定且无默认下一节点)'}——检查 to 节点名或当前标签`;
+    const msg = `无可用转换（not allowed）：from=${current} to=${target ?? '(未指定且无默认下一节点)'}——检查 to 节点名或当前标签`;
     return {
       node: current, next: target ?? null, dirty: false, prefilled: {}, missing: [], playbook: [], nodeProgress: [],
-      validate: { ok: false, missing: [], reasons: [msg] },      preview: msg, modeSelectionRequired: false, shouldConfirm: true, applied: false,
+      validate: { ok: false, missing: [], reasons: [msg] },      preview: msg, shouldConfirm: true, applied: false,
     };
   }
+
+  // 跳状态投影（GateSet.skipStates）：被跳过的节点直接推进到其下一节点。只跳一层。
+  // 原 edge 仍负责字段/证据门禁；目标 edge 负责投影后的 ownership 与副作用动作。
+  const skip = input.du?.gateSet?.skipStates ?? [];
+  const candidateProjection = skip.includes(tr.to)
+    ? allowedTransitions(model, input.type, tr.to)[0]
+    : undefined;
+  const effectiveTarget = candidateProjection?.to ?? tr.to;
+  const projected = !!candidateProjection;
+  const ownershipTransition = candidateProjection ?? tr;
 
   // 解析 Assignee：交付协同表 → config.roles → 输入；自动补 @
   const table = parseAssigneeTable(input.body);
   const role = tr.assigneeRole as string;
-  const fromTable = table.get(role);
-  const fromRoles = input.config?.roles?.[role];
-  const rawAssignee = input.assigneeUser ?? fromTable ?? fromRoles;
-  const assigneeUser = ensureAt(rawAssignee);
+  const projectedRole = ownershipTransition.assigneeRole as string;
+  const resolveAssignee = (targetRole: string): string | undefined => ensureAt(
+    targetRole === role ? input.assigneeUser ?? table.get(targetRole) ?? input.config?.roles?.[targetRole]
+      : table.get(targetRole) ?? input.config?.roles?.[targetRole],
+  );
+  const assigneeUser = resolveAssignee(role);
+  const projectedAssigneeUser = projected ? resolveAssignee(projectedRole) : assigneeUser;
 
   const prefilled: Record<string, string> = {};
-  if (assigneeUser) {
-    const src = input.assigneeUser ? '输入' : fromTable ? '交付协同表' : 'config.roles';
-    prefilled.assigneeUser = `${assigneeUser}（来自${src}）`;
+  if (projectedAssigneeUser) {
+    const src = input.assigneeUser ? '输入' : table.get(projectedRole) ? '交付协同表' : 'config.roles';
+    prefilled.assigneeUser = `${projectedAssigneeUser}（来自${src}）`;
   }
 
   // 证据智能预填：扫评论「- 字段：值」，按精确 key 填必填字段（user 输入优先，最新值优先，标「请核实」）
@@ -241,12 +446,21 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     }
   }
 
+  const isBindingTransition = isGateSetBindingTransition(input.type, current)
+    && tr.to === '开发中';
+  const declaredScopeErrors = gateScopeValidationErrors(input.declaredScopes);
+  const proposedGateSet = isBindingTransition && !input.du?.gateSet?.frozenAt
+    && input.declaredScopes?.length && !declaredScopeErrors.length && model.gateMatrix
+    ? deriveGateSet(model.gateMatrix, input.declaredScopes)
+    : undefined;
+
   const payload: Payload = {
     type: input.type,
     from: current,
     to: tr.to,
     fields: { ...prefillFields, ...input.fields },
     ...(input.testPlan !== undefined ? { testPlan: input.testPlan } : {}),
+    ...(input.du ? { du: input.du } : {}),
     ...(input.gateOutcome ? { gateOutcome: input.gateOutcome } : {}),
     ...(input.reviewType ? { reviewType: input.reviewType } : {}),
     ...(input.reviewEvidence ? { reviewEvidence: input.reviewEvidence } : {}),
@@ -254,7 +468,6 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     ...(input.datesConfirmed !== undefined ? { datesConfirmed: input.datesConfirmed } : {}),
     ...(input.humanConfirmed !== undefined ? { humanConfirmed: input.humanConfirmed } : {}),
     ...(input.closeIssue !== undefined ? { closeIssue: input.closeIssue } : {}),
-    ...(input.weekPlan ? { weekPlan: input.weekPlan } : {}),
   };
 
   const facts = {
@@ -263,68 +476,105 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     state: input.state,
     hasJiraSourceLabel: input.labels.includes('source::jira'),
   };
-  const validate = validateTransition(model, facts, payload, input.notes, input.evidence);
-  // Bug 允许已有周排期但不强制；读取到最新有效且启用的计划时，也必须在进入开发后立即挂载。
-  const latestWeekPlan = payload.type === 'bug' ? parseLatestWeekPlan(input.notes) : undefined;
-  const bugWeekPlan = latestWeekPlan?.kind === 'valid-enabled' ? latestWeekPlan.plan : undefined;
-  const weekMilestoneSync = validate.ok
-    ? buildWeekMilestoneSyncIntent({ ...payload, ...(bugWeekPlan ? { weekPlan: bugWeekPlan } : {}) })
-    : undefined;
-  const playbook = buildPlaybook(tr, input.config, !!weekMilestoneSync);
-
-  // 缺口（必填未填）带 hint
+  const transitionValidation = validateTransition(model, facts, payload, input.notes);
+  // 跳状态时公共评论也按投影目标生成；原转换的门禁仍由上面的校验负责。
+  const projectedPayload = projected
+    ? {
+      ...payload,
+      to: effectiveTarget,
+      renderTransitions: [tr, ownershipTransition],
+      ...(projectedAssigneeUser ? { assigneeUser: projectedAssigneeUser } : {}),
+    }
+    : payload;
+  const projectedGateValidation = projected
+    ? validateTransition(model, facts, {
+      ...projectedPayload,
+      from: ownershipTransition.from,
+      to: ownershipTransition.to,
+    }, input.notes)
+    : { ok: true, missing: [], reasons: [] };
+  const pathValidation = mergeValidation(
+    transitionValidation,
+    projectedGateValidation,
+    gateSetBindingValidation(model, input, current, tr, proposedGateSet),
+  );
+  const publicValidation = pathValidation.ok
+    ? validatePublicComment(projectedPayload)
+    : { ok: true, missing: [], reasons: [] };
+  const validate = publicValidation.ok
+    ? pathValidation
+    : {
+      ok: false,
+      missing: [...pathValidation.missing, 'publicComment'],
+      reasons: [...pathValidation.reasons, ...publicValidation.reasons],
+    };
+  // 缺口（必填未填）带 hint；豁免口径与 guard 一致（G14 按 GateSet），避免幽灵缺口（I3）
   const missing: MissingItem[] = [];
   if (!assigneeUser) {
     missing.push({ field: 'assigneeUser', hint: `@用户（角色=${role}）——来自交付协同表 / config.roles / 显式传入` });
   }
-  for (const f of tr.requiredFields) {
-    const v = payload.fields[f];
-    if (v === undefined || v === '' || v === '待确认') missing.push({ field: f, hint: hintFor(f) });
+  if (validate.missing.includes('gateSetBinding')) {
+    missing.push({ field: 'gateSetBinding', hint: '提供 declaredScopes 供引擎推导并冻结 GateSet，或先回读已有 frozen GateSet' });
   }
-  if (validate.missing.includes('weekPlan')) {
-    missing.push({ field: 'weekPlan', hint: '提供 weekPlan: { startDate: YYYY-MM-DD, endDate: YYYY-MM-DD, autoRollover: true|false }' });
+  const requiredTransitions = projected ? [tr, ownershipTransition] : [tr];
+  for (const transition of requiredTransitions) {
+    for (const f of effectiveRequiredFields(transition, input.du?.gateSet)) {
+      const v = payload.fields[f];
+      if ((v === undefined || v === '' || v === '待确认') && !missing.some((item) => item.field === f)) {
+        missing.push({ field: f, hint: hintFor(f) });
+      }
+    }
   }
-  if (validate.missing.includes('latestWeekPlan')) {
-    missing.push({ field: 'latestWeekPlan', hint: '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段' });
+  if (projected && !projectedAssigneeUser) {
+    missing.push({ field: 'assigneeUser', hint: `@用户（角色=${projectedRole}）——来自交付协同表 / config.roles / 显式传入` });
   }
   if (validate.missing.some((field) => field.startsWith('reviewEvidence'))) {
     missing.push({ field: 'reviewEvidence', hint: '补齐图片 OCR/视觉摘要、页面地址的路由代码证据和 grilling 决策账本；页面地址无法确认或存在未决问题时，先在同一批评审问题中向产品确认' });
   }
-  const runModeSelection = isValidRunModeSelection(input.runModeSelection) ? input.runModeSelection : undefined;
-  const modeSelectionRequired = current === '已评审' && tr.to === '开发中' && !runModeSelection;
-  if (modeSelectionRequired) {
-    missing.push({
-      field: 'runModeSelection',
-      hint: '在进入开发中前选择 semi-auto 或 full-auto，并用 run-mode-select 写入 Issue state',
-    });
+  if (validate.missing.includes('publicComment')) {
+    missing.push({ field: 'publicComment', hint: '移除本地环境、测试平台、报告 ID、路径、提交哈希或机器 marker，仅保留团队可读交接信息' });
   }
-  const runMode = runModeSelection?.mode ?? input.runMode ?? 'semi-auto';
-  const plan = validate.ok && !modeSelectionRequired
-    ? buildForwardPlan(
-      weekMilestoneSync && payload.type === 'bug' ? { ...payload, weekPlan: weekMilestoneSync.plan } : payload,
-      input.iid,
-    )
+  const playbookTransitions = projected ? [tr, candidateProjection!] : [tr];
+  const playbook = buildPlaybook(
+    playbookTransitions,
+    input.config,
+    input.du?.gateSet,
+    pathValidation,
+    proposedGateSet,
+    validate.ok,
+  );
+  const runMode = input.runMode ?? 'semi-auto';
+  const action = isBindingTransition && !input.du?.gateSet?.frozenAt
+    ? { tier: 'L2' as ActionTier, batchTitle: '确认并绑定 GateSet 后进入开发' }
+    : classifyPathAction(playbookTransitions);
+  const shouldConfirm = !validate.ok || action.tier !== 'L1';
+  // 跳状态时标签写回用 effectiveTarget（校验已按原转换完成，字段不放松）。
+  const plan = validate.ok
+    ? buildForwardPlan(projectedPayload, input.iid)
     : undefined;
   const nodeProgress = progressStepsFor(model, current);
-  const shouldConfirm = runMode !== 'full-auto' || !!tr.hardGate || !validate.ok || modeSelectionRequired;
-  const preview = previewText(current, tr.to, payload, validate.ok, missing, !!tr.hardGate, shouldConfirm, runMode, modeSelectionRequired, runModeSelection, playbook, nodeProgress);
+  const preview = previewText(current, effectiveTarget, projectedPayload, validate.ok, missing, action.tier === 'L3', shouldConfirm, runMode, action.tier, playbook, nodeProgress);
 
   return {
     node: current,
-    next: tr.to,
+    next: effectiveTarget,
     dirty: false,
     transition: tr,
     prefilled,
     missing,
     payload,
+    projectedPayload,
     validate,
-    comment: renderNodeComment(payload),
+    // 评论头与标签写回都使用投影目标；内容体仍保留原转换的公共交付事实。
+    comment: renderNodeComment(projectedPayload),
     plan,
     playbook,
     nodeProgress,
     preview,
-    modeSelectionRequired,
     shouldConfirm,
+    actionTier: action.tier,
+    confirmBatchTitle: action.batchTitle,
+    ...(proposedGateSet ? { proposedGateSet } : {}),
     applied: false,
   };
 }

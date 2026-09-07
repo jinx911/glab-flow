@@ -50,7 +50,7 @@
             <g font-family="system-ui" font-size="15" text-anchor="middle"><path d="M186 125H230M386 125H430M586 125H630M786 125H830M986 125H1030M1186 125H1230M1386 125H1430" stroke="#5ee8e8" stroke-width="3" fill="none" marker-end="url(#arrow)"/>
               <g transform="translate(30 82)"><rect width="156" height="86" rx="12" fill="#112b43" stroke="#417797"/><text x="78" y="37" fill="#e8f1fb">草稿中</text><text x="78" y="62" fill="#9bb0c8" font-size="12">澄清 · 六清楚</text></g>
               <g transform="translate(230 82)"><rect width="156" height="86" rx="12" fill="#112b43" stroke="#417797"/><text x="78" y="37" fill="#e8f1fb">待评审</text><text x="78" y="62" fill="#9bb0c8" font-size="12">OCR · 路由 · grilling</text></g>
-              <g transform="translate(430 82)"><rect width="156" height="86" rx="12" fill="#112b43" stroke="#417797"/><text x="78" y="37" fill="#e8f1fb">已评审</text><text x="78" y="62" fill="#9bb0c8" font-size="12">技术方案 · 周排期</text></g>
+              <g transform="translate(430 82)"><rect width="156" height="86" rx="12" fill="#112b43" stroke="#417797"/><text x="78" y="37" fill="#e8f1fb">已评审</text><text x="78" y="62" fill="#9bb0c8" font-size="12">技术方案 · GateSet</text></g>
               <g transform="translate(630 82)"><rect width="156" height="86" rx="12" fill="#123b4b" stroke="#5ee8e8" stroke-width="2"/><text x="78" y="32" fill="#e8f1fb">开发中</text><text x="78" y="55" fill="#d9fbfb" font-size="12">方案 → 测试计划 → 编码</text><text x="78" y="74" fill="#9bb0c8" font-size="12">本地自测 · 代码评审</text></g>
               <g transform="translate(830 82)"><rect width="156" height="86" rx="12" fill="#123b4b" stroke="#5ee8e8" stroke-width="2"/><text x="78" y="37" fill="#e8f1fb">测试中</text><text x="78" y="62" fill="#9bb0c8" font-size="12">同一计划 · test 执行</text></g>
               <g transform="translate(1030 82)"><rect width="156" height="86" rx="12" fill="#493b1e" stroke="#ffc75f" stroke-width="2"/><text x="78" y="37" fill="#fff0cf">待发布</text><text x="78" y="62" fill="#dec99a" font-size="12">MR 评审 · 发布计划</text></g>
@@ -69,14 +69,13 @@
               <g transform="translate(1320 332)"><rect width="250" height="80" rx="12" fill="#173c35" stroke="#73dfad"/><text x="125" y="34" fill="#d9fff0">change-close</text><text x="125" y="58" fill="#9ce8c3" font-size="12">回读 closed 后恢复推进</text></g>
               <path d="M1445 332V280H710V262" stroke="#73dfad" stroke-width="2" fill="none" marker-end="url(#arrow)"/><text x="1065" y="277" fill="#9ce8c3" font-size="12">关闭前，G16 阻断一切正向状态流转</text>
             </g>
-            <g transform="translate(1170 456)" font-family="system-ui"><rect width="395" height="48" rx="10" fill="#10243d" stroke="#417797"/><text x="18" y="30" fill="#9bb0c8" font-size="13">周排期：评审通过 / 排期变更 → Week Milestone 同步 → 周一 rollover</text></g>
           </svg>
         </div>
         <div class="flow-caption"><span class="legend"><i class="dot"></i>常规可计算转换</span><span class="legend"><i class="dot gate"></i>人工 hard gate</span><span class="legend"><i class="dot change"></i>变更回退与闭环</span><span>流程图表达 Story 主线；Bug 从“已确认缺陷”进入同一开发、测试、发布与生产验证闭环。</span></div>
       </section>
 
       <section id="guardrails" aria-labelledby="guard-title"><p class="eyebrow">用证据，而非乐观判断</p><h2 id="guard-title">把“应该做”变成每次都能验证的护栏。</h2><p class="section-intro">glab-flow 不把 AI 的自然语言判断当作状态机事实。所有关键转换都以结构化输入、不可变 Issue 评论和刚回读的事实为基础。</p><div class="chain" aria-label="多环境测试证据链"><div><strong>TestPlan</strong><span>唯一版本化输入</span></div><div><strong>Apifox 资产审计</strong><span>场景、套件、数据与页面展示</span></div><div><strong>环境 TestRun</strong><span>本地 / 测试环境分别执行</span></div><div><strong>Gate 校验</strong><span>版本、覆盖、证据、阻塞项</span></div><div><strong>Issue 回读</strong><span>GitLab 成为可恢复事实源</span></div></div>
-        <div class="principles" style="margin-top:16px"><article class="card"><h3>评审先把问题问透</h3><p>图片必须 OCR；前端位置须由代码路由验证；关键不确定性进入决策账本。</p></article><article class="card"><h3>测试计划先于编码</h3><p>开发中先设计计划，再编码和本地完整业务闭环；测试环境执行同一计划。</p></article><article class="card"><h3>排期只改 Milestone</h3><p>周排期评论回读后同步 Week Milestone，自动任务不改正文、状态、负责人或历史评论。</p></article></div>
+        <div class="principles" style="margin-top:16px"><article class="card"><h3>评审先把问题问透</h3><p>图片必须 OCR；前端位置须由代码路由验证；关键不确定性进入决策账本。</p></article><article class="card"><h3>测试计划先于编码</h3><p>开发中先设计计划，再编码和本地完整业务闭环；测试环境执行同一计划。</p></article></div>
         <aside class="callout"><b>G16 · 变更闭环：</b>一旦 `change-impact` 写入 open 回执，普通正向流转立即停止。只有关联产物、测试计划版本、Apifox 资产和受影响环境执行证据都已完成，并写入 `change-close` 后，流程才能恢复。</aside>
       </section>
 

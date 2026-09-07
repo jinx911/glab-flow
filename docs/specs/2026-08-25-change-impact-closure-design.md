@@ -16,11 +16,11 @@
 
 ## 影响推导
 
-变更输入把影响维度写成 `functional`、`api-contract`、`data-model`、`permission`、`frontend-route`、`schedule`、`release`。引擎按维度推导最小必需动作：
+变更输入把影响维度写成 `functional`、`api-contract`、`data-model`、`permission`、`frontend-route`、`release`。引擎按维度推导最小必需动作：
 
 - 功能、接口、数据、权限或页面路由：更新技术方案、测试计划、Apifox 资产与 local 重测；已经进入测试及以后时还需 test 重测。
 - 需求来源的变更额外要求更新提案并建议退回 `待评审`；技术方案来源建议回到 `已评审`；实现/测试发现的问题建议回到 `开发中`。
-- 排期影响要求走独立 `week-plan-change` 并把其回读证据写入闭环；发布影响要求重新完成发布检查。
+- 发布影响要求重新完成发布检查。
 
 ## 节点内进度
 

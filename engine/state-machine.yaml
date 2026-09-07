@@ -9,15 +9,15 @@ story:
        assigneeRole: 研发,
        return: {target: 草稿中, assigneeRole: 产品}}
     - {from: 已评审, to: 开发中, gate: 技术方案评审,
-       requiredFields: [技术方案评审通过记录或免评审结论, 实际开始日期, 研发Assignee, 技术方案版本, 方案概述, 影响模块, 数据模型变更, API契约, 前端页面与路由, 权限与安全, 迁移与配置, 测试计划摘要, 计划提测时间, 计划上线时间, 风险与对策, 回滚方案],
+       requiredFields: [技术方案评审通过记录或免评审结论, 实际开始日期, 研发Assignee, 计划提测时间, 计划上线时间],
        assigneeRole: 研发,
        return: {target: 已评审, note: 不退回, 继续完善方案}}
     - {from: 开发中, to: 测试中, gate: 代码评审与自测,
-       requiredFields: [代码评审结论, 提测日期, 研发Assignee, 涉及项目与提测分支, 可测试版本, 本次改动, 测试范围, 环境准备与配置, 测试重点, 已知限制],
+       requiredFields: [代码评审结论, 提测日期, 研发Assignee, 可测试版本或环境, 测试说明],
        assigneeRole: 测试,
        playbook: [{action: commit_push_feature}, {action: merge_to_deploy_branch, when: config.deployBranch}, {action: trigger_jenkins, when: config.jenkins}]}
     - {from: 测试中, to: 待发布, gate: 测试验收,
-       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论, 业务覆盖范围, 缺陷处理结果, 遗留风险, 上线步骤, 配置清单, 回滚方案, 发布建议],
+       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论],
        assigneeRole: 研发,
        return: {target: 开发中, onlyWhen: 整体返工},
        playbook: [{action: create_mr_to_master}, {action: mr_review}, {action: release_check}]}
@@ -33,11 +33,11 @@ bug:
   transitions:
     - {from: 已确认缺陷, to: 开发中, gate: null, requiredFields: [], assigneeRole: 研发}
     - {from: 开发中, to: 测试中, gate: 代码评审与自测,
-       requiredFields: [代码评审结论, 提测日期, 研发Assignee, 涉及项目与提测分支, 可测试版本, 本次改动, 测试范围, 环境准备与配置, 测试重点, 已知限制],
+       requiredFields: [代码评审结论, 提测日期, 研发Assignee, 可测试版本或环境],
        assigneeRole: 测试,
        playbook: [{action: commit_push_feature}, {action: merge_to_deploy_branch, when: config.deployBranch}, {action: trigger_jenkins, when: config.jenkins}]}
     - {from: 测试中, to: 待发布, gate: 测试验收,
-       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论, 业务覆盖范围, 缺陷处理结果, 遗留风险, 上线步骤, 配置清单, 回滚方案, 发布建议],
+       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论],
        assigneeRole: 研发,
        playbook: [{action: create_mr_to_master}, {action: mr_review}, {action: release_check}]}
     - {from: 待发布, to: 生产验证中, gate: 发布, hardGate: true,
@@ -67,3 +67,32 @@ progressSteps:
   生产验证中: [生产验证]
   已确认缺陷: [复现确认, 根因定位]
   已完成: []
+# 维度 → 门禁推导矩阵（spec §3.2）。GateSet 决定状态路径/环境执行范围/MR评审/回归深度。
+gateMatrix:
+  defaults:
+    environments: [local, test]
+    mrReview: true
+    regression: full
+    rollbackPlan: false
+    minUnitCases: 1
+  rules:
+    - scopes: [frontend-copy]
+      skipStates: [测试中]
+      environments: [local]
+      mrReview: false
+      regression: affected-cases
+      minUnitCases: 0
+    - scopes: [functional]
+      environments: [local, test]
+      mrReview: false
+      regression: affected-cases
+    - scopes: [api-contract]
+      environments: [local, test]
+      mrReview: true
+      regression: full
+    - scopes: [data-model, permission]
+      environments: [local, test]
+      mrReview: true
+      regression: full
+      rollbackPlan: true
+      minUnitCases: 3

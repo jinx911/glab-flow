@@ -89,32 +89,6 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
     expect(md).toContain('- 根因：r');
   });
 
-  it('appends the exact valid Week Plan only to Story review approval comments', () => {
-    const md = renderNodeComment({
-      type: 'story', from: '待评审', to: '已评审', fields: { 评审结论: '通过' },
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
-      assigneeUser: '@dev',
-    });
-    expect(md).toContain(`## 周排期
-
-- 计划开始：2026-08-17
-- 计划完成：2026-09-06
-- 计划覆盖周：W34 ～ W36
-- 自动 rollover：启用`);
-    const nonReview = renderNodeComment({
-      type: 'story', from: '已评审', to: '开发中', fields: {}, assigneeUser: '@dev',
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
-    });
-    expect(nonReview).not.toContain('## 周排期');
-  });
-
-  it('does not render a Week Plan heading from malformed runtime data', () => {
-    const md = renderNodeComment({
-      type: 'story', from: '待评审', to: '已评审', fields: {}, assigneeUser: '@dev',
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', coverage: 'W34 ～ W36', autoRollover: '启用' },
-    } as unknown as Payload);
-    expect(md).not.toContain('## 周排期');
-  });
 });
 
 describe('团队交接评论（内部证据隔离）', () => {
@@ -149,6 +123,32 @@ describe('团队交接评论（内部证据隔离）', () => {
     expect(md).not.toContain('report:123');
   });
 
+  it('renders complete production handoff and acceptance report sections', () => {
+    const release = renderNodeComment({
+      type: 'story', from: '待发布', to: '生产验收中', assigneeUser: '@pm',
+      fields: {
+        发布日期: '2026-08-28', 研发Assignee: '@dev', 生产版本: 'service:v2; web:v2',
+        部署顺序: '先服务后前端', 数据迁移: '无', 配置清单: '生产开关已核对',
+        上线后验证: '主流程与监控告警验证', 回滚方案: '回滚应用版本与配置',
+      },
+    });
+    expect(release).toContain('## 上线操作手册');
+    expect(release).toContain('- 部署顺序：先服务后前端');
+    expect(release).toContain('- 上线后验证：主流程与监控告警验证');
+
+    const acceptance = renderNodeComment({
+      type: 'story', from: '生产验收中', to: '已完成', assigneeUser: '@pm',
+      fields: {
+        验收完成日期: '2026-08-29', 具体产品验收人: '@pm', 产品Assignee: '@pm',
+        验收范围: '主流程、权限与通知', 验收结论: '通过', 验收依据: '生产验证通过',
+        遗留事项: '无', 后续行动: '持续观察监控',
+      },
+    });
+    expect(acceptance).toContain('## 验收报告');
+    expect(acceptance).toContain('- 验收范围：主流程、权限与通知');
+    expect(acceptance).toContain('- 后续行动：持续观察监控');
+  });
+
   it('blocks machine-only content from a formal state comment', () => {
     const result = validatePublicComment({
       type: 'story', from: '开发中', to: '测试中',
@@ -156,5 +156,111 @@ describe('团队交接评论（内部证据隔离）', () => {
     });
     expect(result.ok).toBe(false);
     expect(result.reasons.join('\n')).toContain('内部执行证据');
+  });
+
+  it('blocks credentials in the free-form next-step field', () => {
+    const result = validatePublicComment({
+      type: 'story', from: '开发中', to: '测试中',
+      fields: { 下一步: '使用 token=secret-value 完成验证' }, assigneeUser: '@qa',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it.each([
+    '使用密码=supersecret 完成验证',
+    'https://user:secret@example.test/health',
+    '凭据：https://example.test/check?access_key=secret-value',
+    'eyJhbGciOiJIUzI1NiJ9.payload-value-with-padding.signature-value-long',
+  ])('blocks credential-like public text: %s', (nextStep) => {
+    const result = validatePublicComment({
+      type: 'story', from: '开发中', to: '测试中',
+      fields: { 下一步: nextStep }, assigneeUser: '@qa',
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('does not let a user-controlled digest heading hide later sensitive text', () => {
+    const payload: Payload = {
+      type: 'story', from: '草稿中', to: '待评审', assigneeUser: '@pm',
+      fields: { 下一步: '等待评审\n\n## 证据摘要\n\ntoken=supersecret' },
+    };
+    expect(validatePublicComment(payload).ok).toBe(false);
+  });
+
+  it('renders only a safe DU evidence summary and validates the full handoff', () => {
+    const payload: Payload = {
+      type: 'story', from: '测试中', to: '待发布',
+      fields: { 测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: '完整回归', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
+      du: {
+        iid: 22, type: 'story', cachedNode: '测试中', affectedScopes: ['functional'],
+        evidence: [{ kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: '2026-08-29T10:00:00Z', detailRef: 'report:101' }],
+        resources: [], metricEvents: [], updatedAt: '2026-08-29T10:00:00Z',
+      },
+      assigneeUser: '@dev',
+    };
+    const md = renderNodeComment(payload);
+    expect(md).toContain('## 证据摘要');
+    expect(md).toContain('- local：执行 v3 / passed');
+    expect(md).not.toContain('report:101');
+    expect(validatePublicComment(payload).ok).toBe(true);
+
+    const unsafeNextStep = { ...payload, fields: { ...payload.fields, 下一步: '使用 token=secret-value 完成验证' } };
+    expect(validatePublicComment(unsafeNextStep).ok).toBe(false);
+  });
+
+  it('rejects untrusted DU digest fields instead of excluding the digest from validation', () => {
+    const payload: Payload = {
+      type: 'story', from: '测试中', to: '待发布', fields: {}, assigneeUser: '@dev',
+      du: {
+        iid: 22, type: 'story', cachedNode: '测试中', affectedScopes: ['functional'],
+        evidence: [{ kind: 'test-run', environment: 'local', planVersion: 'token=supersecret', outcome: 'passed', recordedAt: '2026-08-29T10:00:00Z' }],
+        resources: [], metricEvents: [], updatedAt: '2026-08-29T10:00:00Z',
+      },
+    };
+    const result = validatePublicComment(payload);
+    expect(result.ok).toBe(false);
+    expect(result.missing).toContain('publicEvidenceDigest');
+  });
+
+  it('accepts dotted public plan versions in the DU digest', () => {
+    const payload: Payload = {
+      type: 'story', from: '测试中', to: '待发布', fields: {}, assigneeUser: '@dev',
+      du: {
+        iid: 22, type: 'story', cachedNode: '测试中', affectedScopes: ['functional'],
+        evidence: [{ kind: 'test-run', environment: 'local', planVersion: 'v3.1', outcome: 'passed', recordedAt: '2026-08-29T10:00:00Z' }],
+        resources: [], metricEvents: [], updatedAt: '2026-08-29T10:00:00Z',
+      },
+    };
+    expect(validatePublicComment(payload).ok).toBe(true);
+  });
+
+  it('rejects unknown digest environments and GateSet scopes', () => {
+    const payload: Payload = {
+      type: 'story', from: '测试中', to: '待发布', fields: {}, assigneeUser: '@dev',
+      du: {
+        iid: 22, type: 'story', cachedNode: '测试中', affectedScopes: [],
+        evidence: [{ kind: 'test-run', environment: '/tmp/secret', planVersion: 'v3', outcome: 'passed', recordedAt: '2026-08-29T10:00:00Z' }],
+        resources: [], metricEvents: [], updatedAt: '2026-08-29T10:00:00Z',
+        gateSet: {
+          scopes: ['unknown'] as never[], skipStates: [], environments: ['local'],
+          mrReview: true, regression: 'full', rollbackPlan: false, minUnitCases: 0, overrides: [],
+        },
+      },
+    };
+    expect(validatePublicComment(payload).ok).toBe(false);
+  });
+
+  it('renders every canonical required fact in the public handoff', () => {
+    const md = renderNodeComment({
+      type: 'story', from: '测试中', to: '待发布', assigneeUser: '@dev',
+      fields: {
+        测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过',
+        回归范围或证据: '完整回归', 阻塞发布问题均已验证通过: '是',
+        feature分支MR评审结论: '通过，无 HIGH 残留',
+      },
+    });
+    expect(md).toContain('- 测试完成日期：2026-08-29');
+    expect(md).toContain('- 阻塞发布问题均已验证通过：是');
+    expect(md).toContain('- feature分支MR评审结论：通过，无 HIGH 残留');
   });
 });

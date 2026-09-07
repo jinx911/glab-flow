@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(__dirname, '..', '..');
 
-/** 引擎能力版本——每合入改变流转契约的功能(如周排期)时 +1;Skill 侧声明兼容下限。 */
+/** 引擎能力版本——每合入改变流转契约的功能时 +1；Skill 侧声明兼容下限。 */
 export const ENGINE_CAPABILITY_VERSION = 1;
 
 export interface RuntimeVersion {
@@ -65,7 +65,7 @@ export function checkRuntimeVersion(fetched: boolean): RuntimeVersion {
       return { commit, upToDate: true, remoteCommit: remote, capability: ENGINE_CAPABILITY_VERSION, notes };
     }
     if (base && behind && Number(behind) > 0) {
-      notes.push(`本地落后 origin/master ${behind} 个提交——运行时副本陈旧,下游契约(如周排期)可能失效`);
+      notes.push(`本地落后 origin/master ${behind} 个提交——运行时副本陈旧，下游契约可能失效`);
       return { commit, upToDate: false, remoteCommit: remote, capability: ENGINE_CAPABILITY_VERSION, notes };
     }
     // 本地领先(未推送的提交)或分叉:本地包含远端全部内容,视为可用但提示。
