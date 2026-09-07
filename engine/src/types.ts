@@ -295,7 +295,6 @@ export interface TestPlan {
 export interface TestRun {
   environment: TestEnvironment;
   planVersion: string;
-  version: string;
   outcome: 'passed' | 'failed';
   /** Must equal `${planVersion}/${environment}` for the matching latest asset audit. */
   assetAudit: string;
@@ -367,8 +366,6 @@ export interface DuEvidenceEntry {
   planVersion: string;
   outcome: string;
   recordedAt: string;
-  /** 被测版本（test-run 必填；报告回读的运行版本或部署构建号）——环境混淆防线：local/test 各自记录真实版本。 */
-  version?: string;
   /** 本地明细文件/报告指针（报告 ID、链接）。含环境注记时与 environment 双写核对。 */
   detailRef?: string;
 }

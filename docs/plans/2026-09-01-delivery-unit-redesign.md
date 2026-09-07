@@ -212,7 +212,7 @@ describe('action tier (P1)', () => {
       type: 'bug', iid: 1, labels: ['type::bug', 'status::待发布'],
       body: '|角色|用户|\\n|--|--|\\n|研发|@dev|\\n|测试|@qa|', state: 'opened',
       notes: [], datesConfirmed: true, humanConfirmed: true,
-      fields: { 发布日期: '2026-09-01', 研发Assignee: '@dev', 生产版本: 'v1.0', 发布记录或回滚信息: '见 release-check' },
+      fields: { 发布日期: '2026-09-01', 研发Assignee: '@dev', 发布记录或回滚信息: '见 release-check' },
     });
     expect(out.actionTier).toBe('L3');
     expect(out.shouldConfirm).toBe(true);
@@ -426,7 +426,7 @@ function duAssetAuditFor(payload: Payload, environment: string) {
 describe('DU-first evidence (P2)', () => {
   const basePayload = (du?: DuState): Payload => ({
     type: 'story', from: '开发中', to: '测试中',
-    fields: { 代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev', 可测试版本或环境: 'test http://t', 测试说明: '见 spec' },
+    fields: { 代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev', 测试说明: '见 spec' },
     assigneeUser: '@qa', datesConfirmed: true,
     testPlan: '<!-- glab-flow:test-plan:v1\nplan-version: v1\ncase: TP-001 | local | api\n-->',
     ...(du ? { du } : {}),
@@ -578,7 +578,7 @@ Run: `pnpm vitest run engine/src/next-step.test.ts` → 3 passed
 - [ ] **Step 4: 手工冒烟（真实 CLI）**
 
 ```bash
-echo '{"type":"bug","iid":9,"labels":["type::bug","status::待发布"],"state":"opened","notes":[],"body":"|角色|用户|\n|--|--|\n|研发|@dev|\n|测试|@qa|","fields":{"发布日期":"2026-09-01","研发Assignee":"@dev","生产版本":"v1","发布记录或回滚信息":"r"}}' | pnpm cli next | python3 -m json.tool | head -20
+echo '{"type":"bug","iid":9,"labels":["type::bug","status::待发布"],"state":"opened","notes":[],"body":"|角色|用户|\n|--|--|\n|研发|@dev|\n|测试|@qa|","fields":{"发布日期":"2026-09-01","研发Assignee":"@dev","发布记录或回滚信息":"r"}}' | pnpm cli next | python3 -m json.tool | head -20
 ```
 
 Expected: JSON 含 `"where": "待发布"`、`fastestPath` 指向生产验证中/已完成。
@@ -833,7 +833,7 @@ transition.test.ts：
 describe('GateSet skip states (P3)', () => {
   it('frontend-copy DU skips 测试中: 开发中 advances straight to 待发布', () => {
     const gs = deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']);
-    const out = runTransition(loadModel(), { type: 'story', iid: 88, labels: ['type::story', 'story-status::开发中'], body: TABLE, state: 'opened', notes: [], fields: { 代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev', 可测试版本或环境: 'local', 测试说明: 's' }, assigneeUser: '@qa', datesConfirmed: true, du: { ...initDu({ iid: 88, type: 'story', now: T }), gateSet: gs } });
+    const out = runTransition(loadModel(), { type: 'story', iid: 88, labels: ['type::story', 'story-status::开发中'], body: TABLE, state: 'opened', notes: [], fields: { 代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev', 测试说明: 's' }, assigneeUser: '@qa', datesConfirmed: true, du: { ...initDu({ iid: 88, type: 'story', now: T }), gateSet: gs } });
     expect(out.next).toBe('待发布');
   });
 });

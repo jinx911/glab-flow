@@ -234,9 +234,10 @@ function parseRunBlock(block: MarkerBlock): { ok: true; run: TestRun } | { ok: f
     if (fields.has(key!)) { errors.push(`测试执行记录字段重复：${key}`); continue; }
     fields.set(key!, value!.trim());
   }
+  // version is accepted only for old receipts; current receipts do not use it.
   const known = new Set(['environment', 'plan-version', 'version', 'outcome', 'asset-audit', 'cases', 'evidence']);
   for (const key of fields.keys()) if (!known.has(key)) errors.push(`测试执行记录含未知字段：${key}`);
-  for (const key of known) if (!nonEmpty(fields.get(key))) errors.push(`测试执行记录缺 ${key}`);
+  for (const key of ['environment', 'plan-version', 'outcome', 'asset-audit', 'cases', 'evidence']) if (!nonEmpty(fields.get(key))) errors.push(`测试执行记录缺 ${key}`);
   const environment = fields.get('environment') ?? '';
   if (environment && !ENVIRONMENT.test(environment)) errors.push(`测试执行记录环境无效：${environment}`);
   if (fields.get('outcome') && fields.get('outcome') !== 'passed') errors.push('测试执行记录 outcome 必须为 passed');
@@ -259,7 +260,6 @@ function parseRunBlock(block: MarkerBlock): { ok: true; run: TestRun } | { ok: f
     run: {
       environment,
       planVersion: fields.get('plan-version')!,
-      version: fields.get('version')!,
       outcome: 'passed',
       assetAudit: fields.get('asset-audit')!,
       cases: cases as Record<string, 'passed'>,
@@ -297,7 +297,6 @@ export function validateTestRun(plan: TestPlan, environment: TestEnvironment, la
   const errors: string[] = [];
   if (run.planVersion !== plan.version) errors.push(`${environment} 测试计划版本不匹配：当前 ${plan.version}，记录 ${run.planVersion}`);
   if (run.assetAudit !== `${plan.version}/${environment}`) errors.push(`${environment} 测试执行记录未关联当前资产审计：应为 ${plan.version}/${environment}`);
-  if (!nonEmpty(run.version)) errors.push(`${environment} 被测版本缺失`);
   const required = plan.cases.filter((item) => item.environments.includes(environment));
   if (!required.length) errors.push(`测试计划没有要求 ${environment} 执行的 case`);
   const requiredIds = new Set(required.map((item) => item.id));
@@ -316,7 +315,6 @@ export function renderTestRun(run: TestRun): string {
     '## 测试执行记录', '',
     `- 环境：${run.environment}`,
     `- 计划版本：${run.planVersion}`,
-    `- 被测版本：${run.version}`,
     `- 资产审计：${run.assetAudit}`,
     `- 结论：${run.outcome === 'passed' ? '通过' : '未通过'}`,
     `- 用例结果：${cases}`,
@@ -325,7 +323,6 @@ export function renderTestRun(run: TestRun): string {
     `${RUN_MARKER}`,
     `environment: ${run.environment}`,
     `plan-version: ${run.planVersion}`,
-    `version: ${run.version}`,
     `outcome: ${run.outcome}`,
     `asset-audit: ${run.assetAudit}`,
     `cases: ${cases}`,

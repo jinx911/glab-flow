@@ -360,7 +360,7 @@ async function main() {
           const entry = input.entry;
           if (!input.du || typeof input.du !== 'object') throw new Error('du: record requires du');
           if (!entry || typeof entry !== 'object' || !entry.kind || !entry.environment || !entry.planVersion || !entry.outcome || !entry.recordedAt) {
-            throw new Error('du: record requires entry {kind, environment, planVersion, outcome, recordedAt, version?, detailRef?}');
+            throw new Error('du: record requires entry {kind, environment, planVersion, outcome, recordedAt, detailRef?}');
           }
           if (entry.kind !== 'test-run' && entry.kind !== 'asset-audit') throw new Error(`du: record entry.kind must be test-run|asset-audit, got ${String(entry.kind)}`);
           // H2：环境白名单硬校验（原逻辑写反，'Local'/'tset'/'prod' 全放行——错标环境=local 结果冒充 test 证据）。
@@ -373,10 +373,6 @@ async function main() {
             if (m && m[1]!.toLowerCase() !== entry.environment) {
               throw new Error(`du: record detailRef 环境注记 '${m[1]}' 与 entry.environment '${entry.environment}' 不符——请核对报告归属环境`);
             }
-          }
-          // H1：test-run 必须带被测版本（E4 从报告/actuator 回读），占位符拒绝——防「复测跑在旧版本上」无人察觉。
-          if (entry.kind === 'test-run' && (!entry.version || !String(entry.version).trim() || String(entry.version).trim() === 'du')) {
-            throw new Error("du: record test-run requires entry.version（本环境实际运行版本，从报告回读/actuator——不许占位）");
           }
           console.log(JSON.stringify(recordEvidence(input.du, entry, now)));
           break;

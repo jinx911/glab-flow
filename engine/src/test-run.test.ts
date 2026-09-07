@@ -14,7 +14,6 @@ asset: TP-001 | scenario
 const localRun = `<!-- glab-flow:test-run:v1
 environment: local
 plan-version: v3
-version: service:abc123
 outcome: passed
 asset-audit: v3/local
 cases: TP-001=passed,TP-003=passed
@@ -24,7 +23,6 @@ evidence: api=report:101,e2e=note:https://git.example/1,unit=phpunit:targeted
 const testRun = `<!-- glab-flow:test-run:v1
 environment: test
 plan-version: v3
-version: service:abc123
 outcome: passed
 asset-audit: v3/test
 cases: TP-001=passed,TP-002=passed,TP-003=passed
@@ -69,12 +67,12 @@ describe('test plan and environment execution receipts', () => {
   });
 
   it('uses GitLab created_at rather than newest-first API array order', () => {
-    const older = localRun.replace('version: service:abc123', 'version: service:older');
-    const latest = localRun.replace('version: service:abc123', 'version: service:latest');
+    const older = localRun.replace('evidence: api=report:101', 'evidence: api=report:older');
+    const latest = localRun.replace('evidence: api=report:101', 'evidence: api=report:latest');
     expect(parseLatestTestRun([
       { id: 20, created_at: '2026-08-26T09:01:00Z', body: latest },
       { id: 10, created_at: '2026-08-25T09:01:00Z', body: older },
-    ], 'local')).toMatchObject({ kind: 'valid', run: { version: 'service:latest' } });
+    ], 'local')).toMatchObject({ kind: 'valid', run: { evidence: { api: 'report:latest' } } });
   });
 
   it('round-trips a rendered run and rejects unknown cases', () => {
@@ -82,7 +80,7 @@ describe('test plan and environment execution receipts', () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     const rendered = renderTestRun({
-      environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'passed', assetAudit: 'v3/local',
+      environment: 'local', planVersion: 'v3', outcome: 'passed', assetAudit: 'v3/local',
       cases: { 'TP-001': 'passed', 'TP-003': 'passed' },
       evidence: { api: 'report:101', e2e: 'note:https://git.example/1', unit: 'phpunit:targeted' },
     });
@@ -96,7 +94,7 @@ describe('test plan and environment execution receipts', () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     const rendered = renderTestRun({
-      environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'failed', assetAudit: 'v3/local',
+      environment: 'local', planVersion: 'v3', outcome: 'failed', assetAudit: 'v3/local',
       cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/1' },
     });
     expect(rendered).toContain('outcome: failed');

@@ -6,7 +6,7 @@ describe('buildForwardPlan public comment boundary', () => {
   it('rejects internal execution material before producing a write plan', () => {
     const payload: Payload = {
       type: 'story', from: '开发中', to: '测试中', assigneeUser: '@qa',
-      fields: { 可测试版本或环境: 'local build' },
+      fields: { 测试说明: '使用 token=secret 运行验证' },
     };
     expect(() => buildForwardPlan(payload, 123)).toThrow(/内部执行证据/);
   });
