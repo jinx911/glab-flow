@@ -62,21 +62,19 @@
 
 - 环境：local
 - 计划版本：v3
-- 被测版本：sample-service:abc123; sample-web:def456
 - 结论：通过
 - 用例统计：6 passed, 0 failed, 0 skipped
 
 <!-- glab-flow:test-run:v1
 environment: local
 plan-version: v3
-version: sample-service:abc123; sample-web:def456
 outcome: passed
 cases: TP-001=passed,TP-002=passed
 evidence: apifox-report=12345,e2e=issue-note-url,data=assertion-summary
 -->
 ```
 
-解析规则严格：环境、计划版本、被测版本、结论、用例列表和证据均不可为空；环境必须等于目标门禁要求；结论只能是 `passed`；每一个该环境必测用例必须恰好记录为 `passed`。最新、有效且计划版本匹配的记录才可满足门禁。任何最新格式错误、失败或计划版本不一致都不允许回退使用旧记录。
+解析规则严格：环境、计划版本、结论、用例列表和证据均不可为空；环境必须等于目标门禁要求；结论只能是 `passed`；每一个该环境必测用例必须恰好记录为 `passed`。最新、有效且计划版本匹配的记录才可满足门禁。任何最新格式错误、失败或计划版本不一致都不允许回退使用旧记录。
 
 ## 流程与门禁
 
@@ -133,7 +131,7 @@ evidence: apifox-report=12345,e2e=issue-note-url,data=assertion-summary
 - `test-config.md` 的 `environments` 保持 Profile 结构，不将 local/test 写死进配置解析器；`local` 与 `test` 是本次状态机的默认门禁环境名。
 - `test-design` 在技术方案完成后、编码前生成或更新 `test-plan.md`；不再等进入「测试中」才首次设计计划。
 - API、E2E、数据、手工验证都消费同一计划，按 `test-config` 选择环境 Profile；环境切换不复制计划或用例。
-- 节点内容评论的「提测说明」和「测试报告」引用相应 `TestRun`，避免再次用笼统的「自测通过」替代执行事实。
+- 节点内容评论的「提测说明」和「测试报告」引用相应 `TestRun`，避免再次用笼统的「自测通过」替代执行事实；两份交接产物均须列出涉及项目与开发分支，确保测试与发布可定位变更来源。
 
 ## 验收标准
 

@@ -43,7 +43,8 @@ describe('cli plan — DU-aware transition projection', () => {
         type: 'story', from: '开发中', to: '测试中',
         fields: {
           代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev',
-          可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对',
+          涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
+          测试说明: 'A/B 配置已核对',
           测试完成日期: '2026-09-01', 测试Assignee: '@qa', 测试结论: '通过',
           回归范围或证据: '受影响用例', 阻塞发布问题均已验证通过: '是',
         },
@@ -55,7 +56,7 @@ describe('cli plan — DU-aware transition projection', () => {
         iid: 88, type: 'story', cachedNode: '开发中', affectedScopes: ['frontend-copy'],
         evidence: [
           { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: '2026-09-01T00:00:00Z' },
-          { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: '2026-09-01T00:00:00Z', version: 'service:abc123' },
+          { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: '2026-09-01T00:00:00Z' },
         ], resources: [], metricEvents: [], updatedAt: '2026-09-01T00:00:00Z',
         gateSet: {
           scopes: ['frontend-copy'], skipStates: ['测试中'], environments: ['local'],
@@ -130,7 +131,6 @@ asset: TP-001 | scenario
   const localRun = `<!-- glab-flow:test-run:v1
 environment: local
 plan-version: v3
-version: service:abc123
 outcome: passed
 asset-audit: v3/local
 cases: TP-001=passed
@@ -139,7 +139,6 @@ evidence: api=report:101,e2e=note:https://git.example/local
   const testRun = `<!-- glab-flow:test-run:v1
 environment: test
 plan-version: v3
-version: service:abc123
 outcome: passed
 asset-audit: v3/test
 cases: TP-001=passed
@@ -165,12 +164,12 @@ asset: TP-001 | scenario | scenario-101 | reuse
 -->`;
   const submit = {
     type: 'story' as const, from: '开发中', to: '测试中',
-    fields: { 代码评审结论: '通过', 提测日期: '2026-08-24', 研发Assignee: '@dev', 可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对' },
+    fields: { 代码评审结论: '通过', 提测日期: '2026-08-24', 研发Assignee: '@dev', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement', 测试说明: 'A/B 配置已核对' },
     assigneeUser: '@qa', datesConfirmed: true,
   };
   const accept = {
     type: 'story' as const, from: '测试中', to: '待发布',
-    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'report', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
+    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'report', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
     assigneeUser: '@dev', datesConfirmed: true,
   };
 
@@ -185,7 +184,7 @@ asset: TP-001 | scenario | scenario-101 | reuse
   it('renders a parseable TestRun preview without I/O', () => {
     const result = cli('test-run', {
       plan,
-      run: { environment: 'local', planVersion: 'v3', version: 'service:abc123', outcome: 'passed', assetAudit: 'v3/local', cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/local' } },
+      run: { environment: 'local', planVersion: 'v3', outcome: 'passed', assetAudit: 'v3/local', cases: { 'TP-001': 'passed' }, evidence: { api: 'report:101', e2e: 'note:https://git.example/local' } },
     });
     expect(result.status).toBe(0);
     expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:test-run:v1') });

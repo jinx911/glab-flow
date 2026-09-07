@@ -34,7 +34,7 @@ test 构建只有在参数定义缺失且没有默认值时才一次性询问全
 
 ### 0. 在 canonical playbook 中的位置
 
-- **开发中→测试中（提测）**：`commit/push` →（有 `deploy_branch` 时）合并到测试分支 →（有 `jenkins` 时）触发 test Jenkins 构建 → Issue 写回。GateSet 只在启用环境缺少证据时发出回归动作；local 回归在 feature commit 后、merge/deploy 前执行，完成后由 Leader 记录 DU 证据并重新运行 transition。test 参数默认值直用，构建结果/版本/环境记录进 DU，并由提测合并评论携带摘要。
+- **开发中→测试中（提测）**：`commit/push` →（有 `deploy_branch` 时）合并到测试分支 →（有 `jenkins` 时）触发 test Jenkins 构建 → Issue 写回。GateSet 只在启用环境缺少证据时发出回归动作；local 回归在 feature commit 后、merge/deploy 前执行，完成后由 Leader 记录 DU 证据并重新运行 transition。test 参数默认值直用，构建结果、环境与验证结论记入 DU，并由提测合并评论携带摘要。
 - **测试中→待发布（发布准备）**：`release-check` 生成 `release-plan`，包括上线步骤、配置、注意事项和回滚方案；它是生成器，不能由生产发布阶段重复生成。
 - **待发布→生产验收中/生产验证中（发布）**：生产部署是独立 `hard_gate`/L3 动作；若 GateSet `rollbackPlan=true`，先执行 `verify_rollback_ready` 核对已生成且已回读的方案，再由人工在 Jenkins/平台触发部署，Leader 只在逐项确认后推进 Issue。不要把 test 构建成功当成生产部署，也不要把 L2 流转确认当成生产参数确认。GateSet 的 `skipStates` 只影响状态投影，不会降低生产 hard gate。
 
@@ -42,10 +42,10 @@ test 构建只有在参数定义缺失且没有默认值时才一次性询问全
 
 开始前先确认 Jenkins 工具当前确实可调用、目标 job 可读取、参数定义可取得。配置或已安装 skill 只能作为线索，不能替代**能力发现**。发现结果决定 `deployment-evidence`：
 
-- **automation**：能力和 job 都可用，继续下列流程；面向团队的评论只写可测试版本/环境和验证结论。
-- **manual（手工）**：工具不可调用、job 不可访问或自动化明确不可用时，停止自动触发，由人工执行；详细不可用原因、操作者、执行时间、构建号等写入 DU/内部执行记录。
+- **automation**：能力和 job 都可用，继续下列流程；面向团队的评论只写环境和验证结论。
+- **manual（手工）**：工具不可调用、job 不可访问或自动化明确不可用时，停止自动触发，由人工执行；详细不可用原因、操作者和执行时间写入 DU/内部执行记录。
 
-部署结果的团队可读摘要（版本/环境/验证结论）作为「提测说明」合并评论的一部分（见 `../nodes.md`「节点内容评论」），不单独发 marker 回执。构建号、报告 ID、内部 URL、账号和本地路径不得进入正式 Issue 评论；手工降级仍须对实际环境/版本征得用户确认。
+部署结果的团队可读摘要（环境/验证结论）作为「提测说明」合并评论的一部分（见 `../nodes.md`「节点内容评论」），不单独发 marker 回执。报告 ID、内部 URL、账号和本地路径不得进入正式 Issue 评论；手工降级仍须对实际环境征得用户确认。
 
 ### 1. 确定 Job
 

@@ -25,7 +25,6 @@ asset: TP-001 | scenario
 const LOCAL_RUN = `<!-- glab-flow:test-run:v1
 environment: local
 plan-version: v3
-version: service:abc123
 outcome: passed
 asset-audit: v3/local
 cases: TP-001=passed,TP-U01=passed
@@ -34,7 +33,6 @@ evidence: api=report:101,e2e=note:https://git.example/local,unit=vitest-26-passe
 const TEST_RUN = `<!-- glab-flow:test-run:v1
 environment: test
 plan-version: v3
-version: service:abc123
 outcome: passed
 asset-audit: v3/test
 cases: TP-001=passed,TP-U01=passed
@@ -93,7 +91,7 @@ describe('G2 gate outcome binary', () => {
 describe('G3 hard gate needs humanConfirmed', () => {
   it('blocks hard-gate transition without humanConfirmed', () => {
     const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
-      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 发布记录或回滚信息: 'rec' },
       assigneeUser: '@pm', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
     expect(r.ok).toBe(false);
@@ -200,7 +198,7 @@ describe('G7/G8/G13 write-plan guards', () => {
 describe('G3 positive — hard gate with humanConfirmed passes', () => {
   it('passes 待发布->生产验收中 when humanConfirmed true', () => {
     const p: Payload = { type: 'story', from: '待发布', to: '生产验收中',
-      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      fields: { 发布日期: '2026-07-28', 研发Assignee: '@dev', 发布记录或回滚信息: 'rec' },
       assigneeUser: '@pm', datesConfirmed: true, humanConfirmed: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::待发布']), p);
     expect(r.ok).toBe(true);
@@ -227,7 +225,7 @@ describe('G11 bug — blocking issues apply to bug too', () => {
   });
   it('passes bug 测试中->待发布 when blocking issues verified', () => {
     const p: Payload = { type: 'bug', from: '测试中', to: '待发布',
-      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' }, testPlan: TEST_PLAN,
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' }, testPlan: TEST_PLAN,
       assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p, TEST_NOTES);
     expect(r.ok).toBe(true);
@@ -235,7 +233,7 @@ describe('G11 bug — blocking issues apply to bug too', () => {
 });
 
 describe('G11 normalization — accepts affirmative synonyms, rejects the rest', () => {
-  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过' };
+  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' };
   const run = (val: string) => validateTransition(model, facts(['type::story', 'story-status::测试中']), {
     type: 'story', from: '测试中', to: '待发布',
     fields: { ...baseFields, 阻塞发布问题均已验证通过: val }, testPlan: TEST_PLAN, assigneeUser: '@dev', datesConfirmed: true,
@@ -293,7 +291,8 @@ const duWith = (entries: Parameters<typeof recordEvidence>[1][]): DuState =>
   entries.reduce((du, entry) => recordEvidence(du, entry, DU_NOW), initDu({ iid: 88, type: 'story', now: DU_NOW }));
 const DU_SUBMIT_FIELDS = {
   代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev',
-  可测试版本或环境: 'service:abc123', 测试说明: 'A/B 配置已核对',
+  涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
+  测试说明: 'A/B 配置已核对',
 };
 
 // —— P3 GateSet-scoped guards：G14 仅在 GateSet 要求 MR 评审时必填 ——
@@ -303,6 +302,7 @@ const GATESET_TEST_DONE_FIELDS = {
   测试结论: '通过',
   回归范围或证据: 'r',
   阻塞发布问题均已验证通过: '是',
+  涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
 };
 const duWithGateSet = (gateSet: GateSet): DuState => {
   const du = initDu({ iid: 88, type: 'story', now: DU_NOW });
@@ -348,7 +348,7 @@ describe('DU-first evidence (P2)', () => {
   it('accepts local TestRun+AssetAudit from DU evidence without Issue comments', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -384,7 +384,7 @@ describe('DU-first evidence (P2)', () => {
   it('rejects a non-numeric DU asset-audit outcome instead of coercing it to zero (fail-closed)', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: 'abc', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -411,7 +411,7 @@ describe('DU-first evidence (P2)', () => {
   it('surfaces a positive DU unresolved-findings count instead of zeroing it', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '2', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -425,7 +425,7 @@ describe('DU-first evidence (P2)', () => {
   it('rejects when DU evidence plan version drifts from the current test plan', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v2', outcome: '0', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v2', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+      { kind: 'test-run', environment: 'local', planVersion: 'v2', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -460,7 +460,7 @@ auth-profile: TP-001 | client-user | auth_token
 -->`;
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
@@ -472,8 +472,8 @@ auth-profile: TP-001 | client-user | auth_token
   });
 });
 
-describe('环境混淆防线（记录侧）', () => {
-  it('rejects DU test-run without real version（占位/缺失不再合成通过形状）', () => {
+describe('环境执行证据（记录侧）', () => {
+  it('accepts a DU test-run without a runtime version', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
       { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
@@ -484,20 +484,7 @@ describe('环境混淆防线（记录侧）', () => {
       assigneeUser: '@qa', datesConfirmed: true,
     };
     const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
-    expect(r.ok).toBe(false);
-    expect(r.reasons.some((x) => x.includes('缺少真实被测版本'))).toBe(true);
-  });
-  it('rejects DU test-run with placeholder version "du"', () => {
-    const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'du' },
-    ]);
-    const p: Payload = {
-      type: 'story', from: '开发中', to: '测试中',
-      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
-      assigneeUser: '@qa', datesConfirmed: true,
-    };
-    expect(validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []).ok).toBe(false);
+    expect(r.ok).toBe(true);
   });
 });
 
@@ -508,7 +495,7 @@ describe('G11b 阻塞问题交叉核对（Q2：自报字段不够，评论必须
     assigneeUser: '@dev', datesConfirmed: true,
     du: duWith([
       { kind: 'asset-audit', environment: 'test', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'test', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:t1' },
+      { kind: 'test-run', environment: 'test', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]),
   });
   it('rejects when an unverified blocking test-issue comment exists', () => {
@@ -579,7 +566,7 @@ describe('Q4 unit 覆盖按维度要求（GateSet.minUnitCases）', () => {
     const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n-->';
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc' },
+      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',

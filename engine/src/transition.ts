@@ -35,7 +35,7 @@ const FIELD_HINTS: Record<string, string> = {
   local测试执行记录: '刚回读的 local glab-flow:test-run:v1 评论链接/摘要；引擎会校验，不以该文本本身取信',
   test测试执行记录: '刚回读的 test glab-flow:test-run:v1 评论链接/摘要；引擎会校验，不以该文本本身取信',
   提测日期: '本次提测日期',
-  可测试版本或环境: '可测试版本号 / 环境（多仓分别列出）',
+  涉及项目与开发分支: '每个涉及项目及其开发分支（多项目用分号分隔）',
   测试说明: '测试说明 + 上线步骤与配置清单（A 随代码 / B 各环境手动）',
   测试完成日期: '测试完成日期',
   测试Assignee: '@测试用户',
@@ -49,7 +49,6 @@ const FIELD_HINTS: Record<string, string> = {
   阻塞发布问题均已验证通过: '是 / 已验证 / 无阻塞（来自测试问题评论的验证结果）',
   feature分支MR评审结论: 'feature→master MR 代码评审结论（用 code-review sub-skill 跑全 MR diff）；填「通过，无 HIGH 残留」或退回',
   发布日期: '发布日期',
-  生产版本: '各仓部署版本号（多仓用分号分隔）',
   发布记录或回滚信息: '发布记录 + 回滚方案（来自 release-check 产出）',
   验收完成日期: '验收完成日期',
   具体产品验收人: '@产品验收人',
@@ -75,7 +74,7 @@ const PLAYBOOK_ACTIONS: Record<string, { subskill?: string; desc: string }> = {
   create_mr_to_master: { subskill: 'git-ops', desc: '提 PR feature → master，标题=Issue 地址（含 iid）' },
   mr_review: { subskill: 'mr-review', desc: '评审 MR（推断需求/需求↔代码一致性/需求外改动/bug/回归）；无 HIGH 残留才放行，否则修复重评' },
   release_check: { subskill: 'release-check', desc: '产出上线步骤/配置清单/注意事项/回滚方案（引用 spec 上线清单 + 配置机制核查）' },
-  deploy: { subskill: 'jenkins-deploy', desc: '执行生产部署——当前手动触发（你在 Jenkins/平台点击生产部署），完成后把生产版本号告诉 Leader；未来配了 prod job 可由 jenkins-deploy 驱动。部署确认后才推进 Issue' },
+  deploy: { subskill: 'jenkins-deploy', desc: '执行生产部署——当前手动触发（你在 Jenkins/平台点击生产部署）；确认部署完成后推进 Issue。未来配了 prod job 可由 jenkins-deploy 驱动。' },
 };
 
 const REGRESSION_EDGES: ReadonlyMap<string, GateEnvironment> = new Map([

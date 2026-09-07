@@ -92,7 +92,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 一个 Issue 跨前端/PHP/Java 等多仓时，状态机仍单线推进（节点不按仓库分支），多仓维度在配置与产物层处理：
 
 - **Jenkins**：config 用 `jenkins.jobs` 按仓映射 job + 参数（见 `config.md`）；`jenkins-deploy` 按当前操作仓库选模板。
-- **待发布「生产版本」**：多仓时填**各仓部署版本**（分号分隔，如 `service-api:v1.2; frontend:v3.4`），不再是单一版本号。
+- **待发布发布记录**：多仓发布完成后填写发布记录或回滚信息；不以各仓部署版本作为状态门槛。
 - **MR**：每仓一条 feature 分支 + 一条 MR；`git-ops` 按仓操作。
 
 ### 已评审后：测试计划（唯一版本化输入）
@@ -110,6 +110,8 @@ asset: TP-001 | suite-or-group
 
 ### 开发中→测试中：local 完整业务闭环（门禁强制）
 
+提测说明必须先列出**涉及项目与开发分支**：每个改动仓库写成「项目：开发分支」，多项目用分号分隔；它是测试定位代码、构建来源和回归范围的最小交接信息，缺失不允许进入测试中。
+
 提测前必须完成代码评审，并按当前 GateSet 的 `environments` 与 `regression` 要求完成 local Apifox 资产审计和对应 TestRun；对所有计划标记 `local` 的用例在本地环境实际执行。**证据优先记 DU**（`transition`/`validate` 传 `payload.du`，引擎取该环境最新执行事实），Issue 评论 marker 仅作存量 Issue 的兜底解析；执行明细不进 Issue，但**执行结论以「## 证据摘要」块随流转评论自动上传**（`renderNodeComment` 从 DU 渲染：各环境计划版本与通过/失败结论、审计结论、资源数量、GateSet、指标——Issue 是团队共享的，安全摘要必须可见；报告指针与执行明细仅保留在 DU/internal record）。缺失、格式错误、计划版本不一致、资源未回读、存在未处置问题、用例未通过或缺少任一要求方法的证据，均不得进入测试中。不得用“单测/构建通过”“P0 冒烟”或自由文本结论代替闭环执行记录。
 
 只有命中的 GateSet 环境证据缺失时，playbook 才生成回归动作（`run_affected_regression` 或 `run_full_regression`）；动作使用 `test-flow-e2e`，完成后必须用 `pnpm cli du` 的 `record` 记录 DU TestRun/AssetAudit 并重新运行 `transition`。提测顺序是 feature commit → local 回归（如缺证据）→ merge/deploy；local 不得放在 merge 或部署之后。GateSet 逻辑环境当前仅支持 `local` / `test`。
@@ -123,15 +125,14 @@ asset: TP-001 | suite-or-group
    - 输出的 `apifox.envId` 直接喂 Apifox CLI（`--project <projectId> --environment <envId>`）；`databases.*` 查 `config.md` 的 databases 得 MCP；`testData.prefix` 已替换 iid。
    - 文件不存在 → 引导用户按 `test-config.example.md` 建一次（每项目一次），**不让自测在无测试配置下裸跑**。字段细节见 `test-config.example.md`。
 1. **接口/API、E2E、数据、手工验证**：仅执行 test-plan 中对 local 声明的方法。接口和 E2E 均被计划要求时，两者都要完成；纯后端需求没有 e2e 用例时才不执行 E2E。
-2. **执行环 E0–E4（`sub-skills/test-flow-apifox.md`）**：E0 上下文注入+**本环境数据整理**（跑前置 fixture、从本环境库取真实行值灌数据集，禁跨环境行值——数据要沉淀保留，假行值=毒资产）→ E1 预检（三段链路/运行版本/凭据/参数完备）→ E2 资产审计 → E3 执行 → E4 回读三核（saveDetailType/environmentName/stats）。失败按「失败回环」分流：改代码→该环境重跑；改资产→回 local 重跑；改计划→版本递增（三类改判据定是否开变更单）。
+2. **执行环 E0–E4（`sub-skills/test-flow-apifox.md`）**：E0 上下文注入+**本环境数据整理**（跑前置 fixture、从本环境库取真实行值灌数据集，禁跨环境行值——数据要沉淀保留，假行值=毒资产）→ E1 预检（三段链路/凭据/参数完备）→ E2 资产审计 → E3 执行 → E4 回读三核（saveDetailType/environmentName/stats）。失败按「失败回环」分流：改代码→该环境重跑；改资产→回 local 重跑；改计划→版本递增（三类改判据定是否开变更单）。
 3. **资产盘点并回读**：先查现有场景、套件/场景分组、测试数据和场景实例；复用优先，只有业务步骤/断言确有差异才新建。场景按“业务域/功能能力”命名，套件/分组仅承载稳定的冒烟/模块回归/发布回归入口；环境差异用 Profile、数据集或场景实例，不复制场景。临时数据使用 `TMP-<iid>-` 前缀（`resource --op check` 强制校验），创建即 `resource --op register` 登记，需求结束前清理或升级为共享资产。对计划声明 `presentation:` 的入口，额外回读 Apifox 页面名称、目录、标签和运行环境，并与报告 `environmentName` 核对；对 `auth-profile:`，回读登录后置临时变量和统一鉴权引用，但不记录任何凭据/token 值。以 `asset-audit` 生成并回读当前环境审计（事实记 DU），空场景、空套件/分组、空数据集、重复/孤儿资产、展示漂移或未清理临时数据均停止。
-4. **生成 TestRun 事实**：将每个计划用例的 `passed`、代码版本、`asset-audit: v3/local` 和 API/E2E/数据/手工证据记入 DU（`kind: test-run`、`environment: local`、`planVersion`、`outcome`、`detailRef` 指向报告/明细）；存量 Issue 也可发评论 marker 后回读。门禁只认该环境最新事实：
+4. **生成 TestRun 事实**：将每个计划用例的 `passed`、`asset-audit: v3/local` 和 API/E2E/数据/手工证据记入 DU（`kind: test-run`、`environment: local`、`planVersion`、`outcome`、`detailRef` 指向报告/明细）；存量 Issue 也可发评论 marker 后回读。门禁只认该环境最新事实：
 
    ```text
    <!-- glab-flow:test-run:v1
    environment: local
    plan-version: v3
-   version: service:abc123
    outcome: passed
    asset-audit: v3/local
    cases: TP-001=passed
@@ -163,11 +164,11 @@ asset: TP-001 | suite-or-group
 3. **区分三个入口**（配错则请求落错站）：登录入口 / 接口网关（API base 以 Apifox 环境的 baseUrls 为准，不复制进本地配置）/ 前端入口（`webUrl`，E2E 浏览器用）。
 4. **test-config.md 不存在或缺字段** → 停下引导按 `test-config.example.md` 补（每项目一次），不臆造地址、不用本地环境冒充测试环境。
 5. 按 GateSet 的 `environments` 与 `regression` 盘点、回读 test 环境的资产；仅当 GateSet 要求 `test` 时执行所有标记 `test` 的用例，并将 `environment: test` 的 AssetAudit 与 TestRun 事实记入 DU（存量 Issue 也可发评论 marker）。`测试中→待发布` 只读取最新、同计划版本的 test 记录；不得拿 local 结果、旧计划版本或自由文本测试报告替代。
-6. 测试环境执行前的预检（三段链路健康 / 运行版本）与凭据注入规则见 `sub-skills/test-flow-apifox.md`。
+6. 测试环境执行前的预检（三段链路健康与凭据注入）见 `sub-skills/test-flow-apifox.md`。
 
 ### 测试中→待发布：MR 评审前置（G14，按 GateSet）+ 提前产出发布计划
 
-进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」。G14 的必填字段 `feature分支MR评审结论` 只在 DU GateSet 的 `mrReview=true` 时强制；`mrReview=false`（如 frontend-copy）豁免。若 GateSet `rollbackPlan=true`，生产发布 playbook 使用 `verify_rollback_ready` 核对这份已生成且已回读的方案，不再次调用 `release-check` 生成计划。
+进「待发布」的「测试报告与上线方案」也必须列出**涉及项目与开发分支**，与提测说明保持一致并覆盖本轮测试涉及的所有仓库；这让发布负责人可追溯每个 MR 与发布内容。进「待发布」前的 playbook：建 feature→master MR（标题=Issue 地址）→ `mr-review` 评审（无 CRITICAL/HIGH 残留才放行，否则修复重评）→ `release-check` **提前产生** `release-plan`（上线步骤/配置/注意事项/回滚）。提前产生计划是为了让待发布节点只剩「上线前确认 + 执行 deploy」。G14 的必填字段 `feature分支MR评审结论` 只在 DU GateSet 的 `mrReview=true` 时强制；`mrReview=false`（如 frontend-copy）豁免。若 GateSet `rollbackPlan=true`，生产发布 playbook 使用 `verify_rollback_ready` 核对这份已生成且已回读的方案，不再次调用 `release-check` 生成计划。
 
 进入发布转换后，Leader 在**待发布→生产验收中/生产验证中**的合并评论里给出**上线操作手册**（部署顺序 / migration / 配置 / 验证 / 回滚）；这是首次要求上线步骤对团队可见的节点。
 
@@ -181,12 +182,12 @@ GateSet 含 `skipStates` 时，命中节点被直接投影到其下一节点（�
 
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|
-| 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → **触发 Jenkins 构建（test 参数默认值直用直接触发，缺定义无默认值才一次问全；清单进执行记录）** → 写 Issue | merge 需 `deploy_branch`；Jenkins 需 `jenkins`；生产参数确认恒 L3 |
-| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check 产生 release-plan**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | G14 必填 `feature分支MR评审结论`，仅 GateSet `mrReview=true` 时 |
-| 待发布→生产验收中/生产验证中（发布） | **执行生产部署**（当前手动点击；按 release-check 上线步骤）→ 确认部署版本 → 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 生产部署恒存在（手动优先，无 Jenkins 条件） |
+| 开发中→测试中（提测） | commit/push feature → merge→deploy_branch → **触发 Jenkins 构建（test 参数默认值直用直接触发，缺定义无默认值才一次问全；清单进执行记录）** → 写 Issue | 必填「涉及项目与开发分支」；merge 需 `deploy_branch`；Jenkins 需 `jenkins`；生产参数确认恒 L3 |
+| 测试中→待发布（测试验收） | 提 PR feature→master（标题=Issue 地址）→ **MR 评审**（mr-review，无 HIGH 残留才放行，否则修复重评）→ **release-check 产生 release-plan**（写上线步骤/配置/注意事项/回滚）→ 写 Issue | 必填「涉及项目与开发分支」；G14 必填 `feature分支MR评审结论`，仅 GateSet `mrReview=true` 时 |
+| 待发布→生产验收中/生产验证中（发布） | **执行生产部署**（当前手动点击；按 release-check 上线步骤）→ 确认部署完成并写发布记录 → 写 Issue（hard_gate）= 上线完成、待产品/生产验证 | 生产部署恒存在（手动优先，无 Jenkins 条件） |
 | 其它转换 | 仅写 Issue | — |
 
-⚠️ release-check 是**发布计划**，在「测试中→待发布」产生；「发布」只**执行**该计划。**生产部署当前手动触发**（你在平台点击，完成后把生产版本号告诉 Leader）；`config.jenkins` 只管**测试环境**（提测的 `trigger_jenkins`），**生产 `deploy` 不挂 Jenkins 条件**——部署确认后必定推进 Issue。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
+⚠️ release-check 是**发布计划**，在「测试中→待发布」产生；「发布」只**执行**该计划。**生产部署当前手动触发**（你在平台点击，完成后确认部署完成并记录发布/回滚信息）；`config.jenkins` 只管**测试环境**（提测的 `trigger_jenkins`），**生产 `deploy` 不挂 Jenkins 条件**——部署确认后必定推进 Issue。MR 在测试中→待发布**只建+评、不合**，合并/部署在「发布」。
 
 ### 节点内部子步骤 checklist（层 2 进度可见）
 

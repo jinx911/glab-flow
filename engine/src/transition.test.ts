@@ -16,7 +16,6 @@ asset: TP-001 | scenario
 const LOCAL_RUN = `<!-- glab-flow:test-run:v1
 environment: local
 plan-version: v3
-version: service:abc123
 outcome: passed
 asset-audit: v3/local
 cases: TP-001=passed,TP-U01=passed
@@ -25,7 +24,6 @@ evidence: api=report:101,e2e=note:https://git.example/local,unit=vitest-26-passe
 const TEST_RUN = `<!-- glab-flow:test-run:v1
 environment: test
 plan-version: v3
-version: service:abc123
 outcome: passed
 asset-audit: v3/test
 cases: TP-001=passed,TP-U01=passed
@@ -64,6 +62,7 @@ const TEST_DONE_FIELDS = {
   回归范围或证据: 'r',
   阻塞发布问题均已验证通过: '是',
   feature分支MR评审结论: '通过，无 HIGH 残留',
+  涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
 };
 
 const DEVELOPMENT_START_FIELDS = {
@@ -91,7 +90,7 @@ const TEST_SUBMISSION_FIELDS = {
   代码评审结论: '通过',
   提测日期: '2026-08-07',
   研发Assignee: '@dev',
-  可测试版本或环境: 'test-v1',
+  涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
   测试说明: '说明',
 };
 
@@ -151,7 +150,7 @@ describe('transition — assignee resolution', () => {
 describe('transition — G11 normalization flows through', () => {
   const f = (val: string) => runTransition(model, baseInput({
     labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-    fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: val, feature分支MR评审结论: '通过，无 HIGH 残留' },
+    fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: val, feature分支MR评审结论: '通过，无 HIGH 残留', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
     datesConfirmed: true,
   }));
   it('accepts 已验证', () => expect(f('已验证').validate.ok).toBe(true));
@@ -171,6 +170,18 @@ describe('transition — missing fields carry hints', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: {}, datesConfirmed: true }));
     expect(r.next).toBe('测试中');
     expect(r.missing.find((m) => m.field === '测试说明')?.hint).toMatch(/上线步骤与配置清单/);
+  });
+  it('requires projects and development branches at both handoffs', () => {
+    const submission = { ...TEST_SUBMISSION_FIELDS } as Record<string, string>;
+    delete submission.涉及项目与开发分支;
+    const submit = runTransition(model, baseInput({ labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY, fields: submission, datesConfirmed: true }));
+    expect(submit.missing.find((m) => m.field === '涉及项目与开发分支')?.hint).toMatch(/每个涉及项目/);
+
+    const acceptance = { ...TEST_DONE_FIELDS } as Record<string, string>;
+    delete acceptance.涉及项目与开发分支;
+    const release = runTransition(model, baseInput({ labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY, fields: acceptance, datesConfirmed: true }));
+    expect(release.validate.ok).toBe(false);
+    expect(release.missing.some((m) => m.field === '涉及项目与开发分支')).toBe(true);
   });
   it('requires feature MR review before 待发布 (blocks when missing)', () => {
     const fieldsWithoutMR = { ...TEST_DONE_FIELDS };
@@ -234,7 +245,7 @@ describe('transition — plan + preview + shouldConfirm', () => {
   it('full-auto still confirms hardGate (待发布→生产验收中)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
-      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 发布记录或回滚信息: 'rec' },
       datesConfirmed: true, humanConfirmed: true, runMode: 'full-auto',
     }));
     expect(r.validate.ok).toBe(true);
@@ -278,7 +289,7 @@ describe('transition — per-transition side-effect playbook', () => {
   it('发布 = 执行上线 deploy + issue writeback（生产 deploy 无条件，手动也推进 Issue）', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
-      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 生产版本: 'v1', 发布记录或回滚信息: 'rec' },
+      fields: { 发布日期: '2026-08-07', 研发Assignee: '@dev', 发布记录或回滚信息: 'rec' },
       datesConfirmed: true, humanConfirmed: true,
     }));
     expect(r.next).toBe('生产验收中');
@@ -324,7 +335,7 @@ describe('transition — node progress checklist (layer 2 visibility)', () => {
 
 describe('transition — evidence smart prefill', () => {
   const NOTE = '## 状态变更\n- 测试完成日期：2026-08-05\n- 测试结论：通过\n- 回归范围或证据：回归通过\n';
-  const rest = { 测试Assignee: '@qa', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' };
+  const rest = { 测试Assignee: '@qa', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' };
 
   it('prefills required fields from note "- 字段：值" lines', () => {
     const r = runTransition(model, baseInput({
@@ -398,7 +409,7 @@ describe('GateSet skip states (P3)', () => {
     const base = initDu({ iid: 42, type: 'story', now: DU_NOW });
     // local TestRun + AssetAudit 证据（frontend-copy environments=[local]，validateTestRunTransition 固定查 local）
     const withAudit = recordEvidence(base, { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' }, DU_NOW);
-    const withRun = recordEvidence(withAudit, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW, version: 'svc:abc123' }, DU_NOW);
+    const withRun = recordEvidence(withAudit, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW }, DU_NOW);
     const withNode = setCachedNode(withRun, '开发中', DU_NOW);
     return { ...withNode, gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
   };
@@ -421,7 +432,6 @@ describe('GateSet skip states (P3)', () => {
     expect(r.comment).toContain('`开发中` → `待发布`');
     expect(r.comment).not.toContain('`开发中` → `测试中`');
     expect(r.comment).toContain('- 代码评审结论：通过');
-    expect(r.comment).toContain('- 可测试版本或环境：test-v1');
     // 投影目标合并发布语义；GateSet mrReview=false 抑制 MR 创建/评审动作。
     expect(r.projectedPayload?.to).toBe('待发布');
     expect(r.projectedPayload?.assigneeUser).toBe('@dev');
@@ -510,7 +520,6 @@ describe('GateSet skip states (P3)', () => {
         ...TEST_DONE_FIELDS,
         发布日期: '2026-08-29',
         研发Assignee: '@dev',
-        生产版本: 'service:v2; web:v2',
         发布记录或回滚信息: 'release-check 已完成，回滚方案已核对',
       }, datesConfirmed: true, humanConfirmed: true,
       notes, du,
@@ -518,7 +527,6 @@ describe('GateSet skip states (P3)', () => {
     expect(r.validate.ok).toBe(true);
     const body = r.plan?.ops.find((op) => op.kind === 'add_comment')?.body;
     expect(body).toContain('- 测试完成日期：2026-08-07');
-    expect(body).toContain('- 生产版本：service:v2; web:v2');
     expect(body).toContain('- 发布记录或回滚信息：release-check 已完成，回滚方案已核对');
   });
 
@@ -568,7 +576,7 @@ describe('GateSet skip states (P3)', () => {
     };
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待发布'], body: TABLE_BODY,
-      fields: { 发布日期: '2026-08-29', 研发Assignee: '@dev', 生产版本: 'service:v2', 发布记录或回滚信息: '已准备回滚方案' },
+      fields: { 发布日期: '2026-08-29', 研发Assignee: '@dev', 发布记录或回滚信息: '已准备回滚方案' },
       datesConfirmed: true, humanConfirmed: true, notes: [], du,
     }));
     expect(r.validate.ok).toBe(true);
@@ -663,7 +671,7 @@ describe('action tier (P1)', () => {
       type: 'bug', iid: 1, labels: ['type::bug', 'status::待发布'],
       body: '# 需求\n## 交付协同\n\n| 角色 | GitLab 用户 |\n| --- | --- |\n| 产品 | @pm |\n| 研发 | @dev |\n| 测试 | @qa |\n', state: 'opened',
       notes: [], datesConfirmed: true, humanConfirmed: true,
-      fields: { 发布日期: '2026-09-01', 研发Assignee: '@dev', 生产版本: 'v1.0', 发布记录或回滚信息: '见 release-check' },
+      fields: { 发布日期: '2026-09-01', 研发Assignee: '@dev', 发布记录或回滚信息: '见 release-check' },
     });
     expect(out.validate.ok).toBe(true);
     expect(out.actionTier).toBe('L3');

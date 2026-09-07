@@ -96,13 +96,13 @@ describe('团队交接评论（内部证据隔离）', () => {
     const md = renderNodeComment({
       type: 'story', from: '开发中', to: '测试中',
       fields: {
-        涉及项目与提测分支: 'oa-platform:test；oa-frontend:test', 可测试版本: 'release-candidate-1',
+        涉及项目与开发分支: 'oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page',
         本次改动: '完成离职补偿计算', 测试范围: '审批、权限与结算', 环境准备与配置: '完成初始化配置',
         测试重点: '边界与权限', 已知限制: '无阻塞限制', Apifox资产审计记录: 'internal-only',
       }, assigneeUser: '@qa',
     });
     expect(md).toContain('## 提测说明');
-    expect(md).toContain('- 涉及项目与提测分支：oa-platform:test；oa-frontend:test');
+    expect(md).toContain('- 涉及项目与开发分支：oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page');
     expect(md).toContain('## 下一步');
     expect(md).not.toContain('Apifox');
     expect(md).not.toContain('internal-only');
@@ -112,12 +112,14 @@ describe('团队交接评论（内部证据隔离）', () => {
     const md = renderNodeComment({
       type: 'story', from: '测试中', to: '待发布',
       fields: {
+        涉及项目与开发分支: 'oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page',
         业务覆盖范围: '离职审批、结算与权限', 缺陷处理结果: '阻塞问题已关闭', 遗留风险: '无阻塞遗留风险',
         上线步骤: '按发布计划执行', 配置清单: '完成后台配置', 回滚方案: '回滚版本与配置', 发布建议: '建议发布',
         测试账号: 'internal-user', reportId与环境: 'report:123',
       }, assigneeUser: '@dev',
     });
     expect(md).toContain('## 测试报告与上线方案');
+    expect(md).toContain('- 涉及项目与开发分支：oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page');
     expect(md).toContain('- 业务覆盖范围：离职审批、结算与权限');
     expect(md).not.toContain('测试账号');
     expect(md).not.toContain('report:123');
@@ -127,7 +129,7 @@ describe('团队交接评论（内部证据隔离）', () => {
     const release = renderNodeComment({
       type: 'story', from: '待发布', to: '生产验收中', assigneeUser: '@pm',
       fields: {
-        发布日期: '2026-08-28', 研发Assignee: '@dev', 生产版本: 'service:v2; web:v2',
+        发布日期: '2026-08-28', 研发Assignee: '@dev',
         部署顺序: '先服务后前端', 数据迁移: '无', 配置清单: '生产开关已核对',
         上线后验证: '主流程与监控告警验证', 回滚方案: '回滚应用版本与配置',
       },
@@ -152,7 +154,7 @@ describe('团队交接评论（内部证据隔离）', () => {
   it('blocks machine-only content from a formal state comment', () => {
     const result = validatePublicComment({
       type: 'story', from: '开发中', to: '测试中',
-      fields: { 涉及项目与提测分支: 'service:test', 可测试版本: 'local build', 本次改动: 'x' }, assigneeUser: '@qa',
+      fields: { 测试说明: '使用 token=secret 运行验证' }, assigneeUser: '@qa',
     });
     expect(result.ok).toBe(false);
     expect(result.reasons.join('\n')).toContain('内部执行证据');
@@ -190,7 +192,7 @@ describe('团队交接评论（内部证据隔离）', () => {
   it('renders only a safe DU evidence summary and validates the full handoff', () => {
     const payload: Payload = {
       type: 'story', from: '测试中', to: '待发布',
-      fields: { 测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: '完整回归', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过' },
+      fields: { 测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: '完整回归', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
       du: {
         iid: 22, type: 'story', cachedNode: '测试中', affectedScopes: ['functional'],
         evidence: [{ kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: '2026-08-29T10:00:00Z', detailRef: 'report:101' }],
@@ -257,10 +259,12 @@ describe('团队交接评论（内部证据隔离）', () => {
         测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过',
         回归范围或证据: '完整回归', 阻塞发布问题均已验证通过: '是',
         feature分支MR评审结论: '通过，无 HIGH 残留',
+        涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
       },
     });
     expect(md).toContain('- 测试完成日期：2026-08-29');
     expect(md).toContain('- 阻塞发布问题均已验证通过：是');
     expect(md).toContain('- feature分支MR评审结论：通过，无 HIGH 残留');
+    expect(md).toContain('- 涉及项目与开发分支：oa-platform: feature/leave-settlement');
   });
 });
