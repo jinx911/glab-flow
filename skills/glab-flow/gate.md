@@ -34,11 +34,10 @@ Leader 读取 GitLab labels/body/state、全量父 Issue/MR notes，以及本地
 
    **GateSet 绑定点**：Story `已评审→开发中` 与 Bug `已确认缺陷→开发中` 都是绑定边界。传入技术方案/根因声明的 `declaredScopes` 后，`transition` 返回 `proposedGateSet`；Bug 若没有非空 `declaredScopes`，必须提供已有 frozen GateSet，否则 fail-closed。Leader 将 GateSet 提案与计划提测/上线日期放入同一次 L2 批量确认；绑定首轮由 Leader 调用 `pnpm cli du` 的 `bind-gateset`，只写入并冻结 DU，不写 Issue 状态。对 Bug，若 `declaredScopes` 已提供但 DU 未冻结，此轮 `validate.ok=false`、`plan` 未定义，playbook 只含 `bind_gateset`、不含 `issue_writeback`。DU 落盘后重新运行 `transition`，GateSet 已冻结时才生成正常 `WritePlan` 与 Issue 写回/最终回读；不能在绑定后直接沿用旧输出。`bindGateSet` 会冻结 GateSet，已冻结的 DU 拒绝静默重绑；后续新增维度只能走 `change` 棘轮扩容或显式、可审计的 L2 override。
 
-2. **执行 playbook + 确认/应用**。`playbook` 的相位固定为代码侧 `pre-writeback` → Issue 写回/回读 `issue-writeback` → 条件同步 `post-readback`。按动作分层（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
+2. **执行 playbook + 确认/应用**。`playbook` 的相位固定为代码侧 `pre-writeback` → Issue 写回/回读 `issue-writeback`。按动作分层（见下节）决定 `AskUserQuestion` 后执行还是自动执行：
    - **代码侧步骤**（`subskill` 指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 跑（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等）。**每步完成即记 `state-writeback` 审计**（stage=`code-commit`/`code-merge`/`code-jenkins`，detail 含构建号/commit SHA）——E4 断点审计：任一步失败，恢复时只重试首个未完成的代码侧动作（Jenkins 已触发的看构建结果而不是重新触发），**不整链重放、已成功动作不再确认**。**test/非生产构建参数默认值直用**（测试数据与凭据同理，不逐参数确认；缺定义无默认值才一次问全）；**生产部署参数逐项确认**（L3 红线，见 `sub-skills/jenkins-deploy.md`）；没配 `deploy_branch` / `jenkins` 的步骤引擎已滤除。提测 = commit+push → merge→test → 触发 Jenkins；发布 = 生产部署（hard_gate，手动触发）。
    - **mr-review**：测试中→待发布 时，对每个受影响 feature→master MR 跑评审（G14，无 CRITICAL/HIGH 残留才放行），评审结论作为评论发到该 MR；父 Issue 汇总不能替代 MR-local 评审。
    - **issue_writeback（合并评论 + 三阶段串行，每阶段记 `writebackAudit`）**（仅在本轮已有正常 `WritePlan` 时）：Leader 直接跑 glab（不在引擎里做 I/O），把 `plan` 翻译成命令。按严格串行：**metadata**（标签 add/unlabel + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）→（终态时 close）→ **readback**（最终 Issue 回读）。绑定首轮不含此步骤，不写 Issue 状态。内容体按节点类型见 `nodes.md`「节点内容评论」。最终回读确认成功后，Leader 才调用 `pnpm cli du` 的 `cached-node`，将 DU 对账基准更新为本次的有效最终目标；随后再更新 state 缓存。
-   - **post-readback `sync_week_milestone`**：仅当 `plan.postWriteback.action === 'sync_week_milestone'` 执行。回读最新有效且启用的周排期，按 Asia/Shanghai 日期选目标周（未开始=计划开始周，执行中=当天周，已结束=跳过），幂等创建/关联 Week Milestone。标题必须是 Harness 同一格式 `Week YYYY-Www`，创建时 `start_date`/`due_date` 为该 ISO 周的周一/周日；不能自行发明标题或日期。用项目数字 ID 的 GitLab API：先列出 active milestones 并精确匹配标题；缺失时 `POST projects/:project_id/milestones`，并发冲突则重新读取；最后仅 `PUT projects/:project_id/issues/:iid` 的 `milestone_id`。它只能调整 Milestone；绝不改 Issue 状态、负责人、正文或评论。失败记录 `week-milestone-sync` 后重试，不撤回已成功的 Issue 写回。
      - **标签 + Assignee**：`glab issue update <iid> [--label <add1,add2>] [--unlabel <rm1,rm2>] --assignee <@user>`；无 `harnessClone` 时加 `-R <host>/<group>/<project>` 限定项目（见 `SKILL.md`「GitLab 读写」，数字 project_id 不适用 `-R`、改用 `glab api`）。
      - **评论**：短正文 `glab issue note <iid> -m "<正文>"`；长正文（含 backtick/表格）写临时文件后 `glab issue note <iid> -F <file>`，避开 shell 转义。
      - **终态（已完成）**：`glab issue close <iid>` 只在合并评论成功后执行，并由最终回读确认；不能先关 Issue 再补评论。
@@ -57,7 +56,7 @@ GateSet `rollbackPlan=true` 时，生产发布前的动作是 `verify_rollback_r
 
    门禁**二值**（G2）——通过走 `transition`/`plan`，退回走 `plan-return`，没有"附带条件通过"；生产部署转换（待发布→生产验收中/生产验证中）和终态验收/关闭转换（生产验收中/生产验证中→已完成）是 `hard_gate`，必须 `humanConfirmed`（G3，恒 L3），无论 GateSet、`skipStates`、`run_mode` 或其它配置都不能豁免。这是不可关闭的红线。
 
-4. **变更闭环**（G16）。**先过「三类改」判据：改完后，proposal / design / test-plan 里有没有任何一句话变成假的？** 没有一句话变假 → 这不是变更，是**实施调整**，不开影响单——开发中=自测迭代重跑 local（节点内循环）；测试中=测试问题评论（renderTestIssue）+ 阻塞修复 + 复测，G11 收口。**有话变假**（偏差在产物层）才走本闭环：Leader 回读 Issue notes 和当前 `test-plan.md`，以 `change`（含 T1–T4 自动定级与 GateSet 棘轮扩容）预览并确认新增 open 影响单——`source` 表达「谁发现的偏差」（requirement=需求口径假 / technical-design=方案契约假 / implementation·test=实现或测试时才发现方案不可行，分别建议回退 待评审/已评审/开发中）。按其 `requiredArtifacts` 更新所有关联产物；需要返回评审/开发节点时用 `plan-return`，排期变化另走 `week-plan-change`。全部完成、按定级满足关闭要求（T3+ 须测试计划版本递增）及受影响环境重测后，使用刚回读的 notes 调 `change-close` 写 closed 回执。open 单存在时不允许调用普通 `transition` 继续推进。
+4. **变更闭环**（G16）。**先过「三类改」判据：改完后，proposal / design / test-plan 里有没有任何一句话变成假的？** 没有一句话变假 → 这不是变更，是**实施调整**，不开影响单——开发中=自测迭代重跑 local（节点内循环）；测试中=测试问题评论（renderTestIssue）+ 阻塞修复 + 复测，G11 收口。**有话变假**（偏差在产物层）才走本闭环：Leader 回读 Issue notes 和当前 `test-plan.md`，以 `change`（含 T1–T4 自动定级与 GateSet 棘轮扩容）预览并确认新增 open 影响单——`source` 表达「谁发现的偏差」（requirement=需求口径假 / technical-design=方案契约假 / implementation·test=实现或测试时才发现方案不可行，分别建议回退 待评审/已评审/开发中）。按其 `requiredArtifacts` 更新所有关联产物；需要返回评审/开发节点时用 `plan-return`。全部完成、按定级满足关闭要求（T3+ 须测试计划版本递增）及受影响环境重测后，使用刚回读的 notes 调 `change-close` 写 closed 回执。open 单存在时不允许调用普通 `transition` 继续推进。
 
 ### 脏状态（`transition.dirty=true` 直接识别）
 
@@ -94,23 +93,13 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 
 agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 步重新取证、第 2 步重新校验，直到 `ok:true` 再建计划。换句话说：**门禁不通过 → 回去干活，而不是改门禁**。
 
-**证据源（DU 优先）**：local/test 的 AssetAudit 与 TestRun 优先从 DU 读取（`transition`/`validate` 的 stdin 传 `du`，引擎取该环境最新执行事实）；无 DU 的存量 Issue 自动回落 Issue 评论 marker 解析，不迁移。执行明细不再要求发 Issue 评论——Issue 主要保留状态流转评论；周排期与变更闭环仍按各自协议新增评论。
+**证据源（DU 优先）**：local/test 的 AssetAudit 与 TestRun 优先从 DU 读取（`transition`/`validate` 的 stdin 传 `du`，引擎取该环境最新执行事实）；无 DU 的存量 Issue 自动回落 Issue 评论 marker 解析，不迁移。执行明细不再要求发 Issue 评论——Issue 主要保留状态流转评论与变更闭环回执。
 
 **跳状态投影**：GateSet `skipStates` 仅把命中的中间节点投影为其下一节点（只一层）；`next`、标签和状态评论头使用最终目标，但 `validate` 仍按原始转换执行，所需字段与 guards 不减少。它不能绕过生产部署或终态验收等 `hard_gate`。
 
-## 周排期门禁与独立变更
-
-Story `待评审→已评审` 的一键 `transition` 必须带有效 `weekPlan`；通过后，引擎把完整的 `## 周排期` 区块附加到这一次合并状态评论。Story `已评审→开发中` 必须以本轮刚读取的 Issue notes 检查**最新**区块：有效的「启用」和「暂停」都可通过，缺失则停。
-
-若最新 `## 周排期` 区块无效，Leader **停止**，不建状态流转计划、不写标签或状态评论，并把解析错误列为待补排期缺口。即使更早评论里有有效排期，也不得回退（fallback）使用旧区块；Harness 同样只读取最新区块。
-
-日期、原因或负责人变化时，走 `pnpm cli week-plan-change`，而非 `transition`。这是**仅评论（comment-only）**路径：先按普通预览与确认，再新增恰好一条含 `## 排期变更` 和完整 replacement `## 周排期` 的评论，随后 readback。它没有标签、Assignee、关闭或 Milestone `WriteOp`，且不得编辑旧排期评论；但启用排期会在 readback 后按 `postWriteback` 触发独立的 Milestone 同步。
-
-Harness 的周一任务是**后续 rollover writer**，不是周内初始挂载入口。glab-flow 引擎没有 GitLab Milestone API/`WriteOp`；Leader 仅按引擎的 `postWriteback` 意图，在 Issue 回读完成后执行初始或排期变更同步。
-
 ## 需求/方案变更闭环
 
-`change`（首选分级入口）与兼容保留的 `change-impact`/`change-close` 均是仅评论路径，和 `week-plan-change` 一样不修改标签、Assignee、正文或历史评论。区别是它们成对工作：open 记录冻结推进，closed 记录逐项完成证据。`change` 在此之上输出 T1–T4 定级（tier 从 open 单 scopes 重推导、禁自报）、GateSet 棘轮扩容提案（`expandedGateSet`，Leader 确认后写回 DU）与 `closeRequiresPlanVersionBump`（T3+ 才要求测试计划版本递增）。引擎只校验结构、清单和测试计划版本；Leader 负责实际修改产物、运行 local/test，以及每次评论写入后的回读。
+`change`（首选分级入口）与兼容保留的 `change-impact`/`change-close` 均是仅评论路径，不修改标签、Assignee、正文或历史评论。它们成对工作：open 记录冻结推进，closed 记录逐项完成证据。`change` 在此之上输出 T1–T4 定级（tier 从 open 单 scopes 重推导、禁自报）、GateSet 棘轮扩容提案（`expandedGateSet`，Leader 确认后写回 DU）与 `closeRequiresPlanVersionBump`（T3+ 才要求测试计划版本递增）。引擎只校验结构、清单和测试计划版本；Leader 负责实际修改产物、运行 local/test，以及每次评论写入后的回读。
 
 ## 引用
 

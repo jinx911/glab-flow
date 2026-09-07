@@ -36,8 +36,6 @@ export interface Payload {
   testPlan?: string;
   /** DU 本地事实（P2 起：TestRun/AssetAudit 证据优先取本地，不再要求 Issue 评论）。 */
   du?: DuState;
-  /** Structured schedule input; rendering derives coverage only after validation. */
-  weekPlan?: WeekPlanInput;
   /** Evidence completed before a Story requirement review can be approved. */
   reviewEvidence?: RequirementsReviewEvidence;
   gateOutcome?: '通过' | '退回';
@@ -76,13 +74,6 @@ export type WriteOp =
 export interface WritePlan {
   issueIid: number;
   ops: WriteOp[];
-  /**
-   * A Leader-owned action that can run only after every Issue write has been
-   * read back. It deliberately is not a WriteOp: the engine never performs
-   * GitLab I/O and Milestone association must not be interleaved with state
-   * metadata/comment writes.
-   */
-  postWriteback?: WeekMilestoneSyncIntent;
 }
 
 export interface GuardResult {
@@ -91,32 +82,13 @@ export interface GuardResult {
   reasons: string[];
 }
 
-/** Harness-compatible Week Plan creation input. Coverage is always derived. */
-export interface WeekPlanInput {
-  startDate: string;
-  endDate: string;
-  autoRollover: boolean;
-}
-
-/** Facts required when appending a replacement Week Plan after a schedule change. */
-export interface WeekPlanChangeInput {
-  iid: number;
-  weekPlan: WeekPlanInput;
-  changeDate: string;
-  originalPlan: string;
-  reason: string;
-  impact: string;
-  nextStep: string;
-  owner: string;
-}
-
 /** 变更闭环的来源；它决定建议回退节点，不会直接修改 Issue 状态。 */
 export type ChangeSource = 'requirement' | 'technical-design' | 'implementation' | 'test';
 
 /** 变化级别（spec §4.3）：由 scopes 推导，决定关闭证据深度——T3+ 才要求测试计划版本递增。 */
 export type ChangeTier = 'T1' | 'T2' | 'T3' | 'T4';
 /** 变更影响的业务维度；由引擎推导需要同步的产物与重测范围。frontend-copy（纯文案/展示微调）是最低风险档。 */
-export type ChangeScope = 'frontend-copy' | 'functional' | 'api-contract' | 'data-model' | 'permission' | 'frontend-route' | 'schedule' | 'release';
+export type ChangeScope = 'frontend-copy' | 'functional' | 'api-contract' | 'data-model' | 'permission' | 'frontend-route' | 'release';
 export type ChangeArtifact =
   | 'proposal'
   | 'design'
@@ -125,7 +97,6 @@ export type ChangeArtifact =
   | 'implementation'
   | 'local-rerun'
   | 'test-rerun'
-  | 'week-plan'
   | 'release-check';
 
 /** 输入事实全部来自 Leader 回读/工作产物；引擎只据此推导闭环清单。 */
@@ -171,11 +142,6 @@ export interface ChangeCloseInput {
   tier?: ChangeTier;
 }
 
-/** A validated plan, including engine-derived ISO-week coverage. */
-export interface WeekPlan extends WeekPlanInput {
-  coverage: string;
-}
-
 export type OcrStatus = 'verified' | 'no-text' | 'unreadable';
 
 /** One image found in the Issue body or comments and inspected before review. */
@@ -218,24 +184,6 @@ export interface RequirementsReviewEvidence {
   };
 }
 
-/** Deterministic instruction for the Leader to reconcile one Issue to its active Week Milestone. */
-export interface WeekMilestoneSyncIntent {
-  action: 'sync_week_milestone';
-  trigger: 'review-approved' | 'bug-development-start' | 'week-plan-change';
-  plan: WeekPlan;
-}
-
-export type WeekPlanValidation =
-  | { ok: true; errors: []; plan: WeekPlan }
-  | { ok: false; errors: string[]; plan?: undefined };
-
-/** The newest `## 周排期` block controls the outcome, even when malformed. */
-export type LatestWeekPlan =
-  | { kind: 'absent' }
-  | { kind: 'valid-enabled'; plan: WeekPlan }
-  | { kind: 'valid-paused'; plan: WeekPlan }
-  | { kind: 'invalid-latest'; errors: string[]; input: Partial<WeekPlanInput> & { coverage?: string } };
-
 export type RunMode = 'semi-auto' | 'full-auto';
 
 /** 动作分层（spec §3.3）：L1 可逆/非生产自动执行；L2 业务判断批量确认；L3 不可逆恒人工。 */
@@ -276,8 +224,6 @@ export interface TransitionInput {
   du?: DuState;
   /** 技术方案声明的受影响维度；已评审→开发中 时用于推导 proposedGateSet（引擎不写 DU）。 */
   declaredScopes?: ChangeScope[];
-  /** Structured schedule supplied when approving a Story. */
-  weekPlan?: WeekPlanInput;
   /** Completed image/OCR, frontend-route and grilling evidence for Story review approval. */
   reviewEvidence?: RequirementsReviewEvidence;
   gateOutcome?: '通过' | '退回';

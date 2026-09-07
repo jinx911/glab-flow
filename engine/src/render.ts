@@ -1,5 +1,4 @@
 import type { ChangeScope, GateSet, GuardResult, Payload } from './types.js';
-import { renderWeekPlan, validateWeekPlan } from './week-plan.js';
 import { renderRequirementsReviewEvidence } from './review-evidence.js';
 import { latestEvidence } from './du.js';
 
@@ -10,7 +9,7 @@ const DIGEST_ENV_ORDER = ['local', 'test'];
 const PUBLIC_ENVIRONMENTS = new Set(['local', 'test']);
 const PUBLIC_SCOPES = new Set<ChangeScope>([
   'frontend-copy', 'functional', 'frontend-route', 'api-contract',
-  'data-model', 'permission', 'schedule', 'release',
+  'data-model', 'permission', 'release',
 ]);
 const SAFE_PLAN_VERSION = /^v[0-9]+(?:\.[0-9]+)*$/i;
 const SAFE_OUTCOME = /^(?:passed|failed|0|[1-9][0-9]*)$/;
@@ -210,14 +209,6 @@ export function renderNodeComment(p: Payload): string {
   // Keep them out of new handoff comments even when old callers still supply them.
   if (p.from === '开发中' && p.to === '测试中') {
     for (const key of ['自测计划', '接口自测结论', '接口自测覆盖', 'E2E结论']) rendered.add(key);
-  }
-
-  // Only the Story review approval records a newly supplied schedule.  The
-  // Validate at the rendering boundary so malformed runtime input can never
-  // emit a partial Harness heading.
-  if (p.type === 'story' && p.from === '待评审' && p.to === '已评审' && p.weekPlan) {
-    const validation = validateWeekPlan(p.weekPlan);
-    if (validation.ok) blocks.push(renderWeekPlan(validation.plan)!);
   }
 
   if (p.type === 'story' && p.from === '待评审' && p.to === '已评审' && p.reviewEvidence) {

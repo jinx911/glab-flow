@@ -36,7 +36,7 @@
 - Modify: `engine/src/cli.test.ts`
 
 - [x] 在 `guard.ts` 增加 `validateAssetAuditTransition`：开发中→测试中读取 local 审计，测试中→待发布读取 test 审计；先校验当前计划，再校验最新审计和 TestRun。
-- [x] 将审计结果合并进 `validateTransition`，缺口名称为 `localAssetAudit` / `testAssetAudit`，保持现有 Week Plan 与 TestRun 门禁不变。
+- [x] 将审计结果合并进 `validateTransition`，缺口名称为 `localAssetAudit` / `testAssetAudit`，并与 TestRun 门禁共同生效。
 - [x] 给 `cli.ts` 增加纯 `asset-audit` 命令：stdin `{plan,audit}`，输出 `{validate,comment}`，不执行 Apifox/GitLab I/O；保留 `test-run` 命令，但要求其显式资产审计引用。
 - [x] 实现后补充转换/legacy CLI 覆盖：缺 audit 阻断、local audit 不替代 test audit、错误最新 audit 不回退、正确 audit + TestRun 放行、CLI 只渲染不写外部系统。
 

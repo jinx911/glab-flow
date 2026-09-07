@@ -682,7 +682,7 @@ export interface GateMatrix {
 // engine/src/gate-set.ts
 import type { ChangeScope, GateMatrix, GateSet } from './types.js';
 
-const RANK: Record<string, number> = { 'frontend-copy': 0, functional: 1, 'api-contract': 2, 'data-model': 3, permission: 3, 'frontend-route': 2, schedule: 0, release: 4 };
+const RANK: Record<string, number> = { 'frontend-copy': 0, functional: 1, 'api-contract': 2, 'data-model': 3, permission: 3, 'frontend-route': 2, release: 4 };
 
 /** 从声明维度推导 GateSet：取命中的最高档规则为基准；未命中走 defaults。纯函数。 */
 export function deriveGateSet(matrix: GateMatrix, scopes: ChangeScope[]): GateSet {
@@ -741,8 +741,8 @@ describe('deriveGateSet', () => {
     expect(gs.mrReview).toBe(true);
     expect(gs.rollbackPlan).toBe(true);
   });
-  it('unknown-only scopes fall back to defaults', () => {
-    const gs = deriveGateSet(matrix, ['schedule']);
+  it('uncovered-only scopes fall back to defaults', () => {
+    const gs = deriveGateSet(matrix, ['release']);
     expect(gs.environments).toEqual(['local', 'test']);
     expect(gs.mrReview).toBe(true);
   });
@@ -1046,7 +1046,7 @@ export type ChangeTier = 'T1' | 'T2' | 'T3' | 'T4';
 const TIER_BY_SCOPE: Record<ChangeScope, ChangeTier> = {
   'frontend-copy': 'T1', functional: 'T2', 'frontend-route': 'T2',
   'api-contract': 'T3', 'data-model': 'T4', permission: 'T4',
-  schedule: 'T1', release: 'T4',
+  release: 'T4',
 };
 const TIER_RANK: Record<ChangeTier, number> = { T1: 0, T2: 1, T3: 2, T4: 3 };
 

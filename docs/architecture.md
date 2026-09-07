@@ -58,7 +58,7 @@ Per-rule source: each maps to a clause in the delivery specs and node/gate docs;
 
 - GitLab labels are the external lifecycle-state projection. DU (`.glab-flow/<iid>/du.json`) is the authority for execution facts, affected scopes, GateSet, resources, metrics, and the reconciliation `cachedNode`; state is only a derived session cache.
 - Before every write, Leader reads the latest Issue labels/body/state, fully paginated Issue/MR notes, and DU, then runs `pnpm cli reconcile`. Reconciliation does not write GitLab or silently rewrite DU/state: `label-ahead` needs an L2 choice, `du-ahead` resumes the first incomplete audited stage, and dirty/unknown/external-close cases stop for manual handling.
-- Writeback is strictly metadata → merged state comment → terminal close (when applicable) → final readback. Only after successful readback does Leader run `pnpm cli du` `cached-node` with the effective final target and then update state. Week Milestone sync is an independent post-readback action.
+- Writeback is strictly metadata → merged state comment → terminal close (when applicable) → final readback. Only after successful readback does Leader run `pnpm cli du` `cached-node` with the effective final target and then update state.
 
 ## GateSet and route projection
 

@@ -14,9 +14,9 @@ import { chronologicalNotes } from './notes.js';
 import { classifyChangeTier, isLightTier } from './tier.js';
 import { validatePublicField, validatePublicText } from './render.js';
 
-const SCOPES = new Set<ChangeScope>(['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release']);
+const SCOPES = new Set<ChangeScope>(['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'release']);
 const SOURCES = new Set<ChangeSource>(['requirement', 'technical-design', 'implementation', 'test']);
-const ARTIFACTS = new Set<ChangeArtifact>(['proposal', 'design', 'test-plan', 'apifox-assets', 'implementation', 'local-rerun', 'test-rerun', 'week-plan', 'release-check']);
+const ARTIFACTS = new Set<ChangeArtifact>(['proposal', 'design', 'test-plan', 'apifox-assets', 'implementation', 'local-rerun', 'test-rerun', 'release-check']);
 const DEVELOPMENT_SCOPES = new Set<ChangeScope>(['functional', 'api-contract', 'data-model', 'permission', 'frontend-route']);
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
@@ -34,7 +34,6 @@ const PUBLIC_ARTIFACT_LABELS: Record<ChangeArtifact, string> = {
   implementation: '实现改动',
   'local-rerun': '复测',
   'test-rerun': '环境复测',
-  'week-plan': '周排期',
   'release-check': '上线检查',
 };
 
@@ -87,7 +86,6 @@ export function deriveChangeImpact(input: ChangeImpactInput): ChangeImpact {
     required.push('design', 'test-plan', 'apifox-assets', 'local-rerun');
     if (hasEnteredTest(input.type, input.currentNode)) required.push('test-rerun');
   }
-  if (input.scopes.includes('schedule')) required.push('week-plan');
   if (input.scopes.includes('release')) required.push('release-check');
 
   const parsedPlan = input.testPlan === undefined ? undefined : parseTestPlan(input.testPlan);

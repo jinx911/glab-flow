@@ -1,8 +1,7 @@
-import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, WeekPlanChangeInput, TestRun, TestPlan, ApifoxAssetAudit, ApifoxAssetRecord, LatestTestRun, LatestApifoxAssetAudit, TestMethod, DuState, Transition, GateSet } from './types.js';
+import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, TestRun, TestPlan, ApifoxAssetAudit, ApifoxAssetRecord, LatestTestRun, LatestApifoxAssetAudit, TestMethod, DuState, Transition, GateSet } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
-import { parseLatestWeekPlan, validateWeekPlan } from './week-plan.js';
 import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.js';
 import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
@@ -15,57 +14,6 @@ const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
 const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: false, missing, reasons });
 const unique = (values: string[]): string[] => [...new Set(values)];
 
-const WEEK_PLAN_INPUT_HINT = '提供 weekPlan: { startDate: YYYY-MM-DD, endDate: YYYY-MM-DD, autoRollover: true|false }';
-const WEEK_PLAN_READBACK_HINT = '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段';
-
-function isWeekPlanInput(value: unknown): value is NonNullable<Payload['weekPlan']> {
-  if (!value || typeof value !== 'object') return false;
-  const plan = value as Record<string, unknown>;
-  return typeof plan.startDate === 'string' && typeof plan.endDate === 'string' && typeof plan.autoRollover === 'boolean';
-}
-
-const CHANGE_FACTS = ['changeDate', 'originalPlan', 'reason', 'impact', 'nextStep', 'owner'] as const;
-
-/** Validates the complete, comment-only schedule-change command payload. */
-export function validateWeekPlanChange(input: unknown): GuardResult {
-  if (!input || typeof input !== 'object') {
-    return fail(['排期变更输入必须是对象'], ['iid', 'weekPlan', ...CHANGE_FACTS]);
-  }
-
-  const value = input as Partial<WeekPlanChangeInput>;
-  const missing: string[] = [];
-  const reasons: string[] = [];
-  if (!Number.isInteger(value.iid) || value.iid! <= 0) missing.push('iid');
-
-  for (const field of CHANGE_FACTS) {
-    if (typeof value[field] !== 'string' || !value[field]!.trim()) missing.push(field);
-  }
-
-  if (!isWeekPlanInput(value.weekPlan)) {
-    missing.push('weekPlan');
-  } else {
-    const validation = validateWeekPlan(value.weekPlan);
-    if (!validation.ok) reasons.push(`周排期无效：${validation.errors.join('；')}`);
-  }
-
-  return missing.length || reasons.length ? fail(reasons, missing) : ok();
-}
-
-/** Applies the schedule contract to any forward entry point, including legacy CLI commands. */
-export function validateWeekPlanTransition(payload: Payload, notes: IssueNote[] = []): GuardResult {
-  if (payload.type !== 'story') return ok();
-  if (payload.from === '待评审' && payload.to === '已评审') {
-    if (!isWeekPlanInput(payload.weekPlan)) return fail([`周排期缺失：${WEEK_PLAN_INPUT_HINT}`], ['weekPlan']);
-    const validation = validateWeekPlan(payload.weekPlan);
-    return validation.ok ? ok() : fail([`周排期无效：${validation.errors.join('；')}`], ['weekPlan']);
-  }
-  if (payload.from === '已评审' && payload.to === '开发中') {
-    const latest = parseLatestWeekPlan(notes);
-    if (latest.kind === 'absent') return fail([`最新周排期缺失：${WEEK_PLAN_READBACK_HINT}`], ['latestWeekPlan']);
-    if (latest.kind === 'invalid-latest') return fail([`最新周排期无效：${latest.errors.join('；')}`], ['latestWeekPlan']);
-  }
-  return ok();
-}
 
 /** 当前计划在该环境是否要求 v2 审计（presentation/auth-profile 证据 DU 尚无法承载）。 */
 function planRequiresV2Audit(plan: TestPlan, environment: string): boolean {
@@ -360,17 +308,16 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   if (t.terminal && !payload.closeIssue) reasons.push('终态需同一次操作关闭 Issue(closeIssue)');
 
   const gateSetRequirements = validateGateSetRequirements(payload);
-  const weekPlanGate = validateWeekPlanTransition(payload, notes);
   const reviewEvidenceGate = payload.type === 'story' && payload.from === '待评审' && payload.to === '已评审'
     ? validateRequirementsReviewEvidence(facts.body, notes, payload.reviewEvidence)
     : ok();
   const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
   const testRunGate = validateTestRunTransition(payload, notes);
   const changeImpactGate = validateChangeImpactClosure(notes);
-  if (missing.length || reasons.length || !gateSetRequirements.ok || !weekPlanGate.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok) {
+  if (missing.length || reasons.length || !gateSetRequirements.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok) {
     return fail(
-      unique([...reasons, ...gateSetRequirements.reasons, ...weekPlanGate.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons]),
-      unique([...missing, ...gateSetRequirements.missing, ...weekPlanGate.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing]),
+      unique([...reasons, ...gateSetRequirements.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons]),
+      unique([...missing, ...gateSetRequirements.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing]),
     );
   }
   return ok();

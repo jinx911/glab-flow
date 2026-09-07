@@ -56,8 +56,6 @@ glab-flow 在 Issue 流转过程中会把会话缓存写入 `<workspace.root>/.g
    - 从返回 JSON 取 `labels` 数组。
    - 推导节点：`pnpm cli node <type> <labels...>`（在 glab-flow 仓库根跑），stdout 的 `node` 即 **GitLab 当前节点**。
 
-   同时读取 Issue notes，供后续 Story 周排期回读：`已评审→开发中` 只接受**最新** `## 周排期` 区块的解析结果。最新有效「启用」或「暂停」可继续；最新区块缺失或无效则停止，记录排期缺口，**不得回退（fallback）到旧/更早的有效区块**。
-
 3. **先跑 `reconcile`，再处理 `cachedNode` 漂移**。比较 DU `cachedNode` 与 GitLab 推导节点（state 的 `cachedNode` 只作提示）：
    - **`in-sync`** → DU 对账基准与 labels 一致，继续。
    - **`label-ahead`** → GitLab 投影领先，必须一次 L2 选择“接受人工推进并更新 DU”或“回改标签以 DU 为准”；未选择前不得写回。
@@ -73,15 +71,13 @@ glab-flow 在 Issue 流转过程中会把会话缓存写入 `<workspace.root>/.g
 
    **进度对账（层 2）**：若 `state.progress.node !== GitLab 当前节点`（节点在 flow 外被改过、或上次换节点时未重置），`progress.done` 已失效——用 `pnpm cli progress`（stdin `{state, resetToNode: <GitLab 节点>, now}`）重置后再展示「子步骤 ✓/☐」。一致则直接拿 `nodeProgress`（来自 `node`/`transition`）对照 `progress.done` 涂黑已完成项。
 
-4. **对账串行写回阶段**。先从父 Issue 重新拉取 notes（有受影响 MR 时也逐个拉取 MR notes）。再检查 `writebackAudit`：metadata（标签 + Assignee）、state-comment（合并评论）、readback 三个阶段中，哪个是**首个未完成阶段**。任一阶段曾失败或状态不明，先回读 GitLab，只重试这个首个未完成阶段；已回读成功的评论不得重复发送。readback 成功后先用 `pnpm cli du` 的 `cached-node` 更新 DU 为有效最终目标，再更新 state。三阶段均已回读而 `week-milestone-sync` 未成功时，只重试这一独立同步，绝不重发评论或回滚 DU/state。
+4. **对账串行写回阶段**。先从父 Issue 重新拉取 notes（有受影响 MR 时也逐个拉取 MR notes）。再检查 `writebackAudit`：metadata（标签 + Assignee）、state-comment（合并评论）、readback 三个阶段中，哪个是**首个未完成阶段**。任一阶段曾失败或状态不明，先回读 GitLab，只重试这个首个未完成阶段；已回读成功的评论不得重复发送。readback 成功后先用 `pnpm cli du` 的 `cached-node` 更新 DU 为有效最终目标，再更新 state。
 
 5. **从当前节点继续 SKILL.md 编排循环**。节点定了之后，按 `SKILL.md` 的"Leader 每轮编排"走：查 `nodes.md` 契约 → 判断证据是否齐 → `validate` → `plan`/`plan-return` → 门禁预览确认（见 `gate.md`）→ glab 应用。恢复只是把 Leader 重新放到正确的节点上，后续动作与首次进入完全相同。
 
 **GateSet 绑定恢复顺序**：若当前是 Story `已评审→开发中` 或 Bug `已确认缺陷→开发中` 且需要绑定，Leader 先以 `declaredScopes` 运行 `transition` 取得提案，确认后执行 `pnpm cli du` 的 `bind-gateset` 并落盘冻结 DU。绑定首轮不写 Issue 状态；对 Bug，若有 `declaredScopes` 但 DU 尚无 frozen GateSet，首次结果为 `validate.ok=false`、`plan` 未定义且 playbook 不含 `issue_writeback`。DU 写入完成后重新读取最新事实并重新运行 `transition`，待正常 `WritePlan` 生成后再执行 Issue 写回与最终回读；不能用绑定前的旧输出继续流转。Bug 没有非空 `declaredScopes` 且 DU 没有 frozen GateSet 时，恢复同样停止。
 
 恢复 playbook 时，只有启用的 GateSet 环境缺少 AssetAudit/TestRun（或 full 回归证据）才执行 `run_affected_regression` / `run_full_regression`；由 `test-flow-e2e` 执行后记入 DU，再重新运行 `transition`。提测的 local 回归仍须位于 feature commit 之后、merge/deploy 之前。
-
-若只是日期或安排发生变化，不从恢复流程伪造一次状态流转。走独立的 `week-plan-change`：它只新增一条 `## 排期变更` + replacement `## 周排期` 评论，保留状态、Assignee、Issue 正文和历史评论。启用计划的评论回读后，由 `postWriteback.sync_week_milestone` 触发 Leader 幂等同步；引擎本身仍不会生成 GitLab Milestone API 或 `WriteOp`。
 
 ## state schema 参考
 
@@ -100,7 +96,7 @@ state 文件的 TypeScript 权威定义在 `engine/src/state.ts` 的 `RunState` 
 | `runMode` | `'semi-auto' \| 'full-auto'` | 审计字段：记录运行模式偏好，不参与确认判定（确认由动作分层决定，见 `gate.md`） |
 | `lastActions[]` | string[] | 最近动作审计尾迹（用于续接与回看） |
 | `spawnedAgents[]` | string[] | 本 flow 已委派过的 agent 名单（去重/记账） |
-| `writebackAudit[]` | 审计阶段数组 | `code-commit` / `code-merge` / `code-jenkins`（代码侧断点，E4）与 `metadata` / `state-comment` / `readback` 的串行成功/失败记录，以及独立 `week-milestone-sync` 记录，用于恢复定位首个未完成动作或同步重试——代码侧任一失败只重试该动作（Jenkins 已触发看结果不重触），不整链重放 |
+| `writebackAudit[]` | 审计阶段数组 | `code-commit` / `code-merge` / `code-jenkins`（代码侧断点，E4）与 `metadata` / `state-comment` / `readback` 的串行成功/失败记录，用于恢复定位首个未完成动作——代码侧任一失败只重试该动作（Jenkins 已触发看结果不重触），不整链重放 |
 | `lessonsCaptured` | number | 已 capture 的 lesson 条数；只作经验统计，不驱动门禁 |
 | `progress` | `{ node, done[] }` | 节点内子步骤进度（层 2）：`node` = 这批 done 所属节点；换节点时重置 |
 | `updatedAt` | string (ISO) | state 最后写入时间 |
@@ -109,7 +105,7 @@ state 文件的 TypeScript 权威定义在 `engine/src/state.ts` 的 `RunState` 
 
 state 文件不是每条命令都写，只在以下时机落盘：
 
-- **每个串行写回阶段后**：追加 `writebackAudit`（成功或失败），并更新 `lastActions`/`updatedAt`。阶段顺序固定为：metadata（标签 + Assignee）→ state-comment（合并评论）→ readback（最终回读）→（有 `postWriteback` 时）week-milestone-sync。前三阶段失败立即停止；readback 成功后先更新 DU `cachedNode`（用 `du cached-node`），再更新 state；最后同步失败只重试同步，不撤回前三阶段或 DU/state。
+- **每个串行写回阶段后**：追加 `writebackAudit`（成功或失败），并更新 `lastActions`/`updatedAt`。阶段顺序固定为：metadata（标签 + Assignee）→ state-comment（合并评论）→ readback（最终回读）。任一阶段失败立即停止；readback 成功后先更新 DU `cachedNode`（用 `du cached-node`），再更新 state。
 - **capture lesson 后**：每捕获一条 lesson，`lessonsCaptured++` 并 `updatedAt` 刷新；这些记录不影响任何状态门禁。
 - **终态（已完成）**：Issue 进入已完成并关闭后，state 使命完成——**删除** `<iid>-state.json`（保留 `<iid>/spec/` 下的文档）。这样它就不会出现在 `/glab-flow` 的未完成列表里。删之前可把最终摘要作为最后一条评论留在 Issue 上。
 

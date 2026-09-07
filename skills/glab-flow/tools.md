@@ -11,7 +11,7 @@ description: glab-flow 运行时工具依赖（非 vendor 的基础设施）。
 
 - GitLab labels 是对外状态投影；DU（`.glab-flow/<iid>/du.json`）是 TestRun/AssetAudit、GateSet、资源、指标和 `cachedNode` 的事实主档；state 是派生缓存。
 - 任何工具写回前，Leader 必须用最新 GitLab 读数 + DU 执行 `pnpm cli reconcile`。工具输出不能替代对账，也不能用 state/旧评论覆盖 GitLab。
-- Issue metadata/comment/close 写回并最终回读成功后，Leader 才执行 `pnpm cli du` 的 `cached-node` 并落盘 DU；`post-readback` 的 Week Milestone 同步随后独立执行。
+- Issue metadata/comment/close 写回并最终回读成功后，Leader 才执行 `pnpm cli du` 的 `cached-node` 并落盘 DU。
 - 引擎和这些工具都不自动互相写回：引擎返回纯计算结果，Leader 负责确认、执行、回读和持久化。生产部署与终态关闭的 `hard_gate` 恒为 L3，工具能力、`run_mode` 或跳状态都不能绕过 `humanConfirmed`。
 
 glab-flow **内置了交付方法论**——`sub-skills/` 下的 8 个子 skill（spec-author / git-ops / code-review / test-design / test-flow-apifox / test-flow-e2e / mr-review / jenkins-deploy）是流程方法论本体，随 skill 一起拷贝，构成 glab-flow 的自包含能力栈。这些子 skill 在运行时会调用一批外部工具，它们是**运行时依赖**而非 vendor 对象：已装即用、未装按需引导安装，**不随 skill 拷贝、不在 skill 仓里维护**。下面列全清单。

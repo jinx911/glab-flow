@@ -1,8 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { loadModel, currentNode, progressStepsFor } from './model.js';
-import { validateWeekPlanChange } from './guard.js';
 import { renderNodeComment, validatePublicComment } from './render.js';
-import { buildReturnPlan, buildWeekPlanChangePlan } from './plan.js';
+import { buildReturnPlan } from './plan.js';
 import { runTransition } from './transition.js';
 import { computeNextStep } from './next-step.js';
 import type { NextStepInput } from './next-step.js';
@@ -10,7 +9,7 @@ import { extractEvidence } from './evidence.js';
 import { parseConfig } from './config.js';
 import { initState } from './state.js';
 import type { InitStateInput, RunState, WritebackAuditInput } from './state.js';
-import type { ApifoxAssetAudit, IssueNote, Payload, TransitionInput, WeekPlanChangeInput } from './types.js';
+import type { ApifoxAssetAudit, IssueNote, Payload, TransitionInput } from './types.js';
 import type { ChangeCloseInput, ChangeImpactInput } from './types.js';
 import { buildChangeClosePlan, buildChangeImpactPlan, validateChangeClose, validateChangeImpactInput } from './change-impact.js';
 import { planChange } from './change.js';
@@ -66,7 +65,6 @@ function toTransitionInput(input: LegacyTransitionInput): TransitionInput {
     testPlan: input.testPlan ?? payload.testPlan,
     du: input.du ?? payload.du,
     declaredScopes: input.declaredScopes,
-    weekPlan: payload.weekPlan,
     reviewEvidence: payload.reviewEvidence,
     gateOutcome: payload.gateOutcome,
     reviewType: payload.reviewType,
@@ -164,17 +162,6 @@ async function main() {
     case 'plan-return': {
       const input = JSON.parse(readStdin()) as { type: 'story' | 'bug'; from: string; target: string; issues: string[]; confirmer: string; date: string; assigneeUser?: string };
       console.log(JSON.stringify(buildReturnPlan({ ...input, issueIid: Number(args[0] ?? 0) })));
-      break;
-    }
-    case 'week-plan-change': {
-      const input = JSON.parse(readStdin()) as unknown;
-      const validation = validateWeekPlanChange(input);
-      if (!validation.ok) {
-        console.log(JSON.stringify(validation));
-        process.exitCode = 1;
-        break;
-      }
-      console.log(JSON.stringify(buildWeekPlanChangePlan(input as WeekPlanChangeInput)));
       break;
     }
     case 'change-impact': {
@@ -471,7 +458,7 @@ async function main() {
       break;
     }
     default:
-      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | week-plan-change | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics | du | review-pack | catalog');
+      console.error('commands: node | validate | render | plan | transition | next | test-run | asset-audit | plan-return | change-impact | change-close | change | reconcile | evidence | config | version | test-config | state-init | state-writeback | progress | resource | metrics | du | review-pack | catalog');
       process.exit(1);
   }
 }

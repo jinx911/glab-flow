@@ -7,7 +7,7 @@ import { SCOPE_RANK } from './gate-set.js';
 import { TIER_BY_SCOPE } from './tier.js';
 import type { ChangeScope } from './types.js';
 
-const ALL_SCOPES: ChangeScope[] = ['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'schedule', 'release'];
+const ALL_SCOPES: ChangeScope[] = ['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'release'];
 
 const PROJECT_ROOT = process.cwd();
 const ENGINE_SRC = 'engine/src';
@@ -188,52 +188,6 @@ describe('glab-flow process contracts', () => {
   it('keeps reusable docs free of artifact-receipt marker as content source', () => {
     const nodes = readProjectFile('skills/glab-flow/nodes.md');
     expect(nodes).not.toMatch(/<!-- glab-flow:artifact-receipt:v1/);
-  });
-
-  it('documents the canonical Week Plan protocol and Leader initial sync / Harness rollover boundary', () => {
-    const skill = readProjectFile('skills/glab-flow/SKILL.md');
-    const nodes = readProjectFile('skills/glab-flow/nodes.md');
-    const gate = readProjectFile('skills/glab-flow/gate.md');
-    const resume = readProjectFile('skills/glab-flow/resume.md');
-    const canonicalWeekPlan = [
-      '## 周排期',
-      '',
-      '- 计划开始：2026-08-17',
-      '- 计划完成：2026-09-06',
-      '- 计划覆盖周：W34 ～ W36',
-      '- 自动 rollover：启用',
-    ].join('\n');
-
-    expect(skill).toContain(canonicalWeekPlan);
-    expect(nodes).toMatch(/待评审[\s\S]{0,80}已评审[\s\S]{0,160}周排期/);
-    expect(nodes).toMatch(/已评审[\s\S]{0,80}开发中[\s\S]{0,160}(最新|latest).*周排期/);
-    expect(gate).toMatch(/week-plan-change[\s\S]{0,160}(仅评论|comment-only)/i);
-    expect(gate).toMatch(/最新[\s\S]{0,80}(无效|invalid)[\s\S]{0,120}(停止|停)/);
-    expect(resume).toMatch(/最新[\s\S]{0,80}周排期[\s\S]{0,120}(无效|invalid)/);
-    expect(resume).toMatch(/不得[\s\S]{0,80}(回退|fallback)[\s\S]{0,80}(旧|更早)/);
-    const docs = [skill, nodes, gate, resume].join('\n');
-    expect(docs).toMatch(/初始挂载/);
-    expect(docs).toMatch(/postWriteback/);
-    expect(docs).toMatch(/周一[\s\S]{0,120}rollover/i);
-    expect(docs).toMatch(/Week YYYY-Www/);
-    expect(docs).toMatch(/milestone_id/);
-    expect(docs).toMatch(/不回滚[\s\S]{0,120}(状态|标签|评论)/);
-
-    const engineProduction = listFiles(ENGINE_SRC)
-      .filter((filePath) => filePath.endsWith('.ts'))
-      .filter((filePath) => !filePath.endsWith('.test.ts'))
-      .map(readProjectFile)
-      .join('\n');
-    expect(engineProduction).toMatch(/sync_week_milestone/);
-    expect(engineProduction).not.toMatch(/glab\s+(api|issue)|fetch\(/i);
-  });
-
-  it('documents notes for legacy CLI Week Plan validation and planning', () => {
-    const skill = readProjectFile('skills/glab-flow/SKILL.md');
-
-    expect(skill).toMatch(/`validate`[\s\S]{0,360}notes/);
-    expect(skill).toMatch(/`plan`[\s\S]{0,360}notes/);
-    expect(skill).toMatch(/已评审\s*→\s*开发中[\s\S]{0,240}(最新|latest).*周排期/);
   });
 
   it('requires one versioned plan and separately evidenced local/test TestRuns', () => {

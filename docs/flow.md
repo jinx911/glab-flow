@@ -84,7 +84,7 @@ flowchart TD
     PREV -->|"n / 编辑"| PAYLOAD
     PREV --> y确认 --> APP
     APP --> READBACK["⑦ metadata→评论→close(终态)→最终回读"]
-    READBACK --> CACHE["回读成功后更新 DU cachedNode<br/>再更新 state；最后可选 Milestone sync"]
+    READBACK --> CACHE["回读成功后更新 DU cachedNode<br/>再更新 state"]
     CACHE --> NEXT{"⑧ 下一节点?<br/>(cli next 看最短路径)"}
     NEXT --> 未到已完成 --> A
     NEXT --> 已完成 --> DONE(["终态：资源清理清单<br/>+ 交付指标 metrics"])
@@ -96,7 +96,7 @@ flowchart TD
 - GateSet 的逻辑环境当前仅为 `local` / `test`。只有启用环境缺少 AssetAudit/TestRun（或 full 回归证据）时才发出回归动作；动作使用 `test-flow-e2e`，完成后记录 DU 证据并重新运行 transition。提测时 local 回归位于 feature commit 之后、merge/deploy 之前。
 - 生产 GateSet 要求回滚方案时，playbook 发出 `verify_rollback_ready` 核对已生成且已回读的方案；`release-check` 仍在测试验收阶段生成 `release-plan`，发布阶段不重新生成。
 - GateSet.skipStates 命中的节点只投影一层，`next`/标签/评论头使用最终目标，校验仍按原转换 fail-closed，并额外执行投影后的 hard gate 校验；不得借跳状态绕过 hard_gate。
-- Issue 写回完成并最终回读成功后，Leader 必须调 `pnpm cli du` 的 `cached-node` 更新 DU 对账基准，再更新 state；Milestone 同步属于独立的回读后动作。
+- Issue 写回完成并最终回读成功后，Leader 必须调 `pnpm cli du` 的 `cached-node` 更新 DU 对账基准，再更新 state。
 
 ## 3. 七层架构
 

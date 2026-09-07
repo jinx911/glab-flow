@@ -72,14 +72,11 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 每类内容体的字段槽位见 `engine/src/render.ts` 的 `NODE_CONTENT`。`mr-review` 仍在每个受影响 MR 上以独立评论给出评审结论（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
 
-### Story 周排期契约（Harness 读取）
+### 评审与开发门禁绑定
 
-- **待评审→已评审**：在同一条「状态变更头 + 内容体」合并评论中追加一次完整 `## 周排期` 与 `## 需求评审取证` 区块。有效的 `weekPlan` 和 `reviewEvidence` 是需求评审通过的前置条件；后者逐图证明 OCR/视觉核查，前端需求证明页面地址的路由/组件/分流代码证据，并证明 grilling 五类分支已覆盖且无未决项。`计划覆盖周`由引擎推导，Leader 不手填或推测。
-- **已评审→开发中（Story）/已确认缺陷→开发中（Bug）**：Story 除技术方案与既有计划提测/上线字段外，必须从刚回读的 Issue notes 验证**最新** `## 周排期` 区块。最新区块可为「启用」或「暂停」，但必须完整有效；最新无效或缺失就停止，不能用旧排期回退放行。两条绑定边界都把技术方案/根因声明的受影响维度传入 `transition` 的 `declaredScopes`，引擎返回 `proposedGateSet`（`skipStates`/`environments`/`mrReview`/`regression`/`rollbackPlan`/`minUnitCases`，由 `state-machine.yaml` 的 `gateMatrix` 对所有匹配维度做组合式严格推导：逐项合并门禁，取更严格的环境、回归、回滚与用例要求；规则省略字段时继承 `matrix.defaults`）。Bug 若无非空 `declaredScopes`，必须先传入已有 frozen GateSet，否则 fail-closed。GateSet 提案与计划提测/上线日期放在**同一次 L2 批量确认**；绑定首轮由 Leader 执行 `pnpm cli du` 的 `bind-gateset` 并落盘冻结 DU，不写 Issue 状态；Bug 在此首轮明确为 `validate.ok=false`、`plan` 未定义且 playbook 不含 `issue_writeback`。DU 冻结后重新运行 transition，才生成正常 WritePlan、Issue 写回与最终回读。此后 G14 等门禁按该 GateSet 生效，变化只经 `change` 棘轮扩容（只升不降）或显式改判（`overrides` 留痕），不得静默重绑。
-- **排期变更**：不推进节点。用 `week-plan-change` 只新增一条 `## 排期变更` + replacement `## 周排期` 评论，不改标签、Assignee、Issue 正文或历史评论；评论回读成功后，再执行一次 Week Milestone 同步。
-- **需求/方案变更（区别于实施调整）**：判据——改完后 proposal/design/test-plan 里有话变假才是变更；实现缺陷修复（方案没错）是**实施调整**，不开单（开发中=自测迭代重跑 local；测试中=测试问题评论+阻塞修复+复测，见「测试中」节）。产物层偏差才走变更：不直接改旧提案、设计评论或状态标签，先调用 `change`（首选；T1–T4 自动定级 + GateSet 棘轮扩容；source=偏差从谁暴露：requirement/technical-design/implementation·test 分别建议回退 待评审/已评审/开发中）新增 open 的变更影响单，按 `requiredArtifacts` 同步 proposal/design/test-plan/Apifox 资产、代码、环境重测、排期或发布材料；需要回退时走 `plan-return`。所有证据齐全后调用 `change-close` 新增 closed 回执。open 单存在时 G16 阻断一切正向状态流转；T3+ 测试计划变更必须递增 `plan-version`，旧 local/test 证据自动失效（T1/T2 轻量档豁免版本严格递增）。
-
-**初始挂载与 rollover 分工**：Leader 是周内初始挂载的执行者，Harness 周一任务是后续跨周 rollover 的执行者。引擎只在 `plan.postWriteback` 声明 `sync_week_milestone`，没有 GitLab I/O 或 Milestone `WriteOp`。Leader 只能在状态/排期评论已回读后，按最新有效且启用的计划幂等创建目标 Week Milestone 或关联 Issue；标题遵循 Harness 的 `Week YYYY-Www`，其起止日期为目标 ISO 周的周一/周日。不得修改 Issue 状态、Assignee、正文或评论。同步失败只记 `week-milestone-sync` 审计并重试，不回滚已确认的状态或排期。
+- **待评审→已评审**：有效的 `reviewEvidence` 是需求评审通过的前置条件；它逐图证明 OCR/视觉核查，前端需求证明页面地址的路由/组件/分流代码证据，并证明 grilling 五类分支已覆盖且无未决项。
+- **已评审→开发中（Story）/已确认缺陷→开发中（Bug）**：两条绑定边界都把技术方案/根因声明的受影响维度传入 `transition` 的 `declaredScopes`，引擎返回 `proposedGateSet`（`skipStates`/`environments`/`mrReview`/`regression`/`rollbackPlan`/`minUnitCases`，由 `state-machine.yaml` 的 `gateMatrix` 对所有匹配维度做组合式严格推导：逐项合并门禁，取更严格的环境、回归、回滚与用例要求；规则省略字段时继承 `matrix.defaults`）。Bug 若无非空 `declaredScopes`，必须先传入已有 frozen GateSet，否则 fail-closed。GateSet 提案与计划提测/上线日期放在**同一次 L2 批量确认**；绑定首轮由 Leader 执行 `pnpm cli du` 的 `bind-gateset` 并落盘冻结 DU，不写 Issue 状态；Bug 在此首轮明确为 `validate.ok=false`、`plan` 未定义且 playbook 不含 `issue_writeback`。DU 冻结后重新运行 transition，才生成正常 WritePlan、Issue 写回与最终回读。此后 G14 等门禁按该 GateSet 生效，变化只经 `change` 棘轮扩容（只升不降）或显式改判（`overrides` 留痕），不得静默重绑。
+- **需求/方案变更（区别于实施调整）**：判据——改完后 proposal/design/test-plan 里有话变假才是变更；实现缺陷修复（方案没错）是**实施调整**，不开单（开发中=自测迭代重跑 local；测试中=测试问题评论+阻塞修复+复测，见「测试中」节）。产物层偏差才走变更：不直接改旧提案、设计评论或状态标签，先调用 `change`（首选；T1–T4 自动定级 + GateSet 棘轮扩容；source=偏差从谁暴露：requirement/technical-design/implementation·test 分别建议回退 待评审/已评审/开发中）新增 open 的变更影响单，按 `requiredArtifacts` 同步 proposal/design/test-plan/Apifox 资产、代码、环境重测或发布材料；需要回退时走 `plan-return`。所有证据齐全后调用 `change-close` 新增 closed 回执。open 单存在时 G16 阻断一切正向状态流转；T3+ 测试计划变更必须递增 `plan-version`，旧 local/test 证据自动失效（T1/T2 轻量档豁免版本严格递增）。
 
 ### 写回顺序（三阶段串行）
 
@@ -88,9 +85,7 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 1. **metadata**：标签 add/unlabel + Assignee（`glab issue update`）
 2. **state-comment**：合并评论（`glab issue note`，长正文 `-F <file>`）
 3. **readback**：最终回读 Issue 确认；确认成功后 Leader 用 `pnpm cli du` 的 `cached-node` 将 DU 更新为本次有效最终目标，再更新 state 派生缓存
-4. **week-milestone-sync（条件动作）**：仅 `plan.postWriteback` 存在时执行；以 Asia/Shanghai 业务日期决定目标周，记录成功或失败审计
-
-前三阶段任一失败立即停止；Milestone 同步失败不撤回前三阶段，恢复时先回读对账，仅重试 `week-milestone-sync`。
+前三阶段任一失败立即停止；恢复时先回读对账，仅重试首个未完成阶段。
 
 ### 多仓库协作
 
@@ -182,7 +177,7 @@ GateSet 含 `skipStates` 时，命中节点被直接投影到其下一节点（�
 
 ### 转换副作用 playbook（推进节点 = 完整动作包，不只是改 Issue）
 
-`transition` 输出的 `playbook` 把跨节点的代码侧动作、Issue 写回和条件性回读后同步打包。引擎按 config 滤除不适用步骤；相位固定为代码到位 → Issue 写回并回读 → Week Milestone 同步（如存在 `postWriteback`）。Leader 按序执行，代码侧步骤调对应 sub-skill。
+`transition` 输出的 `playbook` 把跨节点的代码侧动作和 Issue 写回打包。引擎按 config 滤除不适用步骤；相位固定为代码到位 → Issue 写回并回读。Leader 按序执行，代码侧步骤调对应 sub-skill。
 
 | 转换 | playbook（代码侧 → Issue 写回） | 条件 |
 |---|---|---|

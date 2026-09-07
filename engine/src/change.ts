@@ -22,7 +22,7 @@ export interface ChangePlanOutput {
   closeRequiresPlanVersionBump: boolean;
 }
 
-/** planChange 的判别联合结果（照 WeekPlanValidation 先例：ok=true 必带 plan）。 */
+/** planChange 的判别联合结果：ok=true 必带 plan。 */
 export type ChangePlanResult =
   | (GuardResult & { ok: true; missing: []; reasons: []; plan: ChangePlanOutput })
   | (GuardResult & { ok: false; plan?: undefined });

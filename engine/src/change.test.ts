@@ -32,7 +32,6 @@ describe('classifyChangeTier', () => {
     expect(classifyChangeTier(['frontend-copy', 'api-contract'])).toBe('T3');
     expect(classifyChangeTier(['data-model'])).toBe('T4');
     expect(classifyChangeTier(['frontend-copy'])).toBe('T1');
-    expect(classifyChangeTier(['schedule'])).toBe('T1');
     expect(classifyChangeTier(['functional', 'frontend-route'])).toBe('T2');
     expect(classifyChangeTier(['release'])).toBe('T4');
     expect(classifyChangeTier(['permission'])).toBe('T4');

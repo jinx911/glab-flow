@@ -13,7 +13,7 @@
 2. **变化无分级**：change-impact 有 7 个影响维度，但全部走同一个 open→close 重闭环；plan-version 一变即双环境全量重测——改一行文案与改数据模型的代价相同。
 3. **环境资源非一等模型**：分支、worktree、Apifox 资产、测试数据、报告、部署版本散落在 config/test-config 与各 sub-skill 约定里（如 `TMP-<iid>-` 前缀），靠约定和记忆串联，无生命周期管理。
 4. **缺最短路径视图**：transition 输出 missing[]+hint 是门禁清单视角；用户看不到「当前在哪、阻塞什么、最快怎么继续、谁欠什么」。
-5. **Issue 信息过载**：TestRun marker、AssetAudit、变更单、周排期、MR 评论全部进 Issue，一个需求几十条评论。
+5. **Issue 信息过载**：TestRun marker、AssetAudit、变更单、MR 评论全部进 Issue，一个需求几十条评论。
 6. **门禁固定绑定每个转换**：所有需求走同样的全量门禁，简单需求（文案级）陪跑重流程。
 7. **外部事实是异常而非常态**：人工发布、人工改标签、外部 CI 结果只能当「脏状态」处理，无导入-对账-继续的原语。
 8. **证据偏存在性校验**：有报告/评论/版本 ≠ 真实通过；语义可信（覆盖范围、关联关系）未建模。
@@ -73,7 +73,7 @@ DeliveryUnit（交付工作包）—— 唯一主档
 | 产物清单 | 该出的东西：草稿、design.md、test-plan.md、发布计划、MR |
 | 证据集 | 各环境执行证据、评审结论、验收记录（摘要 + 本地明细指针） |
 | 资源集 | ResourceRegistry 登记项的引用 |
-| 受影响维度 | 技术方案声明的维度集合（复用现有 7 维词汇：functional/api-contract/data-model/permission/frontend-route/schedule/release） |
+| 受影响维度 | 技术方案声明的维度集合（functional/api-contract/data-model/permission/frontend-route/release） |
 | GateSet | 由维度推导并冻结的门禁单（见 3.2） |
 
 **持久化**：DU 的对外可见部分 = 流转评论（含证据摘要）；DU 的完整执行明细 = 本地 `.glab-flow/<iid>/`（state + 证据明细）。两者不一致时以 GitLab 回读为准（沿用现有对账精神）。
@@ -177,7 +177,7 @@ open 变更单仍阻断正向流转（G16 语义保留），但轻量级的关�
 
 | 层 | 内容 | 位置 |
 |---|---|---|
-| 团队可见（交接） | 流转评论：状态头 + 内容体 + 证据摘要（计划版本/环境/关键结论 digest）；周排期区块（Harness 协议） | GitLab Issue |
+| 团队可见（交接） | 流转评论：状态头 + 内容体 + 证据摘要（计划版本/环境/关键结论 digest） | GitLab Issue |
 | 代码域 | MR 评审结论评论 | 各 MR |
 | 执行明细 | TestRun/AssetAudit 明细、变更单开闭明细、资源登记、取证过程 | 本地 `.glab-flow/<iid>/`（DU 派生） |
 
@@ -187,7 +187,7 @@ open 变更单仍阻断正向流转（G16 语义保留），但轻量级的关�
 |---|---|
 | `transition` | 保留；输入增加 DU/GateSet，输出按 GateSet 决定跳状态与确认批量 |
 | `change-impact` / `change-close` | 合并升级为 `change`：输入偏差事实 → 定级 + GateSet 扩容 + 按级别的关闭要求 |
-| `validate` / `plan` / `render` / `plan-return` / `week-plan-change` / `config` / `state-*` / `progress` / `test-config` / `asset-audit` / `test-run` / `evidence` / `version` | 基本保留；校验规则从「固定每转换」改为「查 GateSet」 |
+| `validate` / `plan` / `render` / `plan-return` / `config` / `state-*` / `progress` / `test-config` / `asset-audit` / `test-run` / `evidence` / `version` | 基本保留；校验规则从「固定每转换」改为「查 GateSet」 |
 | —（新增） | `next`：最短路径查询（在哪/阻塞/最快下一步/谁欠什么/投影漂移提示） |
 | —（新增） | `reconcile`：外部事实导入对账（手动部署/手动改标签/CI 结果 → DU 事实） |
 | —（新增） | `resource`：资源登记/校验/清理清单生成 |
@@ -218,5 +218,4 @@ open 变更单仍阻断正向流转（G16 语义保留），但轻量级的关�
 | 维度声明失真（方案说只改文案实际动了表） | 棘轮机制：实施中触发变化闭环自动扩容；漏报本身留痕为变更单 |
 | 轻量路线误用（为省事全声明文案级） | 定级改判留痕 + 指标可见（返工率会暴露滥用）；MR 评审降级需显式确认 |
 | DU 本地明细丢失（换机器/清目录） | 执行明细可从 GitLab 流转评论摘要 + Apifox/Jenkins 回读重建（派生缓存定位） |
-| 与 Harness 周排期协议耦合 | 周排期区块协议不变，仍随流转评论追加；Milestone 同步意图保持 postWriteback |
 | 一次性改动面过大 | 分 6 阶段，每阶段独立可用 + 全量回归 |

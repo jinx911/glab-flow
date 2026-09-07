@@ -14,7 +14,6 @@ export const SCOPE_RANK: Record<ChangeScope, number> = {
   'api-contract': 2,
   'data-model': 3,
   permission: 3,
-  schedule: 0,
   release: 4,
 };
 
@@ -24,7 +23,7 @@ export type GateSetOverrideField = 'mrReview' | 'regression' | 'rollbackPlan';
 const OVERRIDE_FIELDS: ReadonlySet<string> = new Set<string>(['mrReview', 'regression', 'rollbackPlan']);
 const SUPPORTED_SCOPES: ReadonlySet<ChangeScope> = new Set<ChangeScope>([
   'frontend-copy', 'functional', 'frontend-route', 'api-contract',
-  'data-model', 'permission', 'schedule', 'release',
+  'data-model', 'permission', 'release',
 ]);
 const SUPPORTED_ENVIRONMENTS: ReadonlySet<GateEnvironment> = new Set<GateEnvironment>(['local', 'test']);
 

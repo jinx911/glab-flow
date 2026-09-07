@@ -3,7 +3,7 @@ import type { RunMode } from './config.js';
 
 export type WritebackAuditTarget = 'issue' | `mr:${string}!${number}`;
 /** E4：code-side 阶段（commit/push、merge→deploy、Jenkins）与 Issue 写回共用同一审计尾迹——恢复时定位首个未完成动作，失败不整链重放。 */
-export type WritebackAuditStage = 'code-commit' | 'code-merge' | 'code-jenkins' | 'metadata' | 'state-comment' | 'readback' | 'week-milestone-sync';
+export type WritebackAuditStage = 'code-commit' | 'code-merge' | 'code-jenkins' | 'metadata' | 'state-comment' | 'readback';
 export type WritebackAuditStatus = 'succeeded' | 'failed';
 
 export interface WritebackAuditEntry {

@@ -81,18 +81,11 @@ const REVIEW_FIELDS = {
   需求文档或评审记录: 'review-record',
 };
 
-const VALID_WEEK_PLAN = { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true };
 const VALID_REVIEW_EVIDENCE: RequirementsReviewEvidence = {
   images: [],
   frontend: { applicable: false, routes: [] },
   grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
 };
-const PAUSED_WEEK_PLAN_NOTE = `## 周排期
-
-- 计划开始：2026-08-17
-- 计划完成：2026-09-06
-- 计划覆盖周：W34 ～ W36
-- 自动 rollover：暂停`;
 
 const TEST_SUBMISSION_FIELDS = {
   代码评审结论: '通过',
@@ -253,122 +246,6 @@ describe('transition — plan + preview + shouldConfirm', () => {
   });
 });
 
-describe('transition — Story Week Plan gates', () => {
-  const reviewInput = (over: Partial<TransitionInput> = {}) => baseInput({
-    labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
-    fields: REVIEW_FIELDS, gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true, reviewEvidence: VALID_REVIEW_EVIDENCE,
-    ...over,
-  });
-  const developmentInput = (over: Partial<TransitionInput> = {}) => baseInput({
-    labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
-    fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
-    ...over,
-  });
-
-  it('requires an input Week Plan when approving a Story', () => {
-    const r = runTransition(model, reviewInput());
-    expect(r.validate.ok).toBe(false);
-    expect(r.missing.find((m) => m.field === 'weekPlan')?.hint).toContain('startDate');
-    expect(r.validate.reasons).toContainEqual(expect.stringContaining('周排期缺失'));
-    expect(r.plan).toBeUndefined();
-    expect(r.comment).not.toContain('## 周排期');
-  });
-
-  it('rejects an invalid input Week Plan without rendering a partial comment', () => {
-    const r = runTransition(model, reviewInput({ weekPlan: { ...VALID_WEEK_PLAN, endDate: '2026-08-16' } }));
-    expect(r.validate.ok).toBe(false);
-    expect(r.validate.reasons).toContainEqual(expect.stringContaining('计划完成不能早于计划开始'));
-    expect(r.plan).toBeUndefined();
-    expect(r.comment).not.toContain('## 周排期');
-  });
-
-  it('writes the exact Week Plan in the combined review comment', () => {
-    const r = runTransition(model, reviewInput({ weekPlan: VALID_WEEK_PLAN }));
-    const comment = r.plan?.ops.find((op) => op.kind === 'add_comment');
-    expect(r.validate.ok).toBe(true);
-    expect(r.comment).toContain('## 周排期');
-    expect(comment).toMatchObject({ kind: 'add_comment', body: r.comment });
-    expect((comment as { body: string }).body).toContain(`## 周排期
-
-- 计划开始：2026-08-17
-- 计划完成：2026-09-06
-- 计划覆盖周：W34 ～ W36
-- 自动 rollover：启用`);
-  });
-
-  it('emits a post-readback Week Milestone sync for an approved Story', () => {
-    const r = runTransition(model, reviewInput({ weekPlan: VALID_WEEK_PLAN }));
-    expect(r.plan?.postWriteback).toEqual({
-      action: 'sync_week_milestone',
-      trigger: 'review-approved',
-      plan: { ...VALID_WEEK_PLAN, coverage: 'W34 ～ W36' },
-    });
-    expect(r.playbook.map((step) => step.action)).toEqual(['issue_writeback', 'sync_week_milestone']);
-    expect(r.playbook.map((step) => step.phase)).toEqual(['issue-writeback', 'post-readback']);
-    expect(r.preview).toContain('回读后动作');
-  });
-
-  it('replays Issue #175: W35–W36 is synchronized immediately after review, not left for Monday rollover', () => {
-    const r = runTransition(model, reviewInput({
-      iid: 175,
-      weekPlan: { startDate: '2026-08-24', endDate: '2026-08-31', autoRollover: true },
-    }));
-    expect(r.validate.ok).toBe(true);
-    expect(r.plan?.postWriteback).toMatchObject({
-      action: 'sync_week_milestone',
-      trigger: 'review-approved',
-      plan: { coverage: 'W35 ～ W36' },
-    });
-  });
-
-  it('rejects development entry when no latest Week Plan is present while retaining planned dates', () => {
-    const r = runTransition(model, developmentInput());
-    expect(r.validate.ok).toBe(false);
-    expect(r.payload?.fields).toMatchObject(DEVELOPMENT_START_FIELDS);
-    expect(r.missing.map((m) => m.field)).toContain('latestWeekPlan');
-    expect(r.validate.reasons).toContainEqual(expect.stringContaining('最新周排期缺失'));
-    expect(r.plan).toBeUndefined();
-  });
-
-  it('rejects development entry when the latest Week Plan is malformed', () => {
-    const r = runTransition(model, developmentInput({ notes: [{ body: `${PAUSED_WEEK_PLAN_NOTE}\n\n## 周排期\n\n- 计划开始：bad` }] }));
-    expect(r.validate.ok).toBe(false);
-    expect(r.validate.reasons).toContainEqual(expect.stringContaining('最新周排期无效'));
-    expect(r.plan).toBeUndefined();
-  });
-
-  it('accepts a valid paused latest Week Plan for development entry', () => {
-    const r = runTransition(model, developmentInput({ notes: [{ body: PAUSED_WEEK_PLAN_NOTE }] }));
-    expect(r.validate.ok).toBe(true);
-    expect(r.plan).toBeDefined();
-  });
-
-  it('requires GateSet binding for Bug development entry without a Week Plan', () => {
-    const r = runTransition(model, baseInput({
-      type: 'bug', labels: ['type::bug', 'status::已确认缺陷'], body: TABLE_BODY,
-    }));
-    expect(r.next).toBe('开发中');
-    expect(r.validate.ok).toBe(false);
-    expect(r.missing.map((item) => item.field)).toContain('gateSetBinding');
-    expect(r.plan).toBeUndefined();
-  });
-
-  it('synchronizes a Bug entering development when its frozen GateSet and latest Week Plan are read back', () => {
-    const du = setCachedNode({
-      ...initDu({ iid: 7, type: 'bug', now: '2026-09-01T00:00:00Z' }),
-      gateSet: freezeGateSet(deriveGateSet(model.gateMatrix!, ['functional']), '2026-09-01T00:00:00Z'),
-    }, '已确认缺陷', '2026-09-01T00:00:00Z');
-    const r = runTransition(model, baseInput({
-      type: 'bug', labels: ['type::bug', 'status::已确认缺陷'], body: TABLE_BODY,
-      notes: [{ body: `## 周排期\n\n- 计划开始：2026-08-24\n- 计划完成：2026-08-31\n- 计划覆盖周：W35 ～ W36\n- 自动 rollover：启用` }],
-      du,
-    }));
-    expect(r.validate.ok).toBe(true);
-    expect(r.plan?.postWriteback).toMatchObject({ trigger: 'bug-development-start', plan: { coverage: 'W35 ～ W36' } });
-    expect(r.playbook.at(-1)).toMatchObject({ action: 'sync_week_milestone', phase: 'post-readback' });
-  });
-});
-
 describe('transition — default next node when to omitted', () => {
   it('picks the default forward transition', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::草稿中'], body: TABLE_BODY, fields: {} }));
@@ -492,7 +369,7 @@ describe('transition — prefill from render-normalized comments (semantic slot 
       labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
       notes: [{ body: rendered }],
       gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
-      weekPlan: VALID_WEEK_PLAN, reviewEvidence: VALID_REVIEW_EVIDENCE,
+      reviewEvidence: VALID_REVIEW_EVIDENCE,
     }));
     expect(r.payload?.fields.评审日期).toBe('2026-08-01');
     expect(r.payload?.fields.产品确认人).toBe('@pm');
@@ -728,7 +605,6 @@ describe('GateSet proposal on 已评审→开发中 (P3)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
       fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
-      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
       declaredScopes: ['frontend-copy'],
     }));
     expect(r.validate.ok).toBe(true);
@@ -741,7 +617,7 @@ describe('GateSet proposal on 已评审→开发中 (P3)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::待评审'], body: TABLE_BODY,
       fields: REVIEW_FIELDS, gateOutcome: '通过', reviewType: '需求评审', datesConfirmed: true,
-      weekPlan: VALID_WEEK_PLAN, reviewEvidence: VALID_REVIEW_EVIDENCE,
+      reviewEvidence: VALID_REVIEW_EVIDENCE,
       declaredScopes: ['frontend-copy'],
     }));
     expect(r.validate.ok).toBe(true);
@@ -751,7 +627,6 @@ describe('GateSet proposal on 已评审→开发中 (P3)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::已评审'], body: TABLE_BODY,
       fields: DEVELOPMENT_START_FIELDS, datesConfirmed: true,
-      notes: [{ body: PAUSED_WEEK_PLAN_NOTE }],
     }));
     expect(r.validate.ok).toBe(true);
     expect(r.proposedGateSet).toBeUndefined();

@@ -84,14 +84,6 @@ describe('writeback audit recovery state', () => {
     expect(recordWritebackAudit(legacy as typeof base, { target: 'issue', stage: 'metadata', status: 'succeeded', detail: 'read back' }, 't1').writebackAudit).toHaveLength(1);
   });
 
-  it('records an independent Week Milestone sync audit without changing the Issue writeback stages', () => {
-    const next = recordWritebackAudit(base, {
-      target: 'issue', stage: 'week-milestone-sync', status: 'failed', detail: 'Week W35 association timed out',
-    }, 't1');
-    expect(next.writebackAudit).toEqual([{
-      target: 'issue', stage: 'week-milestone-sync', status: 'failed', detail: 'Week W35 association timed out', at: 't1',
-    }]);
-  });
 });
 
 describe('addLastAction / clampLastActions', () => {

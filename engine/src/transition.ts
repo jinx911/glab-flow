@@ -4,8 +4,7 @@ import { validateTransition, effectiveRequiredFields } from './guard.js';
 import { deriveGateSet, gateScopeValidationErrors, gateSetConsistencyErrors, gateSetValidationErrors } from './gate-set.js';
 import { classifyAction } from './action-policy.js';
 import { parseAssigneeTable } from './parse.js';
-import { buildForwardPlan, buildWeekMilestoneSyncIntent } from './plan.js';
-import { parseLatestWeekPlan } from './week-plan.js';
+import { buildForwardPlan } from './plan.js';
 import { renderNodeComment, validatePublicComment } from './render.js';
 import { STATUS_PREFIX, TERMINAL, ROLES } from './constants.js';
 import { chronologicalNotes } from './notes.js';
@@ -218,11 +217,10 @@ function conditionActive(when: string | undefined, config?: { deployBranch?: str
   return true;
 }
 
-/** 把转换声明与 GateSet runtime actions 按 config/GateSet 过滤，再追加写回与后置同步。 */
+/** 把转换声明与 GateSet runtime actions 按 config/GateSet 过滤，再追加 Issue 写回。 */
 function buildPlaybook(
   transitions: Transition[],
   config: TransitionInput['config'],
-  hasWeekMilestoneSync: boolean,
   gateSet?: GateSet,
   validation: GuardResult = { ok: true, missing: [], reasons: [] },
   bindingGateSet?: GateSet,
@@ -280,14 +278,6 @@ function buildPlaybook(
   }
   if (!bindingGateSet && writebackAllowed) {
     steps.push({ action: 'issue_writeback', desc: '应用 WritePlan 写回 Issue（标签 / Assignee / 评论 / 关闭）并最终回读', phase: 'issue-writeback', isWriteback: true });
-  }
-  if (hasWeekMilestoneSync) {
-    steps.push({
-      action: 'sync_week_milestone',
-      desc: 'Issue 状态/排期评论回读成功后，按最新有效周排期幂等创建或关联当前 Week Milestone；失败只记录审计并重试，不回滚状态、Assignee、正文或评论',
-      phase: 'post-readback',
-      isWriteback: false,
-    });
   }
   return steps;
 }
@@ -478,7 +468,6 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     ...(input.datesConfirmed !== undefined ? { datesConfirmed: input.datesConfirmed } : {}),
     ...(input.humanConfirmed !== undefined ? { humanConfirmed: input.humanConfirmed } : {}),
     ...(input.closeIssue !== undefined ? { closeIssue: input.closeIssue } : {}),
-    ...(input.weekPlan ? { weekPlan: input.weekPlan } : {}),
   };
 
   const facts = {
@@ -519,12 +508,6 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
       missing: [...pathValidation.missing, 'publicComment'],
       reasons: [...pathValidation.reasons, ...publicValidation.reasons],
     };
-  // Bug 允许已有周排期但不强制；读取到最新有效且启用的计划时，也必须在进入开发后立即挂载。
-  const latestWeekPlan = payload.type === 'bug' ? parseLatestWeekPlan(input.notes) : undefined;
-  const bugWeekPlan = latestWeekPlan?.kind === 'valid-enabled' ? latestWeekPlan.plan : undefined;
-  const weekMilestoneSync = validate.ok
-    ? buildWeekMilestoneSyncIntent({ ...payload, ...(bugWeekPlan ? { weekPlan: bugWeekPlan } : {}) })
-    : undefined;
   // 缺口（必填未填）带 hint；豁免口径与 guard 一致（G14 按 GateSet），避免幽灵缺口（I3）
   const missing: MissingItem[] = [];
   if (!assigneeUser) {
@@ -545,12 +528,6 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   if (projected && !projectedAssigneeUser) {
     missing.push({ field: 'assigneeUser', hint: `@用户（角色=${projectedRole}）——来自交付协同表 / config.roles / 显式传入` });
   }
-  if (validate.missing.includes('weekPlan')) {
-    missing.push({ field: 'weekPlan', hint: '提供 weekPlan: { startDate: YYYY-MM-DD, endDate: YYYY-MM-DD, autoRollover: true|false }' });
-  }
-  if (validate.missing.includes('latestWeekPlan')) {
-    missing.push({ field: 'latestWeekPlan', hint: '在 Issue 最新 ## 周排期 评论中补齐有效的开始、完成、覆盖周和自动 rollover 字段' });
-  }
   if (validate.missing.some((field) => field.startsWith('reviewEvidence'))) {
     missing.push({ field: 'reviewEvidence', hint: '补齐图片 OCR/视觉摘要、页面地址的路由代码证据和 grilling 决策账本；页面地址无法确认或存在未决问题时，先在同一批评审问题中向产品确认' });
   }
@@ -561,7 +538,6 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
   const playbook = buildPlaybook(
     playbookTransitions,
     input.config,
-    !!weekMilestoneSync,
     input.du?.gateSet,
     pathValidation,
     proposedGateSet,
@@ -573,11 +549,8 @@ export function runTransition(model: StateMachine, input: TransitionInput): Tran
     : classifyPathAction(playbookTransitions);
   const shouldConfirm = !validate.ok || action.tier !== 'L1';
   // 跳状态时标签写回用 effectiveTarget（校验已按原转换完成，字段不放松）。
-  const planPayload = weekMilestoneSync && payload.type === 'bug'
-    ? { ...projectedPayload, weekPlan: weekMilestoneSync.plan }
-    : projectedPayload;
   const plan = validate.ok
-    ? buildForwardPlan(planPayload, input.iid)
+    ? buildForwardPlan(projectedPayload, input.iid)
     : undefined;
   const nodeProgress = progressStepsFor(model, current);
   const preview = previewText(current, effectiveTarget, projectedPayload, validate.ok, missing, action.tier === 'L3', shouldConfirm, runMode, action.tier, playbook, nodeProgress);

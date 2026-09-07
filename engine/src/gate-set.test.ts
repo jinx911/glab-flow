@@ -26,8 +26,8 @@ describe('deriveGateSet', () => {
     // 排序去重：声明集按风险降序保留
     expect(gs.scopes).toEqual(['data-model', 'frontend-copy']);
   });
-  it('unknown-only scopes fall back to defaults', () => {
-    const gs = deriveGateSet(matrix, ['schedule']);
+  it('uncovered-only scopes fall back to defaults', () => {
+    const gs = deriveGateSet(matrix, ['release']);
     expect(gs.environments).toEqual(['local', 'test']);
     expect(gs.mrReview).toBe(true);
     expect(gs.skipStates).toEqual([]);
@@ -43,15 +43,11 @@ describe('deriveGateSet', () => {
     // 排序里 release 仍在首位（声明集展示），只是不参与规则命中
     expect(gs.scopes[0]).toBe('release');
   });
-  it('uncovered-only scope set falls back to defaults (schedule alone)', () => {
-    expect(deriveGateSet(matrix, ['schedule', 'release']).skipStates).toEqual([]);
-    expect(deriveGateSet(matrix, ['schedule', 'release']).mrReview).toBe(matrix.defaults.mrReview);
-  });
   it('derivation is order-independent for tied ranks (I1 determinism)', () => {
-    const a = deriveGateSet(matrix, ['frontend-copy', 'schedule']);
-    const b = deriveGateSet(matrix, ['schedule', 'frontend-copy']);
+    const a = deriveGateSet(matrix, ['frontend-copy', 'permission']);
+    const b = deriveGateSet(matrix, ['permission', 'frontend-copy']);
     expect(a).toEqual(b);
-    expect(a.scopes).toEqual(['frontend-copy', 'schedule']);
+    expect(a.scopes).toEqual(['permission', 'frontend-copy']);
   });
   it('same-rank covered scopes resolve to one rule deterministically', () => {
     // data-model 与 permission 同档（3）同规则；frontend-route(2) 不在 rules → 命中 data-model 规则

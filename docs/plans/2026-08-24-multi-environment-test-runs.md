@@ -31,7 +31,7 @@
 
 - [x] **Step 1: Define contracts in `types.ts`.**
 
-  Add these declarations after Week Plan types:
+  Add these declarations after the transition payload types:
 
   ```ts
   export type TestEnvironment = 'local' | 'test' | (string & {});
@@ -100,7 +100,7 @@
 
 - [x] **Step 1: Add a shared `validateTestRunTransition` guard.**
 
-  In `guard.ts`, parse `payload.testPlan` and call the Task 1 functions. Require `local` for `开发中 → 测试中` and `test` for `测试中 → 待发布`; return actionable reasons such as `测试计划缺失或无效`, `local 测试执行记录缺失`, `test 最新测试执行记录无效`, and `测试计划版本不匹配`. Merge it with required-field, Week Plan, and blocking-issue results so any failure prevents a `WritePlan`.
+  In `guard.ts`, parse `payload.testPlan` and call the Task 1 functions. Require `local` for `开发中 → 测试中` and `test` for `测试中 → 待发布`; return actionable reasons such as `测试计划缺失或无效`, `local 测试执行记录缺失`, `test 最新测试执行记录无效`, and `测试计划版本不匹配`. Merge it with required-field and blocking-issue results so any failure prevents a `WritePlan`.
 
 - [x] **Step 2: Thread the plan through all entry points.**
 

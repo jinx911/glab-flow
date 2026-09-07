@@ -74,7 +74,6 @@ describe('G1 required fields', () => {
   it('passes when all required fields present', () => {
     const p: Payload = { type: 'story', from: '待评审', to: '已评审',
       fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
       reviewEvidence: VALID_REVIEW_EVIDENCE,
       gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::story', 'story-status::待评审']), p);
@@ -257,7 +256,6 @@ describe('G6b role cross-check (when 交付协同 table present)', () => {
   it('passes when assigneeUser matches the table role', () => {
     const p: Payload = { type: 'story', from: '待评审', to: '已评审',
       fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'link' },
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
       reviewEvidence: VALID_REVIEW_EVIDENCE,
       gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, factsWithTable(['type::story', 'story-status::待评审']), p);

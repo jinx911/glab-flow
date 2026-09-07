@@ -21,9 +21,9 @@ glab-flow 是 GitLab-native、自包含的交付引擎：DeliveryUnit（DU）保
 
 **子命令路由**：首参为 `learn` → 走 `learn.md` 手动命令分支（`/glab-flow learn <note>` 记一条 `manual_note` lesson；`/glab-flow learn --upgrade` 在非终态触发 upgrade ritual），**不进入状态机驱动**。
 
-## 运行时版本守卫（启动第 0 件事；教训见 issue 22：本地副本静默落后，周排期门禁失效）
+## 运行时版本守卫（启动第 0 件事）
 
-glab-flow 通过 `~/.claude/skills/glab-flow` 符号链接运行**本仓库当前检出的代码**——本地 master 落后 origin 时，已合并的流转契约（如周排期）会静默失效。每次启动 flow **必须**先做版本检查：
+glab-flow 通过 `~/.claude/skills/glab-flow` 符号链接运行**本仓库当前检出的代码**——本地 master 落后 origin 时，已合并的流转契约会静默失效。每次启动 flow **必须**先做版本检查：
 
 ```bash
 cd "$ENGINE_ROOT" && git fetch origin --quiet 2>/dev/null; pnpm cli version --fetched
@@ -34,7 +34,7 @@ cd "$ENGINE_ROOT" && git fetch origin --quiet 2>/dev/null; pnpm cli version --fe
   ```bash
   cd <ENGINE_ROOT> && git merge --ff-only origin/master && pnpm install
   ```
-  用户明确拒绝更新时，在 flow 中标注「运行于已知陈旧版本（commit=<SHA>）」再继续——但周排期等新契约缺失导致的流转失败，责任在陈旧副本而非流程。
+  用户明确拒绝更新时，在 flow 中标注「运行于已知陈旧版本（commit=<SHA>）」再继续——新契约缺失导致的流转失败，责任在陈旧副本而非流程。
 - 非 git 安装（复制分发）→ `version` 会报无法比较；此时以 `capability` 版本人工核对，并在 lessons 记录环境限制。
 
 ## 配置（启动第一件事）
@@ -80,11 +80,10 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `next` | 最短路径速览：stdin 同 `transition` → `{where,isTerminal,blockedOn,fastestPath,owedBy,summary}`——在哪/阻塞什么/最快下一步/谁欠什么；终态自动带资源清理清单 |
 | `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?}` → `{ok,missing,reasons}`；同时执行正式评论的公共隔离校验；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与刚回读 `notes`，以验证当前环境资产审计和 TestRun |
 | `render` | 渲染公共状态评论正文（状态头 + 节点交接内容 + 下一步；DU 证据摘要单独隔离） |
-| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?}`；周排期和 local/test TestRun 门禁均需传刚回读 `notes`，否则拒绝建计划 |
+| `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?}`；local/test TestRun 门禁需传刚回读 `notes`，否则拒绝建计划 |
 | `test-run` | 预览/校验一条环境执行记录：stdin `{plan,run}` → `{validate,comment}`；只产出评论草稿，不执行测试或写 GitLab |
 | `asset-audit` | 预览/校验一条 Apifox 资产审计：stdin `{plan,audit}` → `{validate,comment}`；只解析计划与回读事实，不调用 Apifox 或写 GitLab |
 | `plan-return` | 退回建写回计划：stdin `{type,from,target,issues,confirmer,date,assigneeUser?}` |
-| `week-plan-change` | **独立排期变更**：stdin 提供完整排期与变更事实，返回仅含一条 `add_comment` 的 `WritePlan`；不改变状态、Assignee、Issue 正文或既有评论 |
 | `change` | **变化分级入口（首选）**：stdin = change-impact 输入 + `du`；自动定级 T1–T4（tier 从 open 单 scopes 重推导、禁自报）+ GateSet 棘轮扩容（`expandedGateSet` 由 Leader 确认后写回 DU，只升不降）+ `closeRequiresPlanVersionBump`（T3+ 才要求测试计划版本递增） |
 | `change-impact` | **变更影响单（兼容保留）**：stdin 提供来源、影响维度、当前节点和当前测试计划，返回仅评论的 `WritePlan`、必须同步的产物、建议回退节点和旧计划版本；不直接改状态 |
 | `change-close` | **变更闭环（兼容保留）**：stdin 提供刚回读的 notes、open 变更编号及各项完成证据；测试计划受影响时必须传入版本已递增的当前计划（轻量档 T1/T2 豁免）；返回仅评论的关闭回执 |
@@ -155,13 +154,12 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
    - `validate`（G1–G16，`reasons` 自带补救动作；G14 按 DU GateSet 生效）
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm` + `actionTier`/`confirmBatchTitle`（动作分层，见 `gate.md`）
-3. **执行 playbook + 确认（Leader）**：普通转换的 `playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）→ `post-readback`（条件同步）。绑定首轮是例外：若存在待绑定 `proposedGateSet`，playbook 只执行 `bind_gateset`，省略 `issue_writeback`，且不写 Issue 状态；Leader 落盘 DU 后重新运行 `transition`，再执行后续正常动作。Leader 必须先完成本轮 `reconcile`，并按序：
+3. **执行 playbook + 确认（Leader）**：普通转换的 `playbook` 是本转换的**完整动作包**，执行相位固定为 `pre-writeback`（代码侧）→ `issue-writeback`（Issue 写回并回读）。绑定首轮是例外：若存在待绑定 `proposedGateSet`，playbook 只执行 `bind_gateset`，省略 `issue_writeback`，且不写 Issue 状态；Leader 落盘 DU 后重新运行 `transition`，再执行后续正常动作。Leader 必须先完成本轮 `reconcile`，并按序：
    - 代码侧步骤（`subskill` 字段指向 `git-ops` / `jenkins-deploy` / `release-check` / `mr-review`）：委派对应 sub-skill 执行（commit/push、merge→deploy_branch、Jenkins 构建、MR 评审等）。**test/非生产构建参数默认值直用不逐参数确认**（测试数据与凭据同理，已裁定打通；缺定义无默认值才一次问全）；**生产部署参数仍必须逐项确认**（L3 红线）。没配 `deploy_branch` / `jenkins` 的步骤引擎已自动滤除。`mr-review` 步骤只在 DU GateSet 的 `mrReview=true` 时必填（G14，见 `guards.md`）。
    - **issue_writeback（合并评论 + 三阶段串行，每阶段以 `state-writeback` 记录）**：**metadata**（标签 + Assignee）→ **state-comment**（合并评论 = 状态变更头 + 内容体，`renderNodeComment` 生成）→（终态时 close）→ **readback**（最终回读）。内容体按节点见 `nodes.md`「节点内容评论」。`mr-review` 的评审结论作为评论发到每个受影响 MR（G14，无 CRITICAL/HIGH 残留才放行），父 Issue 汇总不能替代 MR-local 评审。
    - **readback 后更新 DU 主档**：只有 Issue 写回各阶段成功且最终回读确认后，Leader 才调用 `pnpm cli du` 的 `cached-node`，传入本次 `next` 的**有效最终目标**（跳状态也传投影后的最终目标），并落盘返回的新 DU；随后再更新 state `cachedNode`/审计。任何写回或回读失败都不得更新该对账基准。
    - **GateSet 运行时动作**：只有当前转换命中的 GateSet 逻辑环境缺少 AssetAudit/TestRun（或要求 full 回归但缺对应证据）时，playbook 才生成 `run_affected_regression` / `run_full_regression`；动作由 `test-flow-e2e` 执行，完成后必须用 `pnpm cli du` 的 `record` 记入该环境证据并重新运行 `transition`。提测时 local 回归动作位于 feature `commit_push` 之后、merge/deploy 之前。GateSet 的逻辑环境当前仅为 `local` / `test`。
    - **生产回滚核对**：GateSet `rollbackPlan=true` 时，生产发布 playbook 使用 `verify_rollback_ready` 核对已由 `release-check` 生成且已回读的回滚方案；`release-check` 仍在 `测试中→待发布` 生成 `release-plan`，发布阶段不重新生成。
-   - **post-readback `sync_week_milestone`（仅 `plan.postWriteback` 存在）**：状态或排期评论回读成功、DU/state 更新后，Leader 用最新有效、启用的 `## 周排期` 和 Asia/Shanghai 业务日期决定目标 Week：未开始取计划开始日期所在周，执行中取当天所在周，已结束跳过。目标不存在则创建，存在则关联当前 Issue；必须幂等，且只调整 Milestone。失败写入 `week-milestone-sync` 审计并重试，不撤回已确认的标签、Assignee、正文、评论或 DU/state。Harness 周一任务只接手已初始挂载的 Issue 做后续 rollover，不能替代此步骤。
    - `shouldConfirm` 由**动作分层**决定（`gate.md`）：L1（无 gate 的机械流转）且 `validate.ok` → 直接执行；L2（有业务 gate）/ L3（hard_gate）→ 以 `confirmBatchTitle` 为题做一次 `AskUserQuestion` 批量确认后再执行（计划日期、GateSet 提案、Jenkins 参数并入同一次批量对话）；有缺口按 `missing` 的 hint 委派 sub-skill 补齐，回第 1 步重取。`run_mode` 仅作审计记录，不参与确认判定。
    - 任何标签/Assignee、合并评论或最终回读失败，**立即停止**后续阶段：不更新该阶段未验证的 state/progress；恢复时先回读 GitLab 对账，只重试**首个未完成阶段**，不得重发已回读的评论。细则见 `resume.md`。
    - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
@@ -180,28 +178,9 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 `source` 表达「谁发现的偏差」，`scopes` 表达「什么维度错了」——两者正交；tier 由 scopes 定级，与 source 无关。
 
-发现产物层偏差（后三类）时，禁止仅改代码/文档后继续推进。Leader 先回读 Issue 和当前 `test-plan.md`，调用 `change`（首选；等价于 `change-impact` + 自动定级）预览并经确认新增不可变的 `glab-flow:change-impact:v1 status: open` 评论。输出的 `requiredArtifacts` 是最小闭环清单：按影响更新 proposal/design/test-plan、Apifox 资产、代码、周排期或发布材料；需要状态回退时再调用既有 `plan-return`，不得由变更单暗改标签。tier 由引擎从 open 单 scopes 重推导（禁自报）；若扩容实质改变门禁，`expandedGateSet` 经确认后写回 DU（棘轮只升不降）。
+发现产物层偏差（后三类）时，禁止仅改代码/文档后继续推进。Leader 先回读 Issue 和当前 `test-plan.md`，调用 `change`（首选；等价于 `change-impact` + 自动定级）预览并经确认新增不可变的 `glab-flow:change-impact:v1 status: open` 评论。输出的 `requiredArtifacts` 是最小闭环清单：按影响更新 proposal/design/test-plan、Apifox 资产、代码或发布材料；需要状态回退时再调用既有 `plan-return`，不得由变更单暗改标签。tier 由引擎从 open 单 scopes 重推导（禁自报）；若扩容实质改变门禁，`expandedGateSet` 经确认后写回 DU（棘轮只升不降）。
 
-变更影响到测试计划且定级为 T3/T4 时，必须递增 `plan-version`（`closeRequiresPlanVersionBump`）；既有 local/test AssetAudit 与 TestRun 会因版本不一致自动失效。T1/T2 轻量档关闭时豁免版本严格递增检查。完成所有清单项及相应环境重测后，Leader 以刚回读的 notes 调用 `change-close` 生成 `status: closed` 回执。每一次 `transition`/`validate` 都检查未关闭影响单（G16）；任何 open 单都会阻断正向流转。排期维度仍须另走 `week-plan-change` 并将其回读证据写入 close；关闭单不能替代周排期评论或 Milestone 同步。
-
-### 周排期（Harness 协议）
-
-周排期是给 Harness 周滚动读取的、不可改写的 Issue 评论协议。**职责分离**：glab-flow 引擎只产生纯计算的 `postWriteback.sync_week_milestone` 意图，绝不调用 GitLab；Leader 在评论回读成功后完成周内初始挂载；Harness 受保护 master 的周一任务只负责后续 rollover。三者不能互相替代。
-
-Story 的 `待评审 → 已评审` 除既有需求评审证据外，必须提供有效的结构化 `weekPlan`。引擎将下列区块**原样追加一次**到该次合并状态评论；`计划覆盖周`由引擎根据 ISO 周计算，日期和 `自动 rollover` 不得臆测：
-
-```markdown
-## 周排期
-
-- 计划开始：2026-08-17
-- 计划完成：2026-09-06
-- 计划覆盖周：W34 ～ W36
-- 自动 rollover：启用
-```
-
-Story 的 `已评审 → 开发中` 在既有「计划提测时间 / 计划上线时间」要求外，必须重新读取 Issue notes，并确认**最新** `## 周排期` 区块完整有效（`启用`或`暂停`均有效）。若最新区块无效或缺失，停止流转并报告排期缺口；绝不回退使用更早的有效区块。
-
-排期变化不走状态流转：Leader 调用 `pnpm cli week-plan-change`，提供完整 replacement `weekPlan` 与变更日期、原排期、原因、影响、后续动作、负责人。它只产生一条含 `## 排期变更` 和 replacement `## 周排期` 的评论；按普通预览→确认→写入→回读执行，**不**改标签、Assignee、Issue 正文或既有评论。若计划为启用，引擎同时产生 `postWriteback.sync_week_milestone`，Leader 按上述规则即时重新同步。
+变更影响到测试计划且定级为 T3/T4 时，必须递增 `plan-version`（`closeRequiresPlanVersionBump`）；既有 local/test AssetAudit 与 TestRun 会因版本不一致自动失效。T1/T2 轻量档关闭时豁免版本严格递增检查。完成所有清单项及相应环境重测后，Leader 以刚回读的 notes 调用 `change-close` 生成 `status: closed` 回执。每一次 `transition`/`validate` 都检查未关闭影响单（G16）；任何 open 单都会阻断正向流转。
 
 ### 批量推进（可选）
 

@@ -14,7 +14,6 @@ export const TIER_BY_SCOPE: Record<ChangeScope, ChangeTier> = {
   'api-contract': 'T3',
   'data-model': 'T4',
   permission: 'T4',
-  schedule: 'T1',
   release: 'T4',
 };
 

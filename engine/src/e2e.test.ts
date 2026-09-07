@@ -34,37 +34,26 @@ describe('e2e: 草稿中 -> 待评审 -> (退回) 草稿中 -> 待评审 -> 已�
     const ret = renderReturn('草稿中', ['验收标准缺失'], '@pm', '2026-07-28');
     expect(ret).toContain('验收标准缺失');
 
-    // step 5: legacy direct validation cannot bypass the required Week Plan.
+    // step 5: review approval only requires review evidence.
     r = validateTransition(model, facts, {
       type: 'story', from: '待评审', to: '已评审',
       fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc' },
-      gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true,
-    });
-    expect(r.ok).toBe(false);
-    expect(r.missing).toContain('weekPlan');
-
-    // step 6: after fix, 需求评审 + structured Week Plan → 已评审 ok
-    r = validateTransition(model, facts, {
-      type: 'story', from: '待评审', to: '已评审',
-      fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc' },
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
       reviewEvidence: VALID_REVIEW_EVIDENCE,
       gateOutcome: '通过', reviewType: '需求评审', assigneeUser: '@dev', datesConfirmed: true,
     });
     expect(r.ok).toBe(true);
 
-    // step 7: the validated payload produces a compatible schedule writeback.
+    // step 6: the validated payload produces only the review writeback.
     const plan: WritePlan = buildForwardPlan({
       type: 'story', from: '待评审', to: '已评审',
       fields: { 评审日期: '2026-07-28', 产品确认人: '@pm', 评审结论: '通过', 需求文档或评审记录: 'doc' },
-      weekPlan: { startDate: '2026-08-17', endDate: '2026-09-06', autoRollover: true },
       reviewEvidence: VALID_REVIEW_EVIDENCE,
       assigneeUser: '@dev',
     }, 200);
     expect(validateWritePlan(plan).ok).toBe(true);
-    expect(plan.ops).toContainEqual(expect.objectContaining({ kind: 'add_comment', body: expect.stringContaining('## 周排期') }));
+    expect(plan.ops).toContainEqual(expect.objectContaining({ kind: 'add_comment' }));
 
-    // step 8: assignee resolved from 交付协同
+    // step 7: assignee resolved from 交付协同
     expect(parseAssigneeTable(issue.description).get('研发')).toBe('@dev');
   });
 });

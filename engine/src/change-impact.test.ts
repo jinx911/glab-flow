@@ -105,11 +105,11 @@ describe('change-impact closure', () => {
     ])).toEqual({ ok: true, missing: [], reasons: [] });
   });
 
-  it('requires proposal plus schedule evidence for a requirement change', () => {
+  it('requires proposal plus test evidence for a requirement change', () => {
     const { impact } = buildChangeImpactPlan({
-      ...input, currentNode: '开发中', source: 'requirement', scopes: ['functional', 'schedule'], testPlan: undefined,
+      ...input, currentNode: '开发中', source: 'requirement', scopes: ['functional'], testPlan: undefined,
     });
-    expect(impact.requiredArtifacts).toEqual(['proposal', 'design', 'test-plan', 'apifox-assets', 'local-rerun', 'week-plan']);
+    expect(impact.requiredArtifacts).toEqual(['proposal', 'design', 'test-plan', 'apifox-assets', 'local-rerun']);
     expect(impact.returnTarget).toBe('待评审');
   });
 
