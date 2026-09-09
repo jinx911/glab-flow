@@ -31,6 +31,7 @@ const REUSABLE_DOCS = [
   'skills/glab-flow/sub-skills/test-design.md',
   'skills/glab-flow/sub-skills/test-flow-apifox.md',
   'skills/glab-flow/sub-skills/test-flow-e2e.md',
+  'skills/glab-flow/sub-skills/git-ops.md',
   'skills/glab-flow/sub-skills/code-review.md',
   'skills/glab-flow/sub-skills/mr-review.md',
   'skills/glab-flow/sub-skills/jenkins-deploy.md',
@@ -161,9 +162,13 @@ describe('glab-flow process contracts', () => {
     const skill = readProjectFile('skills/glab-flow/SKILL.md');
     const gate = readProjectFile('skills/glab-flow/gate.md');
     const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const readme = readProjectFile('README.md');
     for (const doc of [skill, gate, nodes]) {
       expect(doc).toMatch(/合并评论|内容评论/);
     }
+    expect(`${skill}\n${nodes}\n${readme}`).toMatch(/GitLab Markdown[\s\S]{0,80}(表格|标题)/);
+    expect(`${nodes}\n${readme}`).toMatch(/公共评论[\s\S]{0,80}(不附加|不再附加)[\s\S]{0,80}(DU 证据摘要|隐藏索引|field-index)/);
+    expect(`${skill}\n${nodes}\n${readme}`).toMatch(/Markdown 表格[\s\S]{0,80}回填|回填[\s\S]{0,80}Markdown 表格/);
     // 内容体标题(每节点产出作为 Issue 评论)
     expect(nodes).toMatch(/技术方案/);
     expect(nodes).toMatch(/提测说明/);
@@ -187,6 +192,53 @@ describe('glab-flow process contracts', () => {
     for (const title of ['需求提案要点', '评审意见', '技术方案', '提测说明', '测试报告与上线方案', '上线操作手册', '验收报告', '缺陷复现与根因', '验证报告']) {
       expect(nodes).toContain(title);
     }
+    expect(nodes).toContain('测试环境数据清单');
+  });
+
+  it('requires test release handoff to include test cases/evidence and auditable test data', () => {
+    const model = loadModel();
+    const transitions = [
+      model.story.transitions.find((transition) => transition.from === '测试中' && transition.to === '待发布'),
+      model.bug.transitions.find((transition) => transition.from === '测试中' && transition.to === '待发布'),
+    ];
+    for (const transition of transitions) {
+      expect(transition?.requiredFields).toContain('回归范围或证据');
+      expect(transition?.requiredFields).toContain('测试环境数据清单');
+    }
+    const docs = [
+      'README.md',
+      'docs/flow.md',
+      'skills/glab-flow/SKILL.md',
+      'skills/glab-flow/nodes.md',
+    ].map(readProjectFile).join('\n');
+    expect(docs).toMatch(/回归范围或证据[\s\S]{0,80}测试用例|测试用例[\s\S]{0,80}回归范围或证据/);
+    expect(docs).toMatch(/测试环境数据清单[\s\S]{0,120}人工.*核对|人工.*核对[\s\S]{0,120}测试环境数据清单/);
+    expect(docs).toMatch(/测试环境数据清单[\s\S]{0,120}(逐行对齐|每个场景)/);
+    expect(docs).toMatch(/TC-\/TP-\/CASE- 编号[\s\S]{0,120}(相同编号|复用相同编号)/);
+  });
+
+  it('keeps 测试中→待发布 as release-MR preparation only, never master merge', () => {
+    const model = loadModel();
+    const storyTransition = model.story.transitions.find((transition) => transition.from === '测试中' && transition.to === '待发布');
+    const bugTransition = model.bug.transitions.find((transition) => transition.from === '测试中' && transition.to === '待发布');
+    for (const transition of [storyTransition, bugTransition]) {
+      expect(transition?.playbook?.map((step) => step.action)).toContain('open_release_mr_to_master');
+      expect(transition?.playbook?.map((step) => step.action)).not.toContain('create_mr_to_master');
+      expect(transition?.playbook?.map((step) => step.action)).not.toContain('merge_to_master');
+    }
+
+    const activeDocs = [
+      'skills/glab-flow/SKILL.md',
+      'skills/glab-flow/gate.md',
+      'skills/glab-flow/nodes.md',
+      'skills/glab-flow/sub-skills/git-ops.md',
+      'skills/glab-flow/sub-skills/mr-review.md',
+      'docs/flow.md',
+    ].map(readProjectFile).join('\n');
+    expect(activeDocs).toMatch(/测试中→待发布[\s\S]{0,120}不合并 master/);
+    expect(activeDocs).toMatch(/master 合并.*发布 hard_gate|发布 hard_gate.*master 合并/);
+    expect(activeDocs).toMatch(/打开\/确认发布 MR[\s\S]{0,160}禁止合并/);
+    expect(activeDocs).not.toMatch(/create_mr_to_master/);
   });
 
   it('documents three-stage writeback (metadata/state-comment/readback) + resume recovery', () => {

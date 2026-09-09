@@ -89,7 +89,7 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 - 待评审缺评审意见 → 委派 `review-preview` 预审产出问题清单。
 - 开发中缺代码、local TestRun，或声明 Apifox 资产但缺 local AssetAudit → 委派 `git-ops` + `codegraph` 实现，再按 test-plan 执行脚本/E2E/API；声明 Apifox 资产时盘点/回读 Apifox 资产并完成 local 完整业务闭环。实现后做定向测试、全量回归、类型检查和代码走查。
 - 测试中缺 test TestRun，或声明 Apifox 资产但缺 test AssetAudit → 按同一份 test-plan 委派脚本执行 / `test-flow-apifox` / `test-flow-e2e` 在 test 环境执行；不得把 local 回执或自由文本报告作为替代。
-- 测试中→待发布 缺 `feature分支MR评审结论`（G14）→ playbook 的 `create_mr_to_master`（git-ops 提 PR feature→master，标题=Issue 地址）+ `mr_review`（`mr-review` sub-skill，优先 mr-review-lite、降级 code-review）跑全 MR diff，无 CRITICAL/HIGH 残留才填「通过」放行；有残留则留在测试中修复重评，不进 待发布。
+- 测试中→待发布 缺 `feature分支MR评审结论`（G14）→ playbook 的 `open_release_mr_to_master`（git-ops 只打开/确认 feature→master 发布 MR，标题=Issue 地址；**不得合并 master**）+ `mr_review`（`mr-review` sub-skill，优先 mr-review-lite、降级 code-review）跑全 MR diff，无 CRITICAL/HIGH 残留才填「通过」放行；有残留则留在测试中修复重评，不进 待发布。真正合并/部署只属于发布 hard_gate（待发布→生产验收中/生产验证中）。
 
 agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 步重新取证、第 2 步重新校验，直到 `ok:true` 再建计划。换句话说：**门禁不通过 → 回去干活，而不是改门禁**。
 

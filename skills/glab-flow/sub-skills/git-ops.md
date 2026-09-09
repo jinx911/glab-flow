@@ -34,6 +34,7 @@ glab-flow 默认 single-repo（一个 GitLab project = 工作区根）。
 | "更新分支"/"rebase" | 更新分支 |
 | "commit"/"提交" | 提交代码 |
 | "push"/"推送" | 推送远程 |
+| "打开发布 MR"/"提 MR"/"创建 MR" | 只创建或确认 feature→master/main 发布 MR，不合并 |
 | "完成需求"/"合并分支" | 合并到主分支 |
 | "清理分支"/"删除分支" | 清理分支 |
 | "创建 worktree" | 创建 worktree（仅开发分支，公共分支拒绝） |
@@ -198,6 +199,18 @@ porcelain 输出按 worktree 分块（`worktree <路径>` / `branch refs/heads/<
    [1] sample-service   branch: feat/42   commits: 3 (↑待推送)
    ```
 3. 无上游 → `git push -u origin {branch}`；有上游 → `git push`。
+
+### 打开/确认发布 MR（测试中→待发布专用，禁止合并）
+
+此操作只服务 `open_release_mr_to_master` playbook：为发布准备 feature→master/main MR 并让 `mr-review` 有评审对象。它不是“完成需求”，也不是“合并分支”。
+
+1. 前置核对 feat 分支洁净性（见下「MR 创建前置」）：确认 diff 只包含本 Issue 改动。
+2. 确认 feature 分支已推送远程；未推送时走「推送远程」清单确认。
+3. 检索是否已有同源同目标 MR：
+   - 有 → 复用该 MR，必要时只补充标题/描述/关联 Issue。
+   - 无 → 创建 feature→master/main MR，标题包含 Issue 地址或 iid，描述引用父 Issue + proposal/design。
+4. 返回 MR 链接给 `mr-review`。
+5. **禁止动作**：不得执行 `git merge`、不得点击/调用 MR merge、不得把 feature 合并进 master/main。master/main 合并只能发生在「发布」hard_gate 已确认后的发布动作中。
 
 ### 合并分支（按目标分流）
 - **前置占用检测**：目标分支被 worktree 占用（公共分支被占属违规残留）→ 停车报位置，引导「清理 worktree」后再合并。源分支被占用不影响 merge。

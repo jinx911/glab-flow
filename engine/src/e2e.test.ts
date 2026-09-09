@@ -68,7 +68,7 @@ describe('e2e: 合并评论(状态变更头 + 内容体, 无 marker)', () => {
     expect(r.comment).toContain('## 状态变更');
     expect(r.comment).toContain('`草稿中` → `待评审`');
     expect(r.comment).toContain('## 需求提案要点');
-    expect(r.comment).toContain('- 背景：b');
+    expect(r.comment).toContain('| 背景 | b |');
     expect(r.comment).not.toContain('artifact-receipt');
   });
 });

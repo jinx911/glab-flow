@@ -59,7 +59,8 @@ const TEST_DONE_FIELDS = {
   测试完成日期: '2026-08-07',
   测试Assignee: '@qa',
   测试结论: '通过',
-  回归范围或证据: 'r',
+  回归范围或证据: 'TP-001 合同续费审批 API+E2E；TP-U01 单元回归；TestRun v3/test passed',
+  测试环境数据清单: 'TP-001：test：华东客户合同续费审批数据，合同单 HT-20260909-001，员工 qa_contract_reviewer，来源 fixtures/华东客户合同续费.sql，shared-candidate；TP-U01：unit fixture 数据，无业务单号，来源 vitest fixture，preserve',
   阻塞发布问题均已验证通过: '是',
   feature分支MR评审结论: '通过，无 HIGH 残留',
   涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
@@ -150,7 +151,7 @@ describe('transition — assignee resolution', () => {
 describe('transition — G11 normalization flows through', () => {
   const f = (val: string) => runTransition(model, baseInput({
     labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-    fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: val, feature分支MR评审结论: '通过，无 HIGH 残留', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
+    fields: { 测试完成日期: '2026-08-07', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'TP-001；TestRun v3/test passed', 测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve', 阻塞发布问题均已验证通过: val, feature分支MR评审结论: '通过，无 HIGH 残留', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
     datesConfirmed: true,
   }));
   it('accepts 已验证', () => expect(f('已验证').validate.ok).toBe(true));
@@ -296,13 +297,15 @@ describe('transition — per-transition side-effect playbook', () => {
     expect(r.playbook.map((s) => s.action)).toEqual(['deploy', 'issue_writeback']);
     expect(r.shouldConfirm).toBe(true);
   });
-  it('测试中→待发布 准备发布：create_mr + mr_review + release_check + issue writeback', () => {
+  it('测试中→待发布 准备发布：open release MR + mr_review + release_check + issue writeback，不合并 master', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
       fields: { ...TEST_DONE_FIELDS }, datesConfirmed: true,
     }));
     expect(r.next).toBe('待发布');
-    expect(r.playbook.map((s) => s.action)).toEqual(['create_mr_to_master', 'mr_review', 'release_check', 'issue_writeback']);
+    expect(r.playbook.map((s) => s.action)).toEqual(['open_release_mr_to_master', 'mr_review', 'release_check', 'issue_writeback']);
+    expect(r.playbook[0]?.desc).toContain('不合并 master');
+    expect(r.playbook.map((s) => s.action)).not.toContain('merge_to_master');
   });
   it('transitions without declared playbook default to issue_writeback only', () => {
     const r = runTransition(model, baseInput({ labels: ['type::story', 'story-status::草稿中'], body: TABLE_BODY, fields: {} }));
@@ -334,7 +337,7 @@ describe('transition — node progress checklist (layer 2 visibility)', () => {
 });
 
 describe('transition — evidence smart prefill', () => {
-  const NOTE = '## 状态变更\n- 测试完成日期：2026-08-05\n- 测试结论：通过\n- 回归范围或证据：回归通过\n';
+  const NOTE = '## 状态变更\n- 测试完成日期：2026-08-05\n- 测试结论：通过\n- 回归范围或证据：TP-001；TestRun v3/test passed\n- 测试环境数据清单：TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve\n';
   const rest = { 测试Assignee: '@qa', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' };
 
   it('prefills required fields from note "- 字段：值" lines', () => {
@@ -346,6 +349,27 @@ describe('transition — evidence smart prefill', () => {
     expect(r.prefilled.测试完成日期).toContain('2026-08-05');
     expect(r.prefilled.测试完成日期).toContain('评论');
     expect(r.missing.map((m) => m.field)).not.toContain('测试完成日期');
+    expect(r.validate.ok).toBe(true);
+  });
+  it('prefills required fields from Markdown table comments', () => {
+    const tableNote = [
+      '## 测试报告与上线方案',
+      '',
+      '| 项目 | 内容 |',
+      '|---|---|',
+      '| 测试完成日期 | 2026-08-06 |',
+      '| 测试结论 | 通过 |',
+      '| 回归范围或证据 | TP-001；TestRun v3/test passed |',
+      '| 测试环境数据清单 | TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve |',
+    ].join('\n');
+    const r = runTransition(model, baseInput({
+      labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
+      notes: [{ body: tableNote }, { body: TEST_AUDIT }, { body: TEST_RUN }],
+      fields: rest, datesConfirmed: true,
+    }));
+    expect(r.payload?.fields.测试完成日期).toBe('2026-08-06');
+    expect(r.payload?.fields.回归范围或证据).toBe('TP-001；TestRun v3/test passed');
+    expect(r.payload?.fields.测试环境数据清单).toContain('合同单 HT-20260909-001');
     expect(r.validate.ok).toBe(true);
   });
   it('user-provided fields take priority over evidence', () => {
@@ -431,7 +455,7 @@ describe('GateSet skip states (P3)', () => {
     expect(addLabel).toMatchObject({ value: 'story-status::待发布' });
     expect(r.comment).toContain('`开发中` → `待发布`');
     expect(r.comment).not.toContain('`开发中` → `测试中`');
-    expect(r.comment).toContain('- 代码评审结论：通过');
+    expect(r.comment).toContain('| 代码评审结论 | 通过 |');
     // 投影目标合并发布语义；GateSet mrReview=false 抑制 MR 创建/评审动作。
     expect(r.projectedPayload?.to).toBe('待发布');
     expect(r.projectedPayload?.assigneeUser).toBe('@dev');
@@ -526,8 +550,8 @@ describe('GateSet skip states (P3)', () => {
     }));
     expect(r.validate.ok).toBe(true);
     const body = r.plan?.ops.find((op) => op.kind === 'add_comment')?.body;
-    expect(body).toContain('- 测试完成日期：2026-08-07');
-    expect(body).toContain('- 发布记录或回滚信息：release-check 已完成，回滚方案已核对');
+    expect(body).toContain('| 测试完成日期 | 2026-08-07 |');
+    expect(body).toContain('| 发布记录或回滚信息 | release-check 已完成，回滚方案已核对 |');
   });
 
   it('GateSet environments decide which TestRun evidence gate applies', () => {
@@ -547,7 +571,7 @@ describe('GateSet skip states (P3)', () => {
     };
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
-      fields: { ...TEST_SUBMISSION_FIELDS, 回归范围或证据: '全量回归' }, datesConfirmed: true,
+      fields: { ...TEST_SUBMISSION_FIELDS, 回归范围或证据: '全量回归', 测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve' }, datesConfirmed: true,
       notes: [], du,
     }));
     expect(r.validate.ok).toBe(false);
