@@ -20,6 +20,10 @@ function planRequiresV2Audit(plan: TestPlan, environment: string): boolean {
   return plan.cases.some((item) => item.environments.includes(environment) && (item.presentations.length || item.authProfiles.length));
 }
 
+function planRequiresApifoxAudit(plan: TestPlan, environment: string): boolean {
+  return plan.cases.some((item) => item.environments.includes(environment) && item.assets.length);
+}
+
 /**
  * DU 本地证据 → TestRun 形状（评论瘦身，P2）。
  * cases/evidence 按当前计划推导填充（DU 明细在本地 detailRef，评论格式的
@@ -45,10 +49,10 @@ function duTestRunFor(du: DuState | undefined, plan: TestPlan, environment: stri
     environment: entry.environment,
     planVersion: entry.planVersion,
     outcome: 'passed',
-    assetAudit: `${entry.planVersion}/${entry.environment}`,
     cases,
     evidence,
   };
+  if (planRequiresApifoxAudit(plan, environment)) run.assetAudit = `${entry.planVersion}/${entry.environment}`;
   return { kind: 'valid' as const, run };
 }
 
@@ -122,6 +126,7 @@ export function validateApifoxAssetAuditTransition(payload: Payload, notes: Issu
   if (payload.du?.gateSet && !payload.du.gateSet.environments.includes(environment)) return ok();
   const parsedPlan = parseTestPlan(payload.testPlan);
   if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
+  if (!planRequiresApifoxAudit(parsedPlan.plan, environment)) return ok();
   // DU 优先（同上）：明细归 DU，Issue 评论仅兜底；计划要求 v2 审计时适配器
   // 自行回落评论（presentation/auth-profile 证据 DU 尚无法承载）。
   const parsedLatest = duAssetAuditFor(payload.du, parsedPlan.plan, environment) ?? parseLatestApifoxAssetAudit(notes, environment);
@@ -220,14 +225,15 @@ function validateGateSetRequirements(payload: Payload): GuardResult {
   if (gateSet.regression === 'full' && (payload.from === '开发中' || payload.from === '测试中')) {
     const evidence = payload.fields['回归范围或证据'] ?? '';
     const environment = payload.from === '开发中' ? 'local' : 'test';
+    const parsedPlan = parseTestPlan(payload.testPlan);
+    const auditRequired = parsedPlan.ok ? planRequiresApifoxAudit(parsedPlan.plan, environment) : true;
     const duRun = payload.du ? latestEvidence(payload.du, 'test-run', environment) : undefined;
     const duAudit = payload.du ? latestEvidence(payload.du, 'asset-audit', environment) : undefined;
     const hasStructuredFullEvidence = duRun?.outcome === 'passed'
-      && duAudit?.outcome === '0'
-      && duRun.planVersion === duAudit.planVersion;
+      && (!auditRequired || (duAudit?.outcome === '0' && duRun.planVersion === duAudit.planVersion));
     if (!hasStructuredFullEvidence && !/全量|完整|full/i.test(evidence)) {
       missing.push('回归范围或证据');
-      reasons.push('GateSet 要求 full 回归：提供通过的 DU TestRun/AssetAudit，或明确记录全量/完整回归');
+      reasons.push('GateSet 要求 full 回归：提供通过的 DU TestRun（若计划声明 Apifox 资产则同时提供 AssetAudit），或明确记录全量/完整回归');
     }
   }
   return missing.length ? fail(reasons, missing) : ok();

@@ -191,9 +191,9 @@ function gateSetSteps(
     const scope = regression === 'full' ? '全量' : '受影响用例';
     after.push({
       action,
-      subskill: 'test-flow-e2e',
+      subskill: 'test-flow',
       environment,
-      desc: `在 ${environment} 环境执行${scope}回归（GateSet）；记录 DU TestRun/AssetAudit 后重新运行 transition`,
+      desc: `在 ${environment} 环境执行${scope}回归（GateSet）；记录 DU TestRun（声明 Apifox 资产时同时记录 AssetAudit）后重新运行 transition`,
       phase: 'pre-writeback',
       isWriteback: false,
     });

@@ -2,8 +2,8 @@ import { parse as parseYaml } from 'yaml';
 
 /**
  * test-config(独立于交付配置 config.md):
- *   Apifox 是测试资产的事实源(base_url/接口/用例/套件/报告),本配置只承载 Apifox 不知道的——
- *   仓库→Apifox 项目映射(索引)、项目名→ID、数据库 MCP、前端构建、测试数据策略、测试账号。
+ *   本配置统一承载环境上下文：脚本运行根、仓库→Apifox 项目映射(可选索引)、数据库 MCP、
+ *   前端构建、测试数据策略、测试账号。
  * 消费方:glab-flow 开发中自测 / 测试中(test-flow 用 .claude/project-config.md,互不相干)。
  */
 
@@ -17,22 +17,40 @@ export interface ApifoxProjectRef {
 export interface RouteRule {
   /** 命中任一仓库即走此 route(与 --repos 求交集)。 */
   repos: string[];
-  apifox: string;
+  apifox?: string;
+}
+
+export interface ScriptRuntimeConfig {
+  root?: string;
+  command?: string;
+  envFile?: string;
+  variables?: Record<string, string>;
+}
+
+export interface TestDataConfig {
+  prefix?: string;
+  cleanupRequired?: boolean;
+  prohibited?: string[];
+  seedFiles?: string[];
+  assetRetention?: 'preserve' | 'promote-shared' | 'cleanup';
+  realisticNaming?: boolean;
 }
 
 export interface TestEnvironmentProfile {
-  /** 索引:apifox_projects 里的项目名 + 环境名;base_url 不复制,以 Apifox 为准。 */
-  apifox: { project: string; env: string };
+  /** 索引:apifox_projects 里的项目名 + 环境名;base_url 不复制,以 Apifox 为准。仅声明 Apifox 资产时必需。 */
+  apifox?: { project: string; env: string };
   /** databases 键名 → config.md databases 的引用(只存键,连接信息在交付配置)。 */
   databases?: Record<string, string>;
   frontend?: { build?: string; workdir?: string; output?: string };
-  testData?: { prefix?: string; cleanupRequired?: boolean; prohibited?: string[] };
+  testData?: TestDataConfig;
   /** account/password 为值;vars 为场景变量名映射({{名}})——运行时按名注入,不落 Apifox。 */
   credentials?: { account?: string; password?: string; vars?: { account?: string; password?: string } };
   /** 全局登录契约(共用 PHP 登录):哪个项目持有登录接口、token 变量名、注入方式。 */
   login?: { owner: string; endpoint?: string; tokenVar?: string; note?: string };
   /** 前端入口 url(E2E 浏览器测试用;API base 以 Apifox 环境为准)。 */
   webUrl?: string;
+  /** 本地/测试环境脚本运行上下文；脚本文件由 test-plan 的 script 行声明。 */
+  scripts?: ScriptRuntimeConfig;
   desc?: string;
 }
 
@@ -54,17 +72,18 @@ export interface ApifoxTarget {
 export interface TestContext {
   env: string;
   /** 兼容字段:单项目时等于 apifoxTargets[0](既有消费者不破)。 */
-  apifox: ApifoxTarget;
+  apifox?: ApifoxTarget;
   /** 全部命中项目(多仓跨项目需求逐个跑;单项目时长度 1)。 */
   apifoxTargets: ApifoxTarget[];
   databases: Record<string, string>;
   frontend: { build?: string; workdir?: string; output?: string };
-  testData: { prefix?: string; cleanupRequired?: boolean; prohibited?: string[] };
+  testData: TestDataConfig;
   credentials: { account?: string; password?: string; vars?: { account?: string; password?: string } };
   login?: { owner: string; endpoint?: string; tokenVar?: string; note?: string };
   webUrl?: string;
+  scripts: ScriptRuntimeConfig;
   /** routes 推导说明(哪些仓库命中/未命中),供 Leader 展示决策依据。 */
-  resolution: { repos: string[]; matchedRoutes: string[]; unmatchedRepos: string[] };
+  resolution: { repos: string[]; matchedRoutes: string[]; unmatchedRepos: string[]; scriptOnlyRoutes: string[] };
   warnings: string[];
 }
 
@@ -73,10 +92,11 @@ interface RawTestConfig {
     apifox?: { project?: string; env?: string };
     databases?: Record<string, string>;
     frontend?: { build?: string; workdir?: string; output?: string };
-    test_data?: { prefix?: string; cleanup_required?: boolean; prohibited?: string[] };
+    test_data?: { prefix?: string; cleanup_required?: boolean; prohibited?: string[]; seed_files?: string[]; asset_retention?: string; realistic_naming?: boolean };
     credentials?: { account?: string; password?: string; vars?: { account?: string; password?: string } };
     login?: { owner?: string; endpoint?: string; token_var?: string; note?: string };
     web_url?: string;
+    scripts?: { root?: string; command?: string; env_file?: string; variables?: Record<string, string | number | boolean> };
     desc?: string;
   }>;
   apifox_projects?: Record<string, {
@@ -87,6 +107,36 @@ interface RawTestConfig {
   routes?: Array<{ repos?: string[]; apifox?: string }>;
 }
 
+const MANAGED_RELATIVE_PATH_RE = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$)).+$/;
+const TEST_DATA_RETENTIONS = new Set(['preserve', 'promote-shared', 'cleanup']);
+
+function validateManagedRelativePath(value: string | undefined, field: string): string | undefined {
+  if (!value) return undefined;
+  if (!MANAGED_RELATIVE_PATH_RE.test(value)) {
+    throw new Error(`test-config: ${field} 路径无效（必须是相对路径，不能以 / 开头或包含 ..）`);
+  }
+  return value;
+}
+
+function replaceRuntimePlaceholders(value: string, input: { env: string; iid?: number }): string {
+  return value.replace('{iid}', String(input.iid ?? '{iid}')).replace('{env}', input.env);
+}
+
+function parseTestDataConfig(value: NonNullable<RawTestConfig['environments']>[string]['test_data'] | undefined, envName: string): TestDataConfig | undefined {
+  if (!value) return undefined;
+  if (value.asset_retention && !TEST_DATA_RETENTIONS.has(value.asset_retention)) {
+    throw new Error(`test-config: environments.${envName}.test_data.asset_retention 无效（应为 preserve|promote-shared|cleanup）`);
+  }
+  return {
+    ...(value.prefix ? { prefix: value.prefix } : {}),
+    ...(typeof value.cleanup_required === 'boolean' ? { cleanupRequired: value.cleanup_required } : {}),
+    ...(value.prohibited ? { prohibited: value.prohibited } : {}),
+    ...(value.seed_files ? { seedFiles: value.seed_files.map((item) => validateManagedRelativePath(item, `environments.${envName}.test_data.seed_files`)!) } : {}),
+    ...(value.asset_retention ? { assetRetention: value.asset_retention as TestDataConfig['assetRetention'] } : {}),
+    ...(typeof value.realistic_naming === 'boolean' ? { realisticNaming: value.realistic_naming } : {}),
+  };
+}
+
 export function parseTestConfig(markdown: string): TestConfig {
   const match = markdown.match(/```yaml\n([\s\S]*?)\n```/);
   if (!match?.[1]) throw new Error('test-config: no ```yaml fenced block found');
@@ -95,22 +145,12 @@ export function parseTestConfig(markdown: string): TestConfig {
 
   const environments: Record<string, TestEnvironmentProfile> = {};
   for (const [name, env] of Object.entries(raw.environments ?? {})) {
-    if (!env?.apifox?.project || !env.apifox.env) {
-      throw new Error(`test-config: environments.${name} 缺 apifox {project, env} 索引`);
-    }
+    if (env?.apifox && (!env.apifox.project || !env.apifox.env)) throw new Error(`test-config: environments.${name}.apifox 缺 {project, env} 索引`);
     environments[name] = {
-      apifox: { project: env.apifox.project, env: env.apifox.env },
+      ...(env.apifox?.project && env.apifox.env ? { apifox: { project: env.apifox.project, env: env.apifox.env } } : {}),
       ...(env.databases ? { databases: env.databases } : {}),
       ...(env.frontend ? { frontend: env.frontend } : {}),
-      ...(env.test_data
-        ? {
-            testData: {
-              ...(env.test_data.prefix ? { prefix: env.test_data.prefix } : {}),
-              ...(typeof env.test_data.cleanup_required === 'boolean' ? { cleanupRequired: env.test_data.cleanup_required } : {}),
-              ...(env.test_data.prohibited ? { prohibited: env.test_data.prohibited } : {}),
-            },
-          }
-        : {}),
+      ...(env.test_data ? { testData: parseTestDataConfig(env.test_data, name) } : {}),
       ...(env.credentials
         ? {
             credentials: {
@@ -131,6 +171,16 @@ export function parseTestConfig(markdown: string): TestConfig {
           }
         : {}),
       ...(env.web_url ? { webUrl: env.web_url } : {}),
+      ...(env.scripts
+        ? {
+            scripts: {
+              ...(env.scripts.root ? { root: validateManagedRelativePath(env.scripts.root, `environments.${name}.scripts.root`) } : {}),
+              ...(env.scripts.command ? { command: env.scripts.command } : {}),
+              ...(env.scripts.env_file ? { envFile: validateManagedRelativePath(env.scripts.env_file, `environments.${name}.scripts.env_file`) } : {}),
+              ...(env.scripts.variables ? { variables: Object.fromEntries(Object.entries(env.scripts.variables).map(([k, v]) => [k, String(v)])) } : {}),
+            },
+          }
+        : {}),
       ...(env.desc ? { desc: env.desc } : {}),
     };
   }
@@ -148,23 +198,26 @@ export function parseTestConfig(markdown: string): TestConfig {
   }
 
   const routes: RouteRule[] = (raw.routes ?? [])
-    .filter((route) => route?.repos?.length && route?.apifox)
-    .map((route) => ({ repos: route.repos!, apifox: route.apifox! }));
+    .filter((route) => route?.repos?.length)
+    .map((route) => ({ repos: route.repos!, ...(route.apifox ? { apifox: route.apifox } : {}) }));
 
   if (!Object.keys(environments).length) throw new Error('test-config: environments 为空——至少配置一个环境 Profile');
   return { environments, apifoxProjects, routes };
 }
 
 /** routes 按仓库命中推导 Apifox 项目;未命中的仓库进 warnings(不阻断,由 Leader/用户裁决)。 */
-function resolveApifoxProject(config: TestConfig, repos: string[]): { project: string | undefined; matchedRoutes: string[]; unmatchedRepos: string[] } {
+function resolveApifoxProject(config: TestConfig, repos: string[]): { project: string | undefined; matchedRoutes: string[]; unmatchedRepos: string[]; scriptOnlyRoutes: string[] } {
   const matched = new Set<string>();
+  const scriptOnly = new Set<string>();
   const unmatched: string[] = [];
   for (const repo of repos) {
     const rule = config.routes.find((route) => route.repos.includes(repo));
-    if (rule) matched.add(rule.apifox); else unmatched.push(repo);
+    if (rule?.apifox) matched.add(rule.apifox);
+    else if (rule) scriptOnly.add(repo);
+    else unmatched.push(repo);
   }
   const projects = [...matched];
-  return { project: projects.length === 1 ? projects[0] : undefined, matchedRoutes: projects, unmatchedRepos: unmatched };
+  return { project: projects.length === 1 ? projects[0] : undefined, matchedRoutes: projects, unmatchedRepos: unmatched, scriptOnlyRoutes: [...scriptOnly] };
 }
 
 /**
@@ -188,35 +241,40 @@ export function buildTestContext(
   if (resolution.unmatchedRepos.length) {
     warnings.push(`仓库 ${resolution.unmatchedRepos.join(', ')} 未命中任何 route,不参与 Apifox 项目推导`);
   }
+  if (resolution.scriptOnlyRoutes.length) {
+    warnings.push(`仓库 ${resolution.scriptOnlyRoutes.join(', ')} 命中脚本测试路由,不推导 Apifox 项目`);
+  }
 
   // 项目集 = routes 命中的全部(跨平台+Java 需求逐项目跑);未命中时回落 Profile 默认单项目。
-  const projectNames = resolution.matchedRoutes.length ? resolution.matchedRoutes : [profile.apifox.project];
-  if (!resolution.matchedRoutes.length) {
+  const projectNames = resolution.matchedRoutes.length ? resolution.matchedRoutes : profile.apifox ? [profile.apifox.project] : [];
+  if (!resolution.matchedRoutes.length && profile.apifox) {
     warnings.push(`routes 未能从 [${input.repos.join(', ')}] 推导出项目,已回落到环境 Profile 默认 "${profile.apifox.project}"`);
   }
   const apifoxTargets = projectNames.map<ApifoxTarget>((name) => {
     const project = config.apifoxProjects[name];
     if (!project) {
       warnings.push(`apifox_projects 缺 "${name}"——请在 test-config 补齐项目索引`);
-      return { project: name, projectId: '', branch: 'main', envName: profile.apifox.env, envId: undefined };
+      return { project: name, projectId: '', branch: 'main', envName: profile.apifox?.env ?? input.env, envId: undefined };
     }
-    const envId = project.envs[profile.apifox.env];
+    const envName = profile.apifox?.env ?? input.env;
+    const envId = project.envs[envName];
     // M1：envId 解析不到必须显式警告——静默 undefined 会让 -e 拼出空值或回落默认环境，
     // 「test 轮」实跑 local。文档承诺「报错退出」，此处先以高可见警告 + CLI 侧缺失计数兜底。
     if (!envId) {
-      warnings.push(`环境 "${input.env}" 的 apifox_projects.${name}.envs.${profile.apifox.env} 缺环境 ID——继续执行会拼出 -e undefined 或回落项目默认环境（可能是 local），请在 test-config 补齐后再跑`);
+      warnings.push(`环境 "${input.env}" 的 apifox_projects.${name}.envs.${envName} 缺环境 ID——继续执行会拼出 -e undefined 或回落项目默认环境（可能是 local），请在 test-config 补齐后再跑`);
     }
-    return { project: name, projectId: project.projectId, branch: project.branch, envName: profile.apifox.env, envId };
+    return { project: name, projectId: project.projectId, branch: project.branch, envName, envId };
   });
 
   const testData = { ...profile.testData };
   if (testData.prefix && input.iid !== undefined) {
-    testData.prefix = testData.prefix.replace('{iid}', String(input.iid));
+    testData.prefix = replaceRuntimePlaceholders(testData.prefix, input);
   }
+  if (testData.seedFiles) testData.seedFiles = testData.seedFiles.map((item) => replaceRuntimePlaceholders(item, input));
 
   return {
     env: input.env,
-    apifox: apifoxTargets[0]!,
+    ...(apifoxTargets[0] ? { apifox: apifoxTargets[0] } : {}),
     apifoxTargets,
     databases: profile.databases ?? {},
     frontend: profile.frontend ?? {},
@@ -224,7 +282,15 @@ export function buildTestContext(
     credentials: profile.credentials ?? {},
     ...(profile.login ? { login: profile.login } : {}),
     ...(profile.webUrl ? { webUrl: profile.webUrl } : {}),
-    resolution: { repos: input.repos, matchedRoutes: resolution.matchedRoutes, unmatchedRepos: resolution.unmatchedRepos },
+    scripts: {
+      root: replaceRuntimePlaceholders(profile.scripts?.root ?? `.glab-flow/${input.iid ?? '{iid}'}/tests`, input),
+      ...(profile.scripts?.command ? { command: replaceRuntimePlaceholders(profile.scripts.command, input) } : {}),
+      ...(profile.scripts?.envFile ? { envFile: replaceRuntimePlaceholders(profile.scripts.envFile, input) } : {}),
+      ...(profile.scripts?.variables
+        ? { variables: Object.fromEntries(Object.entries(profile.scripts.variables).map(([k, v]) => [k, replaceRuntimePlaceholders(v, input)])) }
+        : {}),
+    },
+    resolution: { repos: input.repos, matchedRoutes: resolution.matchedRoutes, unmatchedRepos: resolution.unmatchedRepos, scriptOnlyRoutes: resolution.scriptOnlyRoutes },
     warnings,
   };
 }

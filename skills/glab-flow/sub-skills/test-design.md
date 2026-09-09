@@ -23,10 +23,10 @@ test-plan.md 须包含下列章节，缺一不可：
 
 - **测试目标**：本计划验证什么（对齐 proposal.md 的背景与目标）。
 - **测试范围**：范围内 / 范围外（明确列出不在本轮测试的模块与原因）。
-- **测试环境与数据集**（集中管理入口，值不复制——只引用 test-config 索引 + Apifox ID）：
-  - **环境矩阵**：本地 / Stage 各一行——web_url、Apifox envId、凭据变量名（`credentials.vars`，值在 apifox-vars.json）、数据前缀（`E2E{iid}L/T`）、数据库 MCP 引用。
-  - **场景 ↔ 数据集映射表**：每行 `场景 ID | 场景名 | 环境 | testDataId | 数据集名`——**环境列必填**（每环境一行）：行值来自本环境真实库时两环境各一条（各自的 testDataId）；仅当行值在两环境库都真实存在才可共用一份（映射表合并为一行标「共用」）。执行 `-d` 按当前环境取对应行的 testDataId，杜绝拿 local 数据集跑 test 轮。
-  - **前置 fixture**：哪些场景需先跑哪条 SQL seed（`fixtures/*.sql`），跑的顺序。
+- **测试环境与数据集**（集中管理入口，值不复制——只引用 test-config 索引、脚本上下文和可选 Apifox ID）：
+  - **环境矩阵**：本地 / Stage 各一行——web_url、脚本 root/命令/env 文件、Apifox envId（仅声明资产时）、凭据变量名（`credentials.vars`，值在 apifox-vars.json 或运行时 env 文件）、数据前缀（`E2E{iid}L/T`）、数据库 MCP 引用。
+  - **场景 ↔ 数据集映射表**：每行 `场景 ID | 场景名 | 环境 | testDataId/fixture | 数据集名`——**环境列必填**（每环境一行）：行值来自本环境真实库时两环境各一条（各自的 testDataId/fixture）；仅当行值在两环境库都真实存在才可共用一份（映射表合并为一行标「共用」）。执行时按当前环境取对应行，杜绝拿 local 数据集跑 test 轮。
+  - **前置 fixture**：哪些场景需先跑哪条 SQL seed（`fixtures/*.sql`），跑的顺序；涉及数据准备的 case 必须声明 `data-prep:`，写清数据来源、真实业务命名和生命周期（preserve/shared-candidate/temporary）。
 - **用例清单**：按用例编号、标题、类型（unit/integration/e2e/API）、步骤、预期、关联验收标准。
 - **验收标准 → 测试条目映射**：proposal.md 的每条 AC（AC1/AC2…）都映射到至少一个测试条目编号，确保无遗漏。
 - **边界与异常用例**：空值、越界、非法输入、并发、大流量、权限越权等显式列出。
@@ -43,13 +43,27 @@ asset: TP-001 | scenario
 asset: TP-001 | suite-or-group
 asset: TP-002 | scenario
 asset: TP-002 | test-data
+data-prep: TP-002 | fixtures/华东客户合同续费.sql | 华东客户合同续费审批数据 | shared-candidate
 -->
 ```
 
 - `case` 的 ID 必须对应「用例清单」中的条目；`local,test` 表示同一条用例两环境都要跑，不能用不同计划绕过某个环境。
 - 计划内容、覆盖范围或方法发生实质变化时递增 `plan-version`；旧版本的 TestRun 立即失效，必须按新计划重跑。
 - 纯后端需求没有 UI 验收时不写 `e2e`；不要为了“每环境都跑 E2E”伪造无意义用例。
-- 每个 API case 必须声明 `scenario`；仅在当前项目实际使用聚合入口、数据集或保存运行配置时声明 `suite-or-group`、`test-data`、`scenario-instance`。套件能力以当前 Apifox UI/CLI 回读为准，不假定所有项目都有该功能。
+- 每个 `api` case 必须声明 Apifox `scenario`；每个 `script` case 必须声明 `script: <case> | <relative-path> | <command>`；每个 `data` case 必须声明 `data-prep: <case> | <relative-source> | <realistic-name> | <preserve|shared-candidate|temporary>`。仅在当前项目实际使用聚合入口、数据集或保存运行配置时声明 `suite-or-group`、`test-data`、`scenario-instance`。套件能力以当前 Apifox UI/CLI 回读为准，不假定所有项目都有该功能。
+
+## 本地测试脚本治理
+
+- 脚本文件统一放在 `pnpm cli test-config --env <env>` 输出的 `scripts.root` 下，路径在 test-plan marker 中写相对路径；禁止写绝对路径、`..`、工作区根临时脚本或个人目录。
+- 同一条 case 在 local/test 可复用同一脚本，环境差异通过 `scripts.envFile`、`scripts.variables`、`webUrl`、`testData.prefix` 和数据库引用注入；脚本内部不得硬编码 local/test URL、账号、数据库或真实业务行值。
+- 计划 marker 示例：
+  ```text
+  case: TPS010 | local,test | script
+  script: TPS010 | leave-settlement.spec.ts | pnpm test:flow -- --case TPS010
+  data-prep: TPS010 | fixtures/华东客户合同续费.sql | 华东客户合同续费审批数据 | shared-candidate
+  ```
+- 脚本执行通过 DU `test-run` 记录：`evidence.script` 写命令/CI 报告摘要，涉及数据准备时 `evidence.data` 写 seed/fixture/数据库核对摘要，`detailRef` 指向报告或归档。纯脚本 case 不要求 Apifox AssetAudit。
+- 数据必须先准备再执行：进入 local/test 运行前，按 `data-prep:` 和 `test-config.testData.seedFiles` 检查 seed 文件、数据库引用、账号、数据前缀、真实命名和生命周期；缺一项即停止补配置/补 fixture，不允许边跑边猜数据。
 
 ## Apifox 资产治理
 
@@ -81,9 +95,9 @@ asset: TP-002 | test-data
 | Unit | 单函数/方法，依赖 mock | 覆盖核心逻辑分支 |
 | Integration | 端点、DB、跨模块 | 覆盖组装后的行为 |
 | E2E | 关键用户流程 | 覆盖上线即用户可见的路径 |
-| API | 接口契约（请求/响应/错误码） | 委托 apifox 运行时工具执行（见下） |
+| API | 接口契约（请求/响应/错误码） | 可由 Apifox 资产或受管脚本执行；以 test-plan marker 为准 |
 
-API 用例在设计阶段只列「用例描述 + 期望契约」，执行交给 apifox（见同目录 `test-flow-apifox.md`）。不在 test-plan.md 里手写 curl 脚本。
+API 用例在设计阶段列「用例描述 + 期望契约 + 执行入口」。新增/变更公共接口契约优先声明 Apifox `asset:`；复杂业务闭环、跨仓环境准备或需要更快本地反馈时，声明 `script:` 并把 HTTP/curl/runner 封装成受管脚本。禁止散落临场 curl：只要作为门禁证据，就必须在 test-plan 中声明 `script:` 并放入 `scripts.root`。
 
 ### 测试范围
 
@@ -98,7 +112,7 @@ API 用例在设计阶段只列「用例描述 + 期望契约」，执行交给 
 |----|---------|------|------|
 | AC1 | T01-价格计算-正常折扣 | unit | — |
 | AC1 | T02-价格计算-负数输入返回0 | unit | 边界 |
-| AC2 | T03-下单接口-成功 | API | 委托 apifox |
+| AC2 | T03-下单接口-成功 | API | asset: Apifox 场景 或 script: 受管脚本 |
 ```
 
 无映射的 AC 视为遗漏，必须补测试条目或显式标注「本轮不测 + 理由」。
@@ -109,7 +123,7 @@ API 用例在设计阶段只列「用例描述 + 期望契约」，执行交给 
 
 ## API 测试
 
-接口测试的设计（用例 + 期望契约）写进 test-plan.md，**执行**委托 apifox 运行时工具。具体执行方法论见同目录 `test-flow-apifox.md`，运行时工具清单见 `../tools.md`。test-design 不直接调用 apifox，只产出供它消费的用例描述。
+接口测试的设计（用例 + 期望契约 + 执行入口）写进 test-plan.md。声明 `asset:` 时，执行交给 `test-flow-apifox.md` 并需要 AssetAudit；声明 `script:` 时，执行交给脚本运行上下文并只要求 TestRun。运行时工具清单见 `../tools.md`。test-design 不直接调用 Apifox 或脚本 runner，只产出可执行、可审计的计划。
 
 ## E2E 测试（前端 UI 流）
 
@@ -119,8 +133,9 @@ UI 渲染、弹窗文案、按钮显隐分支、交互时序这类验收标准�
 
 - **环境维度二分（判定口诀）**：环境改变的是**执行参数**（base_url/账号/数据前缀/供应商映射）→ 同套件 `-e` 切，不复制；工具或数据准备确有差异时可分目录/套件，但必须仍覆盖同一 test-plan 中该环境要求的 case，不能以“开发自测覆盖面较小”少跑计划用例。
 - **禁止的是**:同一逻辑**复制 N 份仅参数不同**的场景/套件(那意味着改用例要改 N 处)——这类一律收敛为一份 + `-e` + `--variables` 文件。
-- **环境切换 = 运行时**:同一套件,执行时 `-e <envId> --variables <vars文件>` 切(test-context 的 apifoxTargets[].envId + test-config 的 variables_file);每环境各跑一次各出报告。**base_url 由 `-e` 切、凭据/参数由 vars 文件按环境条目注入**,场景/套件零改动。
-- **参数三轴归位**(判定口诀):随环境轴变(每环境一值)→ apifox-vars.json;随轮次轴变(同环境 N 值,矩阵)→ Apifox 云端数据集 `-d <testDataId>`(开发中可先本地行文件过渡);不变 → 写死在 case。账号和业务参数走同一机制,不按参数种类分。
+- **环境切换 = 运行时**:同一测试计划,执行时只切 `test-config --env`。脚本测试使用 `scripts.command` + `scripts.env_file` / `scripts.variables`；Apifox 资产使用 `-e <envId> --variables <vars文件>`（test-context 的 apifoxTargets[].envId + test-config 的 variables_file）。每环境各跑一次各出报告，场景/脚本逻辑零改动。
+- **参数三轴归位**(判定口诀):随环境轴变(每环境一值)→ `scripts.env_file` / `scripts.variables` 或 apifox-vars.json;随轮次轴变(同环境 N 值,矩阵)→ fixture/数据集（Apifox 可用云端数据集 `-d <testDataId>`，开发中可先本地行文件过渡）;不变 → 写死在 case。账号和业务参数走同一机制,不按参数种类分。
+- **数据资产化**：测试数据必须贴近真实业务：字段组合、状态、金额/日期/组织层级/权限角色要能代表真实场景；命名使用业务语义（如“华东客户合同续费审批数据”），禁止 `test/demo/tmp/foo` 这类占位名。执行产生的可复用数据默认 `preserve` 或 `shared-candidate`，终态进入资源清单/资产目录；只有明确污染性、一次性数据才 `temporary` 并设计清理。
 - **登录 = 共用契约**:所有项目从 test-config `login.owner` 项目持有的登录接口拿 token(`{{login.token_var}}`),后置提取注入后续步骤;不为每个项目各写一套登录。登录后置三件事（断言成功+提取 token+业务统一 `Bearer`）与多角色多 profile 规则见 `test-flow-apifox.md`「登录处理契约」。
 - **AuthProfile = 可审计复用**：每条需认证 case 在计划 marker 中声明 `auth-profile: <case> | <profile>`；登录后置同时断言成功、提取命名**临时** token，后续请求统一引用 `Bearer {{token}}`。账号、密码和 token 值只存在于运行时变量文件；401/403 保留为失败，不能静默重新登录掩盖问题。
 - **前后置脚本随场景设计**：需要认证链/随机单号/响应值下游引用/有副作用需清理的场景，在计划「用例步骤」里明确前置/后置脚本职责（备数据/提取/断言/清理），建模按 `test-flow-apifox.md`「前置/后置脚本使用规则」执行；**有副作用的场景必须设计清理步骤**（TMP 单据删除/状态回滚），不留污染。

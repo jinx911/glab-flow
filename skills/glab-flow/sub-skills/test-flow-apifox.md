@@ -65,6 +65,7 @@ apifox test-report list --project <id>    # 报告可从项目级查到,environm
 
 先以当前 CLI `--help` 和项目 UI 发现可用资源，再执行只读 `list/get`。Apifox 当前官方产品对测试套件存在版本/迁移差异：可用时它是冒烟、模块回归、发布回归等稳定聚合入口；不可用时使用场景分组/批量运行，不得伪造 suite 资源或停止复用治理。
 
+0. 进入执行前先完成 E0 数据准备检查：按 test-plan 的 `data-prep:` 与 test-config 的 `testData.seedFiles` 准备当前环境 seed/fixture，回读数据库/数据集确认业务键真实存在，名称必须具备真实业务语义；缺数据、跨环境数据或占位命名时先修数据资产，不执行 Apifox。
 1. 从 test-plan 的 `asset:` 声明逐项盘点：`scenario`、`suite-or-group`、`test-data`、`scenario-instance`。
 2. 场景必须回读步骤非空；套件/分组必须回读成员非空；测试数据必须回读实际数据行；场景实例必须对应同一流程的环境/数据/循环配置。
 3. 新需求先检索现有业务域/功能能力资产，复用或更新优先于新建；新建/更新必须按当前 Apifox schema 校验、写入后 `get` 回读。不得自动删除已有资产。
@@ -236,7 +237,7 @@ apifox test-suite run <suiteId> --project <projectId> \
 | 自动化测试套件 | `apifox test-suite run` | 跑一批用例的自动化集合 |
 | 命令行批量执行 | `apifox run` | 在 CI 或批量场景用 CLI 跑用例集 |
 
-Apifox CLI 是全量安装并由 `doctor` 验收的运行时工具（见 `../tools.md`）；glab-flow 不自带 Apifox 云端资源，只提供执行方法论与结果契约。调用约定：
+Apifox CLI 是声明 Apifox 资产时启用的运行时工具（见 `../tools.md`）；glab-flow 不自带 Apifox 云端资源，只提供执行方法论与结果契约。调用约定：
 
 - **同步取结果**：执行后必须拿到结构化结果（通过/失败计数 + 失败明细），不异步丢任务。
 - **对齐 test-plan.md**：执行范围对齐 test-design 产出的接口用例清单，每条用例的执行结果回填到它的用例编号，便于追溯。**环境与 `-d` 参数从 test-plan.md 的「测试环境与数据集」章节读**（环境矩阵 + 场景↔数据集映射表），不在执行时现场翻 config 或猜数据集。

@@ -4,6 +4,8 @@ const REQUIRED_GRILLING_COVERAGE = ['目标与范围', '角色与权限', '业�
 const FRONTEND_SIGNAL = /前端|页面|菜单|路由|\burl\b|网址/i;
 const MARKDOWN_IMAGE = /!\[[^\]]*\]\(([^\s)]+)(?:\s+['"][^)]*['"])?\)/g;
 const HTML_IMAGE = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+const IMPROVEMENT_AREAS = new Set(['solution', 'interaction', 'scope', 'risk', 'other']);
+const IMPROVEMENT_DECISIONS = new Set(['accepted', 'rejected', 'deferred']);
 
 /** Extract every distinct Issue image source; the Leader downloads these originals before OCR. */
 export function extractIssueImageSources(body: string, notes: { body: string }[]): string[] {
@@ -89,6 +91,21 @@ export function validateRequirementsReviewEvidence(
     missing.push('reviewEvidence.grilling.decisions');
   }
 
+  for (const improvement of evidence.improvements ?? []) {
+    if (!IMPROVEMENT_AREAS.has(improvement.area)) {
+      reasons.push(`需求评审改进建议类型无效：${improvement.area}`);
+      missing.push('reviewEvidence.improvements');
+    }
+    if (!improvement.suggestion.trim() || !improvement.rationale.trim()) {
+      reasons.push('需求评审改进建议必须包含建议内容和依据');
+      missing.push('reviewEvidence.improvements');
+    }
+    if (!IMPROVEMENT_DECISIONS.has(improvement.requesterDecision)) {
+      reasons.push(`需求评审改进建议缺少提单人反馈结论：${improvement.requesterDecision}`);
+      missing.push('reviewEvidence.improvements');
+    }
+  }
+
   return reasons.length ? fail(reasons, [...new Set(missing)]) : { ok: true, reasons: [], missing: [] };
 }
 
@@ -96,15 +113,23 @@ export function validateRequirementsReviewEvidence(
 export function renderRequirementsReviewEvidence(evidence: RequirementsReviewEvidence): string {
   const verified = evidence.images.filter((image) => image.ocrStatus === 'verified').length;
   const noText = evidence.images.filter((image) => image.ocrStatus === 'no-text').length;
+  const improvements = evidence.improvements ?? [];
+  const accepted = improvements.filter((item) => item.requesterDecision === 'accepted').length;
+  const rejected = improvements.filter((item) => item.requesterDecision === 'rejected').length;
+  const deferred = improvements.filter((item) => item.requesterDecision === 'deferred').length;
   const routes = evidence.frontend.applicable
     ? evidence.frontend.routes.map((route) => `${route.requestedLocation} → ${route.resolvedPath}`).join('；')
     : '不适用（已核查）';
-  return [
+  const lines = [
     '## 需求评审取证',
     '',
     `- Issue 图片：${evidence.images.length} 张（OCR 已识别 ${verified}，无文本 ${noText}）`,
     `- 前端页面核查：${routes}`,
     `- Grilling 覆盖：${evidence.grilling.coverage.join('、')}`,
     `- 决策账本：${evidence.grilling.decisions.length} 条（未决 0）`,
-  ].join('\n');
+  ];
+  if (improvements.length) {
+    lines.push(`- 改进建议：${improvements.length} 条（采纳 ${accepted} / 不采纳 ${rejected} / 暂缓 ${deferred}）`);
+  }
+  return lines.join('\n');
 }

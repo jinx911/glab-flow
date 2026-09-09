@@ -55,9 +55,33 @@ describe('requirements review evidence', () => {
     const receipt = renderRequirementsReviewEvidence({
       ...BASE,
       images: [{ source: '/uploads/a.png', ocrStatus: 'verified', ocrText: '提交审批', visualSummary: '审批详情中的提交按钮' }],
+      improvements: [{ area: 'interaction', suggestion: '把批量确认合并成一步', rationale: '减少重复点击', requesterDecision: 'accepted' }],
     });
     expect(receipt).toContain('## 需求评审取证');
     expect(receipt).toContain('OCR 已识别 1');
+    expect(receipt).toContain('改进建议：1 条（采纳 1 / 不采纳 0 / 暂缓 0）');
     expect(receipt).not.toContain('提交审批');
+    expect(receipt).not.toContain('批量确认');
+  });
+
+  it('validates optional improvement suggestions as requester decisions, not silent scope expansion', () => {
+    const ok = validateRequirementsReviewEvidence('', [], {
+      ...BASE,
+      improvements: [
+        { area: 'solution', suggestion: '改为配置驱动', rationale: '减少后续手动发布配置', requesterDecision: 'deferred' },
+      ],
+    });
+    expect(ok.ok).toBe(true);
+
+    const invalid = validateRequirementsReviewEvidence('', [], {
+      ...BASE,
+      improvements: [
+        { area: 'interaction', suggestion: '', rationale: '减少返工', requesterDecision: 'accepted' },
+        { area: 'bad', suggestion: '自动扩范围', rationale: '方便', requesterDecision: 'unknown' },
+      ],
+    } as unknown as RequirementsReviewEvidence);
+    expect(invalid.ok).toBe(false);
+    expect(invalid.missing).toContain('reviewEvidence.improvements');
+    expect(invalid.reasons.join('\n')).toContain('缺少提单人反馈结论');
   });
 });

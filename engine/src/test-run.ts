@@ -3,10 +3,13 @@ import { chronologicalNotes } from './notes.js';
 
 const PLAN_MARKER = '<!-- glab-flow:test-plan:v1';
 const RUN_MARKER = '<!-- glab-flow:test-run:v1';
-const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual', 'unit']);
+const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual', 'unit', 'script']);
 const ASSET_TYPES = new Set<ApifoxAssetType>(['scenario', 'suite-or-group', 'test-data', 'scenario-instance']);
 const ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const ENVIRONMENT = /^[a-z][a-z0-9-]*$/;
+const SCRIPT_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/;
+const DATA_PREP_SOURCE = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._:/-]+$/;
+const DATA_PREP_LIFECYCLES = new Set(['preserve', 'shared-candidate', 'temporary']);
 
 type MarkerBlock = { body: string; closed: boolean };
 
@@ -49,13 +52,37 @@ function parsePlanCase(value: string): TestPlanCase | string {
   if (new Set(environments).size !== environments.length || new Set(methods).size !== methods.length) {
     return `case ${parts[0]} 含重复环境或方法`;
   }
-  return { id: parts[0]!, environments, methods: methods as TestMethod[], assets: [], presentations: [], authProfiles: [] };
+  return { id: parts[0]!, environments, methods: methods as TestMethod[], scripts: [], dataPreps: [], assets: [], presentations: [], authProfiles: [] };
 }
 
 function parsePlanAsset(value: string): { caseId: string; type: ApifoxAssetType } | string {
   const parts = value.split('|').map((part) => part.trim());
   if (parts.length !== 2 || !ID.test(parts[0] ?? '') || !ASSET_TYPES.has(parts[1] as ApifoxAssetType)) return `asset 格式无效：${value}`;
   return { caseId: parts[0]!, type: parts[1] as ApifoxAssetType };
+}
+
+function parsePlanScript(value: string): { caseId: string; path: string; command: string } | string {
+  const parts = value.split('|').map((part) => part.trim());
+  if (parts.length !== 3 || !ID.test(parts[0] ?? '')) return `script 格式无效：${value}（应为 script: <case> | <relative-path> | <command>）`;
+  const path = parts[1] ?? '';
+  const command = parts[2] ?? '';
+  if (!SCRIPT_PATH.test(path)) return `script ${parts[0]} 路径无效：${path}（必须是相对路径，不能含 ..）`;
+  if (!command) return `script ${parts[0]} 缺执行命令`;
+  return { caseId: parts[0]!, path, command };
+}
+
+function parsePlanDataPrep(value: string): { caseId: string; source: string; name: string; lifecycle: 'preserve' | 'shared-candidate' | 'temporary' } | string {
+  const parts = value.split('|').map((part) => part.trim());
+  if (parts.length !== 4 || !ID.test(parts[0] ?? '')) {
+    return `data-prep 格式无效：${value}（应为 data-prep: <case> | <relative-source> | <realistic-name> | <preserve|shared-candidate|temporary>）`;
+  }
+  const source = parts[1] ?? '';
+  const name = parts[2] ?? '';
+  const lifecycle = parts[3] ?? '';
+  if (!DATA_PREP_SOURCE.test(source)) return `data-prep ${parts[0]} 数据来源无效：${source}（必须是相对路径或资源 ID，不能含 ..）`;
+  if (!name || /^tmp-|^test-|^demo-|^foo$|^bar$/i.test(name)) return `data-prep ${parts[0]} 命名无效：${name}（必须贴近真实业务命名，不能用 tmp/test/demo/foo/bar 占位）`;
+  if (!DATA_PREP_LIFECYCLES.has(lifecycle)) return `data-prep ${parts[0]} lifecycle 无效：${lifecycle}`;
+  return { caseId: parts[0]!, source, name, lifecycle: lifecycle as 'preserve' | 'shared-candidate' | 'temporary' };
 }
 
 function parsePlanAuthProfile(value: string): { caseId: string; profile: string } | string {
@@ -86,6 +113,8 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
   let requiredAcs: string[] | undefined;
   const cases: TestPlanCase[] = [];
   const assets: { caseId: string; type: ApifoxAssetType }[] = [];
+  const scripts: { caseId: string; path: string; command: string }[] = [];
+  const dataPreps: { caseId: string; source: string; name: string; lifecycle: 'preserve' | 'shared-candidate' | 'temporary' }[] = [];
   const presentations: { caseId: string; type: ApifoxAssetType }[] = [];
   const authProfiles: { caseId: string; profile: string }[] = [];
   const acMappings: { caseId: string; acs: string[] }[] = [];
@@ -114,6 +143,18 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
       const parsed = parsePlanCase(value!);
       if (typeof parsed === 'string') errors.push(parsed);
       else cases.push(parsed);
+      continue;
+    }
+    if (key === 'script') {
+      const parsed = parsePlanScript(value!);
+      if (typeof parsed === 'string') errors.push(parsed);
+      else scripts.push(parsed);
+      continue;
+    }
+    if (key === 'data-prep') {
+      const parsed = parsePlanDataPrep(value!);
+      if (typeof parsed === 'string') errors.push(parsed);
+      else dataPreps.push(parsed);
       continue;
     }
     if (key === 'asset') {
@@ -146,6 +187,24 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
   if (!cases.length) errors.push('测试计划至少需要一个 case');
   if (new Set(cases.map((item) => item.id)).size !== cases.length) errors.push('测试计划 case ID 重复');
   const byId = new Map(cases.map((item) => [item.id, item]));
+  const seenScripts = new Set<string>();
+  for (const script of scripts) {
+    const testCase = byId.get(script.caseId);
+    const key = `${script.caseId}/${script.path}`;
+    if (!testCase) errors.push(`script 引用了未知 case：${script.caseId}`);
+    else if (seenScripts.has(key)) errors.push(`script 重复：${key}`);
+    else testCase.scripts.push({ path: script.path, command: script.command });
+    seenScripts.add(key);
+  }
+  const seenDataPreps = new Set<string>();
+  for (const dataPrep of dataPreps) {
+    const testCase = byId.get(dataPrep.caseId);
+    const key = `${dataPrep.caseId}/${dataPrep.source}`;
+    if (!testCase) errors.push(`data-prep 引用了未知 case：${dataPrep.caseId}`);
+    else if (seenDataPreps.has(key)) errors.push(`data-prep 重复：${key}`);
+    else testCase.dataPreps.push({ source: dataPrep.source, name: dataPrep.name, lifecycle: dataPrep.lifecycle });
+    seenDataPreps.add(key);
+  }
   const seenAssets = new Set<string>();
   for (const asset of assets) {
     const testCase = byId.get(asset.caseId);
@@ -177,6 +236,8 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
   }
   for (const testCase of cases) {
     if (testCase.methods.includes('api') && !testCase.assets.includes('scenario')) errors.push(`case ${testCase.id} 的 API 测试必须声明 scenario 资产`);
+    if (testCase.methods.includes('script') && !testCase.scripts.length) errors.push(`case ${testCase.id} 的 script 测试必须声明 script 资产`);
+    if (testCase.methods.includes('data') && !testCase.dataPreps.length) errors.push(`case ${testCase.id} 的 data 测试必须声明 data-prep`);
   }
   // Q1：AC 覆盖硬校验——ac-set 声明后每条 AC 必须至少映射一个 case；映射的 case 必须存在。
   // 未声明 ac-set 时按存量兼容放行（老计划无此字段），但 test-design 已要求新计划必带。
@@ -237,7 +298,7 @@ function parseRunBlock(block: MarkerBlock): { ok: true; run: TestRun } | { ok: f
   // version is accepted only for old receipts; current receipts do not use it.
   const known = new Set(['environment', 'plan-version', 'version', 'outcome', 'asset-audit', 'cases', 'evidence']);
   for (const key of fields.keys()) if (!known.has(key)) errors.push(`测试执行记录含未知字段：${key}`);
-  for (const key of ['environment', 'plan-version', 'outcome', 'asset-audit', 'cases', 'evidence']) if (!nonEmpty(fields.get(key))) errors.push(`测试执行记录缺 ${key}`);
+  for (const key of ['environment', 'plan-version', 'outcome', 'cases', 'evidence']) if (!nonEmpty(fields.get(key))) errors.push(`测试执行记录缺 ${key}`);
   const environment = fields.get('environment') ?? '';
   if (environment && !ENVIRONMENT.test(environment)) errors.push(`测试执行记录环境无效：${environment}`);
   if (fields.get('outcome') && fields.get('outcome') !== 'passed') errors.push('测试执行记录 outcome 必须为 passed');
@@ -261,7 +322,7 @@ function parseRunBlock(block: MarkerBlock): { ok: true; run: TestRun } | { ok: f
       environment,
       planVersion: fields.get('plan-version')!,
       outcome: 'passed',
-      assetAudit: fields.get('asset-audit')!,
+      ...(fields.get('asset-audit') ? { assetAudit: fields.get('asset-audit')! } : {}),
       cases: cases as Record<string, 'passed'>,
       evidence: evidence as Partial<Record<TestMethod, string>>,
     },
@@ -296,14 +357,19 @@ export function validateTestRun(plan: TestPlan, environment: TestEnvironment, la
   const run = latest.run;
   const errors: string[] = [];
   if (run.planVersion !== plan.version) errors.push(`${environment} 测试计划版本不匹配：当前 ${plan.version}，记录 ${run.planVersion}`);
-  if (run.assetAudit !== `${plan.version}/${environment}`) errors.push(`${environment} 测试执行记录未关联当前资产审计：应为 ${plan.version}/${environment}`);
   const required = plan.cases.filter((item) => item.environments.includes(environment));
   if (!required.length) errors.push(`测试计划没有要求 ${environment} 执行的 case`);
+  const requiresAssetAudit = required.some((item) => item.assets.length);
+  if (requiresAssetAudit && run.assetAudit !== `${plan.version}/${environment}`) errors.push(`${environment} 测试执行记录未关联当前资产审计：应为 ${plan.version}/${environment}`);
+  if (!requiresAssetAudit && run.assetAudit) errors.push(`${environment} 脚本型测试执行记录不应强绑 Apifox 资产审计`);
   const requiredIds = new Set(required.map((item) => item.id));
   for (const id of requiredIds) if (run.cases[id] !== 'passed') errors.push(`${environment} 缺通过 case：${id}`);
   for (const id of Object.keys(run.cases)) if (!requiredIds.has(id)) errors.push(`${environment} 记录含非本环境计划 case：${id}`);
   const methods = new Set(required.flatMap((item) => item.methods));
   for (const method of methods) if (!nonEmpty(run.evidence[method])) errors.push(`${environment} 缺 ${method} 执行证据`);
+  for (const item of required) {
+    if (item.methods.includes('script') && !item.scripts.length) errors.push(`${environment} case ${item.id} 缺脚本文件声明`);
+  }
   return errors.length ? { ok: false, errors } : { ok: true, errors: [] };
 }
 
@@ -315,7 +381,7 @@ export function renderTestRun(run: TestRun): string {
     '## 测试执行记录', '',
     `- 环境：${run.environment}`,
     `- 计划版本：${run.planVersion}`,
-    `- 资产审计：${run.assetAudit}`,
+    ...(run.assetAudit ? [`- 资产审计：${run.assetAudit}`] : []),
     `- 结论：${run.outcome === 'passed' ? '通过' : '未通过'}`,
     `- 用例结果：${cases}`,
     `- 执行证据：${evidence}`,
@@ -324,7 +390,7 @@ export function renderTestRun(run: TestRun): string {
     `environment: ${run.environment}`,
     `plan-version: ${run.planVersion}`,
     `outcome: ${run.outcome}`,
-    `asset-audit: ${run.assetAudit}`,
+    ...(run.assetAudit ? [`asset-audit: ${run.assetAudit}`] : []),
     `cases: ${cases}`,
     `evidence: ${evidence}`,
     '-->',

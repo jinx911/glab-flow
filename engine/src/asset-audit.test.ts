@@ -10,6 +10,7 @@ asset: TP-001 | scenario
 asset: TP-001 | suite-or-group
 asset: TP-002 | scenario
 asset: TP-002 | test-data
+data-prep: TP-002 | fixtures/realistic-customer-orders.sql | 华东客户合同续费订单数据 | shared-candidate
 -->`;
 
 const localAudit = `<!-- glab-flow:apifox-asset-audit:v1

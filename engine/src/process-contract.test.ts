@@ -173,6 +173,22 @@ describe('glab-flow process contracts', () => {
     expect(nodes).not.toMatch(/唯一可执行的回执模板/);
   });
 
+  it('documents comment templates for every state transition', () => {
+    const nodes = readProjectFile('skills/glab-flow/nodes.md');
+    const model = loadModel();
+    const transitions = [
+      ...model.story.transitions.map((transition) => `${transition.from} → ${transition.to}`),
+      ...model.bug.transitions.map((transition) => `${transition.from} → ${transition.to}`),
+      '开发中 → 待发布',
+    ];
+    for (const transition of [...new Set(transitions)]) {
+      expect(nodes).toContain(transition);
+    }
+    for (const title of ['需求提案要点', '评审意见', '技术方案', '提测说明', '测试报告与上线方案', '上线操作手册', '验收报告', '缺陷复现与根因', '验证报告']) {
+      expect(nodes).toContain(title);
+    }
+  });
+
   it('documents three-stage writeback (metadata/state-comment/readback) + resume recovery', () => {
     const gate = readProjectFile('skills/glab-flow/gate.md');
     const resume = readProjectFile('skills/glab-flow/resume.md');
@@ -227,18 +243,23 @@ describe('glab-flow process contracts', () => {
     expect(model).toMatch(/测试中: \[用例执行, 阻塞修复, 复测\]/);
   });
 
-  it('requires governed Apifox assets before each environment TestRun', () => {
+  it('requires governed Apifox assets only when the plan declares Apifox assets', () => {
     const skill = readProjectFile('skills/glab-flow/SKILL.md');
     const design = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
     const apifox = readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md');
     const tools = readProjectFile('skills/glab-flow/tools.md');
+    const guard = readProjectFile('engine/src/guard.ts');
+    const testRun = readProjectFile('engine/src/test-run.ts');
 
-    expect(skill).toMatch(/asset-audit/);
+    expect(skill).toMatch(/只有 test-plan 声明 Apifox `asset:` 时才强制 Apifox 资产审计/);
+    expect(design).toMatch(/script: <case> \| <relative-path> \| <command>/);
     expect(design).toMatch(/先检索.*复用|复用.*禁止.*复制/);
     expect(design).toMatch(/TMP-<iid>-/);
     expect(apifox).toMatch(/空壳|重复|孤儿/);
     expect(apifox).toMatch(/当前 CLI.*项目 UI|项目 UI.*当前 CLI/);
-    expect(tools).toMatch(/不硬编码.*必备能力/);
+    expect(tools).toMatch(/纯脚本计划不需要 Apifox AssetAudit/);
+    expect(guard).toMatch(/planRequiresApifoxAudit/);
+    expect(testRun).toMatch(/script 测试必须声明 script 资产/);
   });
 
   it('requires OCR, route evidence and resolved grilling before requirement review approval', () => {
@@ -252,9 +273,13 @@ describe('glab-flow process contracts', () => {
     expect(readProjectFile('engine/src/guard.ts')).toMatch(/validateRequirementsReviewEvidence/);
     expect(skill).toMatch(/OCR[\s\S]{0,100}页面/);
     expect(nodes).toMatch(/reviewEvidence/);
+    expect(nodes).toMatch(/reviewEvidence\.improvements/);
     expect(reviewPreview).toMatch(/逐张下载[\s\S]{0,100}OCR/);
     expect(reviewPreview).toMatch(/不得猜测页面地址/);
+    expect(reviewPreview).toMatch(/改进建议[\s\S]{0,120}交互优化反馈/);
+    expect(reviewPreview).toMatch(/采纳[\s\S]{0,80}proposal\/design\/test-plan/);
     expect(specAuthor).toMatch(/禁止猜测 URL/);
+    expect(specAuthor).toMatch(/更优方案[\s\S]{0,120}提单人/);
     expect(guards).toMatch(/G15/);
   });
 
