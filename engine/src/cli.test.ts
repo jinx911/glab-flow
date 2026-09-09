@@ -190,6 +190,21 @@ asset: TP-001 | scenario | scenario-101 | reuse
     expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('glab-flow:test-run:v1') });
   });
 
+  it('renders a script TestRun preview without Apifox audit coupling', () => {
+    const scriptPlan = `<!-- glab-flow:test-plan:v1
+plan-version: v4
+case: TP-S01 | test | script
+script: TP-S01 | scripts/leave-settlement.spec.ts | pnpm test:flow -- --case TP-S01
+-->`;
+    const result = cli('test-run', {
+      plan: scriptPlan,
+      run: { environment: 'test', planVersion: 'v4', outcome: 'passed', cases: { 'TP-S01': 'passed' }, evidence: { script: 'cmd:pnpm test:flow -- --env=test --case TP-S01' } },
+    });
+    expect(result.status).toBe(0);
+    expect(JSON.stringify(result.json)).not.toContain('asset-audit');
+    expect(result.json).toMatchObject({ validate: { ok: true }, comment: expect.stringContaining('script=cmd:pnpm test:flow') });
+  });
+
   it('renders a parseable asset-audit preview without I/O', () => {
     const result = cli('asset-audit', {
       plan,

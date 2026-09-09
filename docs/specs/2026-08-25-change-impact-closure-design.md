@@ -10,7 +10,7 @@
 
 1. `change-impact` 接收当前节点、变更来源、影响维度与当前测试计划，输出一条仅评论的 `WritePlan` 和确定性的影响矩阵。
 2. 评论中的 `glab-flow:change-impact:v1` 标记以 `status: open` 记录变更编号、必须更新的产物、建议退回节点及变更前测试计划版本。
-3. Leader 回读评论后，按输出修订 proposal/design/test-plan/Apifox 资产、排期或发布材料；需要回退时仍使用既有 `plan-return`，不由旁路命令暗改 Issue 状态。
+3. Leader 回读评论后，按输出修订 proposal/design/test-plan/Apifox 资产、计划日期或发布材料；需要回退时仍使用既有 `plan-return`，不由旁路命令暗改 Issue 状态。
 4. `change-close` 只在全部必需项有完成证据后生成 `status: closed` 的不可变评论。若测试计划被影响，它要求新计划有效且版本严格高于变更前版本；因此旧 local/test TestRun 和 AssetAudit 会被既有版本门禁自动淘汰。
 5. `transition` 与 `validate` 每次读取 notes 时检查所有未关闭变更。存在 open 记录即拒绝正向状态流转，直到对应 close 回执已回读。
 

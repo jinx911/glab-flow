@@ -118,7 +118,7 @@ export function renderChangeRequest(f: Record<string, string>): string {
     ['提出人', f['提出人']], ['实际提出日期', f['实际提出日期']],
     ['变更原因', f['变更原因']], ['已评审内容', f['已评审内容']],
     ['变更后内容', f['变更后内容']], ['影响范围', f['影响范围']],
-    ['排期影响', f['排期影响']], ['建议', f['建议']],
+    ['计划日期影响', f['计划日期影响']], ['建议', f['建议']],
   ];
   return ['## 需求变更申请', '', ...rows.filter(([, v]) => v).map(([k, v]) => `- ${k}：${v}`)].join('\n');
 }
@@ -150,9 +150,14 @@ export function renderCorrection(f: Record<string, string>): string {
  * The only fields allowed into the reader-facing Issue timeline. Gate evidence
  * remains in the run-state ledger and is intentionally absent here.
  */
-const NODE_CONTENT: Record<string, { title: string; keys: string[] }> = {
+export interface NodeCommentTemplate {
+  title: string;
+  keys: string[];
+}
+
+export const NODE_CONTENT: Record<string, NodeCommentTemplate> = {
   'story:草稿中:待评审': { title: '需求提案要点', keys: ['背景', '目标', '范围内', '范围外', '核心业务规则', '验收要点'] },
-  'story:待评审:已评审': { title: '评审意见', keys: ['评审要点', '问题清单', '修订要求'] },
+  'story:待评审:已评审': { title: '评审意见', keys: ['用户诉求理解', '评审要点', '问题清单', '改进建议', '交互优化建议', '提单人反馈结论', '修订要求'] },
   'story:已评审:开发中': { title: '技术方案', keys: ['技术方案版本', '方案概述', '影响模块', '数据模型变更', 'API契约', '前端页面与路由', '权限与安全', '迁移与配置', '测试计划摘要', '计划提测时间', '计划上线时间', '风险与对策', '回滚方案'] },
   'story:开发中:测试中': { title: '提测说明', keys: ['代码评审结论', '提测日期', '研发Assignee', '涉及项目与开发分支', '测试说明', '本次改动', '测试范围', '环境准备与配置', '测试重点', '已知限制'] },
   'story:开发中:待发布': { title: '提测说明', keys: ['代码评审结论', '提测日期', '研发Assignee', '涉及项目与开发分支', '测试说明', '本次改动', '测试范围', '环境准备与配置', '测试重点', '已知限制'] },

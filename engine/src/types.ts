@@ -34,7 +34,7 @@ export interface Payload {
   renderTransitions?: Transition[];
   /** Current contents of the Issue-scoped, versioned test-plan.md. */
   testPlan?: string;
-  /** DU 本地事实（P2 起：TestRun/AssetAudit 证据优先取本地，不再要求 Issue 评论）。 */
+  /** DU 本地事实（P2 起：TestRun/可选 AssetAudit 证据优先取本地，不再要求 Issue 评论）。 */
   du?: DuState;
   /** Evidence completed before a Story requirement review can be approved. */
   reviewEvidence?: RequirementsReviewEvidence;
@@ -170,6 +170,21 @@ export interface GrillingDecision {
   resolution: 'confirmed' | 'conditional-default';
 }
 
+export type ReviewImprovementArea = 'solution' | 'interaction' | 'scope' | 'risk' | 'other';
+export type ReviewImprovementDecision = 'accepted' | 'rejected' | 'deferred';
+
+/**
+ * Optional non-blocking improvement proposed after the real user intent is
+ * understood. Accepted items must be reflected in requirement/design assets by
+ * the Leader; rejected/deferred items remain as review trace only.
+ */
+export interface ReviewImprovementSuggestion {
+  area: ReviewImprovementArea;
+  suggestion: string;
+  rationale: string;
+  requesterDecision: ReviewImprovementDecision;
+}
+
 /** Machine-checkable summary of image, route and requirement-decision review evidence. */
 export interface RequirementsReviewEvidence {
   images: IssueImageReviewEvidence[];
@@ -182,6 +197,7 @@ export interface RequirementsReviewEvidence {
     decisions: GrillingDecision[];
     unresolved: string[];
   };
+  improvements?: ReviewImprovementSuggestion[];
 }
 
 export type RunMode = 'semi-auto' | 'full-auto';
@@ -220,7 +236,7 @@ export interface TransitionInput {
   fields?: Record<string, string>;
   /** Current contents of .glab-flow/<iid>/spec/test-plan.md, read by Leader. */
   testPlan?: string;
-  /** DU 本地事实（P2 起：TestRun/AssetAudit 证据优先取本地，Issue 评论仅兜底）。 */
+  /** DU 本地事实（P2 起：TestRun/可选 AssetAudit 证据优先取本地，Issue 评论仅兜底）。 */
   du?: DuState;
   /** 技术方案声明的受影响维度；已评审→开发中 时用于推导 proposedGateSet（引擎不写 DU）。 */
   declaredScopes?: ChangeScope[];
@@ -270,7 +286,7 @@ export interface TransitionOutput {
 export type TestEnvironment = string;
 /** GateSet currently binds only the two logical validation phases supported by the runtime. */
 export type GateEnvironment = 'local' | 'test';
-export type TestMethod = 'api' | 'e2e' | 'data' | 'manual' | 'unit';
+export type TestMethod = 'api' | 'e2e' | 'data' | 'manual' | 'unit' | 'script';
 export type ApifoxAssetType = 'scenario' | 'suite-or-group' | 'test-data' | 'scenario-instance';
 export type ApifoxAssetAction = 'reuse' | 'create' | 'update' | 'retire' | 'cleanup';
 
@@ -278,11 +294,26 @@ export interface TestPlanCase {
   id: string;
   environments: TestEnvironment[];
   methods: TestMethod[];
+  /** Repo/workspace managed scripts that prove this case; paths are relative to the configured script root. */
+  scripts: TestScriptRef[];
+  /** Data prerequisites that must be prepared before this case runs. */
+  dataPreps: TestDataPrepRef[];
   assets: ApifoxAssetType[];
   /** Assets whose Apifox list/detail projection must be audited by a v2 receipt. */
   presentations: ApifoxAssetType[];
   /** Named, non-secret authentication profiles required by this test case. */
   authProfiles: string[];
+}
+
+export interface TestScriptRef {
+  path: string;
+  command: string;
+}
+
+export interface TestDataPrepRef {
+  source: string;
+  name: string;
+  lifecycle: 'preserve' | 'shared-candidate' | 'temporary';
 }
 
 /** Parsed machine manifest embedded in the human-readable test-plan.md. */
@@ -296,8 +327,8 @@ export interface TestRun {
   environment: TestEnvironment;
   planVersion: string;
   outcome: 'passed' | 'failed';
-  /** Must equal `${planVersion}/${environment}` for the matching latest asset audit. */
-  assetAudit: string;
+  /** Present only when the current plan declares Apifox assets for this environment. */
+  assetAudit?: string;
   cases: Record<string, 'passed'>;
   evidence: Partial<Record<TestMethod, string>>;
 }

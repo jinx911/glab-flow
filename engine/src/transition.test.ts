@@ -552,7 +552,7 @@ describe('GateSet skip states (P3)', () => {
     }));
     expect(r.validate.ok).toBe(false);
     expect(r.playbook.map((step) => step.action)).toContain('run_affected_regression');
-    expect(r.playbook.find((step) => step.action === 'run_affected_regression')).toMatchObject({ environment: 'local', subskill: 'test-flow-e2e' });
+    expect(r.playbook.find((step) => step.action === 'run_affected_regression')).toMatchObject({ environment: 'local', subskill: 'test-flow' });
     expect(r.playbook.map((step) => step.action)).not.toContain('run_full_regression');
   });
 
@@ -566,7 +566,7 @@ describe('GateSet skip states (P3)', () => {
       fields: { ...TEST_DONE_FIELDS, 回归范围或证据: '全量回归' }, datesConfirmed: true, notes: [], du,
     }));
     expect(r.validate.ok).toBe(false);
-    expect(r.playbook.find((step) => step.action === 'run_full_regression')).toMatchObject({ environment: 'test', subskill: 'test-flow-e2e' });
+    expect(r.playbook.find((step) => step.action === 'run_full_regression')).toMatchObject({ environment: 'test', subskill: 'test-flow' });
   });
 
   it('verifies rollback readiness before a production deploy when GateSet requires it', () => {

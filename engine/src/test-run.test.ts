@@ -9,6 +9,7 @@ case: TP-001 | local,test | api,e2e
 case: TP-002 | test | data,manual
 case: TP-003 | local,test | unit
 asset: TP-001 | scenario
+data-prep: TP-002 | fixtures/realistic-customer-orders.sql | 华东客户合同续费订单数据 | shared-candidate
 -->`;
 
 const localRun = `<!-- glab-flow:test-run:v1
@@ -108,6 +109,49 @@ describe('test plan and environment execution receipts', () => {
     if (!parsed.ok) return;
     expect(validateTestRun(parsed.plan, 'local', parseLatestTestRun([{ body: localRun.replace('asset-audit: v3/local', 'asset-audit: v3/test') }], 'local')).errors)
       .toContain('local 测试执行记录未关联当前资产审计：应为 v3/local');
+  });
+
+  it('requires data-prep for data cases and rejects placeholder naming', () => {
+    const missingPrep = parseTestPlan(planText.replace('data-prep: TP-002 | fixtures/realistic-customer-orders.sql | 华东客户合同续费订单数据 | shared-candidate\n', ''));
+    expect(missingPrep.ok).toBe(false);
+    if (!missingPrep.ok) expect(missingPrep.errors).toContain('case TP-002 的 data 测试必须声明 data-prep');
+
+    const placeholder = parseTestPlan(planText.replace('华东客户合同续费订单数据', 'test-data'));
+    expect(placeholder.ok).toBe(false);
+    if (!placeholder.ok) expect(placeholder.errors.some((error) => error.includes('命名无效'))).toBe(true);
+  });
+
+  it('accepts script-managed cases without an Apifox asset audit', () => {
+    const scriptPlan = `# 测试计划
+
+<!-- glab-flow:test-plan:v1
+plan-version: v4
+case: TP-S01 | local,test | script
+script: TP-S01 | scripts/leave-settlement.spec.ts | pnpm test:flow -- --case TP-S01
+-->`;
+    const parsed = parseTestPlan(scriptPlan);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.plan.cases[0]?.scripts).toEqual([{ path: 'scripts/leave-settlement.spec.ts', command: 'pnpm test:flow -- --case TP-S01' }]);
+    const rendered = renderTestRun({
+      environment: 'test',
+      planVersion: 'v4',
+      outcome: 'passed',
+      cases: { 'TP-S01': 'passed' },
+      evidence: { script: 'cmd:pnpm test:flow -- --env=test --case TP-S01' },
+    });
+    expect(rendered).not.toContain('asset-audit:');
+    expect(validateTestRun(parsed.plan, 'test', parseLatestTestRun([{ body: rendered }], 'test'))).toEqual({ ok: true, errors: [] });
+  });
+
+  it('rejects script methods that are not tied to a managed relative script file', () => {
+    expect(parseTestPlan('<!-- glab-flow:test-plan:v1\nplan-version: v1\ncase: TP-S01 | local | script\n-->')).toMatchObject({
+      ok: false,
+      errors: expect.arrayContaining(['case TP-S01 的 script 测试必须声明 script 资产']),
+    });
+    const escaped = parseTestPlan('<!-- glab-flow:test-plan:v1\nplan-version: v1\ncase: TP-S01 | local | script\nscript: TP-S01 | ../tmp.spec.ts | pnpm test\n-->');
+    expect(escaped.ok).toBe(false);
+    if (!escaped.ok) expect(escaped.errors.some((e) => e.includes('路径无效'))).toBe(true);
   });
 
   it('parses optional presentation and authentication declarations without changing v1 plans', () => {

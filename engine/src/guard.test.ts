@@ -345,6 +345,25 @@ describe('GateSet-scoped guards (P3)', () => {
 });
 
 describe('DU-first evidence (P2)', () => {
+  it('accepts script-managed TestRun from DU without Apifox AssetAudit', () => {
+    const scriptPlan = `<!-- glab-flow:test-plan:v1
+plan-version: v4
+case: TP-S01 | local | script
+script: TP-S01 | scripts/leave-settlement.spec.ts | pnpm test:flow -- --case TP-S01
+-->`;
+    const du = duWith([
+      { kind: 'test-run', environment: 'local', planVersion: 'v4', outcome: 'passed', recordedAt: DU_NOW, detailRef: 'script:pnpm test:flow local' },
+    ]);
+    const p: Payload = {
+      type: 'story', from: '开发中', to: '测试中',
+      fields: DU_SUBMIT_FIELDS, testPlan: scriptPlan, du,
+      assigneeUser: '@qa', datesConfirmed: true,
+    };
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
+    expect(r.ok).toBe(true);
+    expect(r.missing).not.toContain('localAssetAudit');
+  });
+
   it('accepts local TestRun+AssetAudit from DU evidence without Issue comments', () => {
     const du = duWith([
       { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' },

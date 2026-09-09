@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { renderStatusChange, renderReturn, renderChangeRequest, renderTestIssue, renderCorrection, renderNodeComment, validatePublicComment } from './render.js';
+import { renderStatusChange, renderReturn, renderChangeRequest, renderTestIssue, renderCorrection, renderNodeComment, validatePublicComment, NODE_CONTENT } from './render.js';
+import { loadModel } from './model.js';
 import type { Payload } from './types.js';
 
 describe('render', () => {
@@ -51,6 +52,18 @@ describe('extra templates', () => {
 });
 
 describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
+  it('covers every canonical transition with a node comment template', () => {
+    const model = loadModel();
+    const canonical = [
+      ...model.story.transitions.map((transition) => `story:${transition.from}:${transition.to}`),
+      ...model.bug.transitions.map((transition) => `bug:${transition.from}:${transition.to}`),
+      // GateSet skip projection can render the projected final target directly.
+      'story:开发中:待发布',
+      'bug:开发中:待发布',
+    ];
+    expect([...new Set(canonical)].filter((key) => !NODE_CONTENT[key])).toEqual([]);
+  });
+
   it('已评审→开发中:状态头 + 技术方案内容体 + 兜底', () => {
     const md = renderNodeComment({
       type: 'story', from: '已评审', to: '开发中',
@@ -81,6 +94,27 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
     const md = renderNodeComment({ type: 'story', from: '草稿中', to: '待评审', fields: { 背景: 'b', 目标: 'g' }, assigneeUser: '@pm' });
     expect(md).toContain('## 需求提案要点');
     expect(md).toContain('- 背景：b');
+  });
+
+  it('待评审→已评审:评审意见包含诉求理解、改进建议和提单人反馈', () => {
+    const md = renderNodeComment({
+      type: 'story',
+      from: '待评审',
+      to: '已评审',
+      fields: {
+        用户诉求理解: '减少审批人重复操作',
+        评审要点: '范围、角色、验收均已确认',
+        改进建议: '将批量催办作为配置项，默认关闭',
+        交互优化建议: '列表页增加批量入口与二次确认',
+        提单人反馈结论: '采纳交互优化，方案配置化暂缓',
+      },
+      assigneeUser: '@dev',
+    });
+    expect(md).toContain('## 评审意见');
+    expect(md).toContain('- 用户诉求理解：减少审批人重复操作');
+    expect(md).toContain('- 改进建议：将批量催办作为配置项，默认关闭');
+    expect(md).toContain('- 交互优化建议：列表页增加批量入口与二次确认');
+    expect(md).toContain('- 提单人反馈结论：采纳交互优化，方案配置化暂缓');
   });
 
   it('bug 已确认缺陷→开发中:缺陷复现与根因', () => {
