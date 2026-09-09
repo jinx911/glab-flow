@@ -120,7 +120,7 @@ flowchart TD
 | **事实/标签** | G5 标签唯一(脏状态拒绝) · G6 Assignee 是具体 @用户 · **G6b 有交付协同表时校验角色匹配** |
 | **不臆造** | G9 禁「待确认」占位 · G10 日期需 datesConfirmed |
 | **写计划** | G7 不改原文 · G8 不编评论 · G12 终态原子(标签+Assignee+评论+关闭同次) · G13 不建 Jira |
-| **发布门** | G11 阻塞发布问题全验证才放行(需求+Bug；仅进入过测试环境的路线) · G14 feature→master MR 评审前置(无 CRITICAL/HIGH 残留才放行；仅 DU GateSet `mrReview=true` 时必填) |
+| **发布门** | G11 阻塞发布问题全验证才放行(需求+Bug；仅进入过测试环境的路线) · G14 feature→master 发布 MR 评审前置(测试中→待发布 只打开/确认 MR，不合并 master；无 CRITICAL/HIGH 残留才放行；仅 DU GateSet `mrReview=true` 时必填) |
 | **变更闭环** | G16 未关闭的变更影响单阻断正向流转；变化分级 T1–T4（`change` 自动定级+GateSet 棘轮扩容），T3+ 测试计划受影响时必须版本递增并按影响范围重跑相关环境 |
 
 > 引擎权威来源：`engine/state-machine.yaml`（模型）+ `engine/src/guard.ts`（护栏）。规则与 harness 文档漂移由 `engine/src/contract.ts` 检测。
@@ -139,5 +139,6 @@ TestPlan（逻辑环境）
 
 - 环境事实任一不一致即停止：例如脚本变量指向 local 但计划跑 test，或 Stage 入口的 Apifox 页面列显示 local。
 - 数据准备任一不一致即停止：`data-prep:`、`testData.seedFiles`、数据库引用、数据前缀、账号和真实命名必须在执行前核对完成；可复用数据保留或升级共享资产。
+- 测试中→待发布 的 `回归范围或证据` 必须列出本轮测试用例/场景和执行证据；`测试环境数据清单` 必须按这些测试用例/场景逐行对齐。若证据中使用 TC-/TP-/CASE- 编号，数据清单必须复用相同编号逐项列出 test 环境使用/产生的数据、关键业务键、来源与保留/清理策略，供人工页面核对或查库。
 - 场景步骤、套件成员与数据集优先复用；跨环境只有配置差异时使用场景实例或环境入口，不复制完整流程。
 - 登录是可复用 AuthProfile：运行时变量注入账号密码，登录后置提取临时 token，业务接口统一引用鉴权变量；401/403 不静默重试。

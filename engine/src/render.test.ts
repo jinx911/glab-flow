@@ -10,13 +10,16 @@ describe('render', () => {
       assigneeUser: '@dev' };
     const md = renderStatusChange(p);
     expect(md).toContain('## 状态变更');
+    expect(md).toContain('| 项目 | 内容 |');
+    expect(md).toContain('| 变更 | `待评审` → `已评审` |');
     expect(md).toContain('`待评审` → `已评审`');
     expect(md).toContain('2026-07-28');
     expect(md).toContain('@pm');
+    expect(md).not.toContain('glab-flow:field-index');
   });
   it('renders a 退回 comment with the 问题清单', () => {
     const md = renderReturn('草稿中', ['范围未明确', '验收标准缺失'], '@pm', '2026-07-28');
-    expect(md).toContain('退回：`草稿中`');
+    expect(md).toContain('| 退回 | `草稿中` |');
     expect(md).toContain('范围未明确');
   });
   it('emits every field, including ones without a semantic label', () => {
@@ -24,9 +27,9 @@ describe('render', () => {
       fields: { 实际开始日期: '2026-07-28', 研发Assignee: '@dev', 计划提测时间: '2026-08-10', 计划上线时间: '2026-08-20', 技术方案评审通过记录或免评审结论: '免评审' },
       assigneeUser: '@dev' };
     const md = renderStatusChange(p);
-    expect(md).toContain('计划提测时间：2026-08-10');
-    expect(md).toContain('计划上线时间：2026-08-20');
-    expect(md).toContain('依据：免评审');
+    expect(md).toContain('| 计划提测时间 | 2026-08-10 |');
+    expect(md).toContain('| 计划上线时间 | 2026-08-20 |');
+    expect(md).toContain('| 依据 | 免评审 |');
   });
 });
 
@@ -34,19 +37,19 @@ describe('extra templates', () => {
   it('renders 需求变更申请', () => {
     const md = renderChangeRequest({ 提出人: '@pm', 变更原因: '范围扩大', 建议: '待重新评审' });
     expect(md).toContain('## 需求变更申请');
-    expect(md).toContain('- 提出人：@pm');
-    expect(md).toContain('- 变更原因：范围扩大');
-    expect(md).toContain('- 建议：待重新评审');
+    expect(md).toContain('| 提出人 | @pm |');
+    expect(md).toContain('| 变更原因 | 范围扩大 |');
+    expect(md).toContain('| 建议 | 待重新评审 |');
   });
   it('renders 测试问题', () => {
     const md = renderTestIssue({ 发现人: '@qa', 是否阻塞发布: '是', 当前结论: '待处理' });
     expect(md).toContain('## 测试问题');
-    expect(md).toContain('- 是否阻塞发布：是');
+    expect(md).toContain('| 是否阻塞发布 | 是 |');
   });
   it('renders 补充/更正 and skips empty fields', () => {
     const md = renderCorrection({ 对应节点: '已评审', 更正内容: '验收标准补充' });
     expect(md).toContain('## 补充/更正');
-    expect(md).toContain('- 对应节点：已评审');
+    expect(md).toContain('| 对应节点 | 已评审 |');
     expect(md).not.toContain('原记录链接');
   });
 });
@@ -76,12 +79,12 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
     });
     expect(md).toContain('## 状态变更');
     expect(md).toContain('`已评审` → `开发中`');
-    expect(md).toContain('- 实际日期：2026-08-13');
-    expect(md).toContain('- 依据：技评通过');
+    expect(md).toContain('| 实际日期 | 2026-08-13 |');
+    expect(md).toContain('| 依据 | 技评通过 |');
     expect(md).toContain('## 技术方案');
-    expect(md).toContain('- 方案概述：部分扣减');
-    expect(md).toContain('- 回滚方案：down()');
-    expect(md).toContain('- 计划提测时间：2026-08-20');
+    expect(md).toContain('| 方案概述 | 部分扣减 |');
+    expect(md).toContain('| 回滚方案 | down() |');
+    expect(md).toContain('| 计划提测时间 | 2026-08-20 |');
   });
 
   it('内容字段缺失则跳过内容体(不卡流转)', () => {
@@ -93,7 +96,7 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
   it('草稿中→待评审:需求提案要点', () => {
     const md = renderNodeComment({ type: 'story', from: '草稿中', to: '待评审', fields: { 背景: 'b', 目标: 'g' }, assigneeUser: '@pm' });
     expect(md).toContain('## 需求提案要点');
-    expect(md).toContain('- 背景：b');
+    expect(md).toContain('| 背景 | b |');
   });
 
   it('待评审→已评审:评审意见包含诉求理解、改进建议和提单人反馈', () => {
@@ -111,16 +114,16 @@ describe('renderNodeComment — 合并评论(状态头 + 内容体)', () => {
       assigneeUser: '@dev',
     });
     expect(md).toContain('## 评审意见');
-    expect(md).toContain('- 用户诉求理解：减少审批人重复操作');
-    expect(md).toContain('- 改进建议：将批量催办作为配置项，默认关闭');
-    expect(md).toContain('- 交互优化建议：列表页增加批量入口与二次确认');
-    expect(md).toContain('- 提单人反馈结论：采纳交互优化，方案配置化暂缓');
+    expect(md).toContain('| 用户诉求理解 | 减少审批人重复操作 |');
+    expect(md).toContain('| 改进建议 | 将批量催办作为配置项，默认关闭 |');
+    expect(md).toContain('| 交互优化建议 | 列表页增加批量入口与二次确认 |');
+    expect(md).toContain('| 提单人反馈结论 | 采纳交互优化，方案配置化暂缓 |');
   });
 
   it('bug 已确认缺陷→开发中:缺陷复现与根因', () => {
     const md = renderNodeComment({ type: 'bug', from: '已确认缺陷', to: '开发中', fields: { 复现步骤: 's', 根因: 'r' }, assigneeUser: '@dev' });
     expect(md).toContain('## 缺陷复现与根因');
-    expect(md).toContain('- 根因：r');
+    expect(md).toContain('| 根因 | r |');
   });
 
 });
@@ -136,7 +139,7 @@ describe('团队交接评论（内部证据隔离）', () => {
       }, assigneeUser: '@qa',
     });
     expect(md).toContain('## 提测说明');
-    expect(md).toContain('- 涉及项目与开发分支：oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page');
+    expect(md).toContain('| 涉及项目与开发分支 | oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page |');
     expect(md).toContain('## 下一步');
     expect(md).not.toContain('Apifox');
     expect(md).not.toContain('internal-only');
@@ -147,16 +150,48 @@ describe('团队交接评论（内部证据隔离）', () => {
       type: 'story', from: '测试中', to: '待发布',
       fields: {
         涉及项目与开发分支: 'oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page',
+        回归范围或证据: 'TP-001 离职审批 API+E2E；TestRun v3/test passed',
+        测试环境数据清单: 'TP-001：test：离职审批单 LZ-20260909-001，员工 E10086，来源 fixtures/离职审批.sql，preserve',
         业务覆盖范围: '离职审批、结算与权限', 缺陷处理结果: '阻塞问题已关闭', 遗留风险: '无阻塞遗留风险',
         上线步骤: '按发布计划执行', 配置清单: '完成后台配置', 回滚方案: '回滚版本与配置', 发布建议: '建议发布',
         测试账号: 'internal-user', reportId与环境: 'report:123',
       }, assigneeUser: '@dev',
     });
     expect(md).toContain('## 测试报告与上线方案');
-    expect(md).toContain('- 涉及项目与开发分支：oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page');
-    expect(md).toContain('- 业务覆盖范围：离职审批、结算与权限');
+    expect(md).toContain('| 涉及项目与开发分支 | oa-platform:feature/leave-settlement；oa-frontend:feature/leave-page |');
+    expect(md).toContain('| 回归范围或证据 | TP-001 离职审批 API+E2E；TestRun v3/test passed |');
+    expect(md).toContain('| 测试环境数据清单 | TP-001：test：离职审批单 LZ-20260909-001，员工 E10086，来源 fixtures/离职审批.sql，preserve |');
+    expect(md).toContain('| 业务覆盖范围 | 离职审批、结算与权限 |');
     expect(md).not.toContain('测试账号');
     expect(md).not.toContain('report:123');
+  });
+
+  it('renders multiline structured fields as readable subsections instead of crowded table cells', () => {
+    const regression = [
+      '| 用例 | 场景 | 结论 |',
+      '|---|---|---|',
+      '| TC-001 | 离职交接候选范围 | passed |',
+      '| TC-002 | 跨租户真实下属差集展示 | passed |',
+    ].join('\n');
+    const data = [
+      '| 用例/场景 | 数据 | 关键业务键 | 来源 | 保留策略 |',
+      '|---|---|---|---|---|',
+      '| TC-001 | 离职审批单 | LZ-20260909-001 | seed/leave.sql | 保留至验收完成 |',
+    ].join('\n');
+    const md = renderNodeComment({
+      type: 'story', from: '测试中', to: '待发布',
+      fields: {
+        测试完成日期: '2026-08-29',
+        回归范围或证据: regression,
+        测试环境数据清单: data,
+      },
+      assigneeUser: '@dev',
+    });
+    expect(md).toContain('### 回归范围或证据');
+    expect(md).toContain('| 用例 | 场景 | 结论 |');
+    expect(md).toContain('### 测试环境数据清单');
+    expect(md).toContain('| 用例/场景 | 数据 | 关键业务键 | 来源 | 保留策略 |');
+    expect(md).not.toContain('| 回归范围或证据 |');
   });
 
   it('renders complete production handoff and acceptance report sections', () => {
@@ -169,8 +204,8 @@ describe('团队交接评论（内部证据隔离）', () => {
       },
     });
     expect(release).toContain('## 上线操作手册');
-    expect(release).toContain('- 部署顺序：先服务后前端');
-    expect(release).toContain('- 上线后验证：主流程与监控告警验证');
+    expect(release).toContain('| 部署顺序 | 先服务后前端 |');
+    expect(release).toContain('| 上线后验证 | 主流程与监控告警验证 |');
 
     const acceptance = renderNodeComment({
       type: 'story', from: '生产验收中', to: '已完成', assigneeUser: '@pm',
@@ -181,8 +216,8 @@ describe('团队交接评论（内部证据隔离）', () => {
       },
     });
     expect(acceptance).toContain('## 验收报告');
-    expect(acceptance).toContain('- 验收范围：主流程、权限与通知');
-    expect(acceptance).toContain('- 后续行动：持续观察监控');
+    expect(acceptance).toContain('| 验收范围 | 主流程、权限与通知 |');
+    expect(acceptance).toContain('| 后续行动 | 持续观察监控 |');
   });
 
   it('blocks machine-only content from a formal state comment', () => {
@@ -223,10 +258,10 @@ describe('团队交接评论（内部证据隔离）', () => {
     expect(validatePublicComment(payload).ok).toBe(false);
   });
 
-  it('renders only a safe DU evidence summary and validates the full handoff', () => {
+  it('keeps DU evidence out of public comments and validates the visible handoff only', () => {
     const payload: Payload = {
       type: 'story', from: '测试中', to: '待发布',
-      fields: { 测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: '完整回归', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
+      fields: { 测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'TP-001；完整回归 TestRun v3/test passed', 测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
       du: {
         iid: 22, type: 'story', cachedNode: '测试中', affectedScopes: ['functional'],
         evidence: [{ kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: '2026-08-29T10:00:00Z', detailRef: 'report:101' }],
@@ -235,8 +270,8 @@ describe('团队交接评论（内部证据隔离）', () => {
       assigneeUser: '@dev',
     };
     const md = renderNodeComment(payload);
-    expect(md).toContain('## 证据摘要');
-    expect(md).toContain('- local：执行 v3 / passed');
+    expect(md).not.toContain('## 证据摘要');
+    expect(md).not.toContain('glab-flow:field-index');
     expect(md).not.toContain('report:101');
     expect(validatePublicComment(payload).ok).toBe(true);
 
@@ -244,7 +279,7 @@ describe('团队交接评论（内部证据隔离）', () => {
     expect(validatePublicComment(unsafeNextStep).ok).toBe(false);
   });
 
-  it('rejects untrusted DU digest fields instead of excluding the digest from validation', () => {
+  it('does not validate DU-only fields as public comment content', () => {
     const payload: Payload = {
       type: 'story', from: '测试中', to: '待发布', fields: {}, assigneeUser: '@dev',
       du: {
@@ -254,11 +289,10 @@ describe('团队交接评论（内部证据隔离）', () => {
       },
     };
     const result = validatePublicComment(payload);
-    expect(result.ok).toBe(false);
-    expect(result.missing).toContain('publicEvidenceDigest');
+    expect(result.ok).toBe(true);
   });
 
-  it('accepts dotted public plan versions in the DU digest', () => {
+  it('accepts DU evidence when the rendered public comment itself is safe', () => {
     const payload: Payload = {
       type: 'story', from: '测试中', to: '待发布', fields: {}, assigneeUser: '@dev',
       du: {
@@ -270,7 +304,7 @@ describe('团队交接评论（内部证据隔离）', () => {
     expect(validatePublicComment(payload).ok).toBe(true);
   });
 
-  it('rejects unknown digest environments and GateSet scopes', () => {
+  it('ignores DU digest environments and GateSet scopes in public comment validation', () => {
     const payload: Payload = {
       type: 'story', from: '测试中', to: '待发布', fields: {}, assigneeUser: '@dev',
       du: {
@@ -283,7 +317,7 @@ describe('团队交接评论（内部证据隔离）', () => {
         },
       },
     };
-    expect(validatePublicComment(payload).ok).toBe(false);
+    expect(validatePublicComment(payload).ok).toBe(true);
   });
 
   it('renders every canonical required fact in the public handoff', () => {
@@ -291,14 +325,17 @@ describe('团队交接评论（内部证据隔离）', () => {
       type: 'story', from: '测试中', to: '待发布', assigneeUser: '@dev',
       fields: {
         测试完成日期: '2026-08-29', 测试Assignee: '@qa', 测试结论: '通过',
-        回归范围或证据: '完整回归', 阻塞发布问题均已验证通过: '是',
+        回归范围或证据: 'TP-001；完整回归 TestRun v3/test passed',
+        测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve',
+        阻塞发布问题均已验证通过: '是',
         feature分支MR评审结论: '通过，无 HIGH 残留',
         涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
       },
     });
-    expect(md).toContain('- 测试完成日期：2026-08-29');
-    expect(md).toContain('- 阻塞发布问题均已验证通过：是');
-    expect(md).toContain('- feature分支MR评审结论：通过，无 HIGH 残留');
-    expect(md).toContain('- 涉及项目与开发分支：oa-platform: feature/leave-settlement');
+    expect(md).toContain('| 测试完成日期 | 2026-08-29 |');
+    expect(md).toContain('| 测试环境数据清单 | TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve |');
+    expect(md).toContain('| 阻塞发布问题均已验证通过 | 是 |');
+    expect(md).toContain('| feature分支MR评审结论 | 通过，无 HIGH 残留 |');
+    expect(md).toContain('| 涉及项目与开发分支 | oa-platform: feature/leave-settlement |');
   });
 });

@@ -20,7 +20,7 @@ describe('buildReturnPlan', () => {
     expect(plan.ops).toContainEqual({ kind: 'remove_label', value: 'story-status::待评审' });
     expect(plan.ops).toContainEqual({ kind: 'add_label', value: 'story-status::草稿中' });
     const c = plan.ops.find((o) => o.kind === 'add_comment');
-    expect(c && c.kind === 'add_comment' && c.body).toContain('退回：`草稿中`');
+    expect(c && c.kind === 'add_comment' && c.body).toContain('| 退回 | `草稿中` |');
     expect(c && c.kind === 'add_comment' && c.body).toContain('验收标准缺失');
   });
   it('omits set_assignee when no assigneeUser', () => {

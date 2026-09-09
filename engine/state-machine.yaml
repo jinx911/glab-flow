@@ -17,10 +17,10 @@ story:
        assigneeRole: 测试,
        playbook: [{action: commit_push_feature}, {action: merge_to_deploy_branch, when: config.deployBranch}, {action: trigger_jenkins, when: config.jenkins}]}
     - {from: 测试中, to: 待发布, gate: 测试验收,
-       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论, 涉及项目与开发分支],
+       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 测试环境数据清单, 阻塞发布问题均已验证通过, feature分支MR评审结论, 涉及项目与开发分支],
        assigneeRole: 研发,
        return: {target: 开发中, onlyWhen: 整体返工},
-       playbook: [{action: create_mr_to_master}, {action: mr_review}, {action: release_check}]}
+       playbook: [{action: open_release_mr_to_master}, {action: mr_review}, {action: release_check}]}
     - {from: 待发布, to: 生产验收中, gate: 发布, hardGate: true,
        requiredFields: [发布日期, 研发Assignee, 发布记录或回滚信息],
        assigneeRole: 产品,
@@ -37,9 +37,9 @@ bug:
        assigneeRole: 测试,
        playbook: [{action: commit_push_feature}, {action: merge_to_deploy_branch, when: config.deployBranch}, {action: trigger_jenkins, when: config.jenkins}]}
     - {from: 测试中, to: 待发布, gate: 测试验收,
-       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 阻塞发布问题均已验证通过, feature分支MR评审结论, 涉及项目与开发分支],
+       requiredFields: [测试完成日期, 测试Assignee, 测试结论, 回归范围或证据, 测试环境数据清单, 阻塞发布问题均已验证通过, feature分支MR评审结论, 涉及项目与开发分支],
        assigneeRole: 研发,
-       playbook: [{action: create_mr_to_master}, {action: mr_review}, {action: release_check}]}
+       playbook: [{action: open_release_mr_to_master}, {action: mr_review}, {action: release_check}]}
     - {from: 待发布, to: 生产验证中, gate: 发布, hardGate: true,
        requiredFields: [发布日期, 研发Assignee, 发布记录或回滚信息],
        assigneeRole: 测试,

@@ -7,13 +7,14 @@ description: 测试中→待发布 的 feature→master MR 评审子 skill。推
 
 # MR Review：feature→master MR 评审
 
-「测试中→待发布」playbook 的 `mr_review` 步骤（见 `../nodes.md` / `../gate.md`）：测试通过后，**先建 feature→master MR 并评审，无 CRITICAL/HIGH 残留才推进待发布**（G14，见 `../guards.md`）。这是为了避免阻塞 bug 漏到「待发布」之后才发现、已过测试验收还得回头重提测。
+「测试中→待发布」playbook 的 `mr_review` 步骤（见 `../nodes.md` / `../gate.md`）：测试通过后，**先打开/确认 feature→master 发布 MR 并评审，无 CRITICAL/HIGH 残留才推进待发布**（G14，见 `../guards.md`）。这是为了避免阻塞 bug 漏到「待发布」之后才发现、已过测试验收还得回头重提测。此阶段只准备发布 MR，不合并 master。
 
-## 前置：建 MR（create_mr_to_master，git-ops）
+## 前置：打开/确认发布 MR（open_release_mr_to_master，git-ops）
 
 - 目标分支 `master`，源分支 = 本 Issue 的 feature 分支。
 - **MR 标题 = Issue 地址**（含 iid，如 `<iid> <需求简述>`），保证可追溯。
 - MR 描述引用父 Issue + spec（proposal.md / design.md），让评审对齐需求而非凭空挑刺。
+- 只允许创建 MR、补充 MR 描述、推送 feature 分支或复用已存在 MR；**禁止点击/执行 merge，禁止把 feature 合并进 master**。master 合并只能在「发布」hard_gate 已确认后执行。
 
 ## 评审执行（委托运行时工具）
 
@@ -22,7 +23,7 @@ MR 评审优先用 **`mr-review-lite`**（外部运行时 skill，见 `../tools.
 调用约定（与 `test-flow-apifox.md` 一致）：
 
 - **同步取结果**：拿到结构化问题清单（严重度/文件/行/问题/建议）再判定，不异步丢任务。
-- **对齐需求**：把父 Issue 正文 + proposal.md/design.md 喂给评审，让它对齐需求目标。标准化材料用 `review-pack` 命令产出（spec 路径 + DU 证据摘要 + 门禁缺口 + 评审指令），与 MR diff 一起注入，不手工拼。
+- **对齐需求**：把父 Issue 正文 + proposal.md/design.md 喂给评审，让它对齐需求目标。标准化材料用 `review-pack` 命令产出（spec 路径 + DU 内部证据摘要 + 门禁缺口 + 评审指令），与 MR diff 一起注入，不手工拼；该内部摘要不写入公共 Issue 评论。
 - **降级标注**：用 `code-review` 降级时，结论里标注「未用 mr-review-lite，code-review 评审」。
 - **增量评审（Q3：不与开发期评审重复劳动）**：开发期 code-review 已评过 feature diff。评审输入追加「开发期评审结论 + 评审基线 commit（code-review 完成时的 HEAD）」——与 MR HEAD 比对：无新提交且无 CRITICAL/HIGH 残留时，重叠维度（正确性/安全/性能/栈实践）不重评，只做下方 MR 专属三维度；有新提交则重叠维度只评 `基线..HEAD` 增量。第一轮已显式记录「接受理由+确认人」的遗留项不重复报告（除非增量触碰同一文件）。
 

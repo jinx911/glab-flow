@@ -79,7 +79,7 @@ cd "$ENGINE_ROOT" && pnpm cli <cmd>
 | `transition` | **一键流转（首选）**：stdin 含普通 Issue 字段（`type`/`iid`/`labels`/`body`/`notes`/`state`）+ 当前 `testPlan` 全文 + 已知 `fields` + 可选 `du`/`declaredScopes`；一次产出 `{node,next,dirty,prefilled,missing[],validate,plan,comment,playbook,nodeProgress,preview,shouldConfirm,actionTier,confirmBatchTitle}`（Story `已评审→开发中` 与 Bug `已确认缺陷→开发中` 传 `declaredScopes` 时另出 `proposedGateSet`；Bug 无声明且无 frozen GateSet 时 fail-closed；Bug 有声明但 DU 未冻结时 `validate=false`、`plan` 未定义、playbook 仅含 `bind_gateset`，冻结后重跑才生成正常 WritePlan/Issue 写回）。把节点编排里的确定性计算（推导/抽证据/查契约/预填/校验/建计划/渲染合并评论/预览）全收拢 |
 | `next` | 最短路径速览：stdin 同 `transition` → `{where,isTerminal,blockedOn,fastestPath,owedBy,summary}`——在哪/阻塞什么/最快下一步/谁欠什么；终态自动带资源清理清单 |
 | `validate` | 护栏校验（`transition` 内部已含；单独用便于排障）：stdin `{type,labels,payload,body?,notes?,testPlan?}` → `{ok,missing,reasons}`；同时执行正式评论的公共隔离校验；开发中→测试中/测试中→待发布必须传当前 `testPlan` 与刚回读 `notes`，以验证当前环境 TestRun；计划声明 Apifox 资产时同步验证资产审计 |
-| `render` | 渲染公共状态评论正文（状态头 + 节点交接内容 + 下一步；DU 证据摘要单独隔离） |
+| `render` | 渲染公共状态评论正文（状态头 + 节点交接内容 + 下一步；GitLab Markdown 标题/表格组织字段，复杂字段可展开为小节并内嵌表格/折叠明细；不附加 DU 摘要或隐藏索引） |
 | `plan` | 正向建写回计划：`pnpm cli plan <iid>`，stdin `{payload,body?,notes?,testPlan?}`；local/test TestRun 门禁需传刚回读 `notes`，否则拒绝建计划 |
 | `test-run` | 预览/校验一条环境执行记录：stdin `{plan,run}` → `{validate,comment}`；只产出评论草稿，不执行测试或写 GitLab |
 | `asset-audit` | 预览/校验一条 Apifox 资产审计：stdin `{plan,audit}` → `{validate,comment}`；只解析计划与回读事实，不调用 Apifox 或写 GitLab |
@@ -138,7 +138,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 每个 flow 启动时分别初始化 state 与 DU：Leader 调 `state-init` 生成 `<workspace.root>/.glab-flow/<iid>-state.json`，首次读取 Issue 状态标签后调 `pnpm cli du` 的 `bootstrap` 生成带 `cachedNode` 的 `<workspace.root>/.glab-flow/<iid>/du.json`，两者均由 Leader 落盘。引擎命令只返回不可变的新 DU；Leader 在每次 `record`、`bind-gateset`、`cached-node` 后写回。此后：
 
-- 执行明细（TestRun/可选 AssetAudit）优先记入 DU（`transition`/`validate` 传 `du`），不再要求发独立 Issue 评论（评论瘦身）。**边界**：明细不上传 ≠ 事实不记录——Issue 公共评论的「## 证据摘要」只追加安全的计划版本与通过/失败结论；报告指针、执行明细、内部标识和凭据只留在 DU/内部记录，不能要求成员从公共评论获取。DU 未传入时不追加（存量 Issue 行为不变）。无 DU 的存量 Issue 自动回落评论解析，不迁移。
+- 执行明细（TestRun/可选 AssetAudit）优先记入 DU（`transition`/`validate` 传 `du`），不再要求发独立 Issue 评论（评论瘦身）。**边界**：明细不上传 ≠ 事实不记录——Issue 公共评论只写团队需要阅读和复核的节点交接内容，使用 GitLab Markdown 标题/表格表达；复杂字段可展开为小节并内嵌表格或折叠明细。DU 证据摘要、报告指针、执行明细、内部标识和凭据只留在 DU/内部记录，不能要求成员从公共评论获取。无 DU 的存量 Issue 自动回落评论解析，不迁移。
 - Story `已评审→开发中` 与 Bug `已确认缺陷→开发中` 都是 GateSet 绑定边界：传入技术方案声明的 `declaredScopes` 后引擎返回 `proposedGateSet`（含 `skipStates`/`environments`/`mrReview`/`regression`/`rollbackPlan`/`minUnitCases`）。Bug 没有非空 `declaredScopes` 时，必须先传入已有 frozen GateSet；否则 transition fail-closed。若 Bug 有 `declaredScopes` 但 DU 尚未冻结，首次 transition 的 `validate.ok=false`、`plan` 未定义，playbook 只含 `bind_gateset`，不含 `issue_writeback`，因此不会先写 Issue 状态。GateSet 提案与计划提测/上线日期**同一次 L2 批量确认**后，由 Leader 调 `pnpm cli du` 的 `bind-gateset` 写入并冻结 DU；落盘后重新运行 transition，才生成正常 `WritePlan` 和 Issue 写回/最终回读。冻结后不得静默重绑。
 - 随时 `pnpm cli next` 看「在哪/阻塞什么/最快下一步/谁欠什么」。
 - 人工改了标签/手动部署/外部 CI 结果：`pnpm cli reconcile` 对账（label-ahead=人工推进二选一 / du-ahead=补写回 / external-close=提前关闭处理），不推倒重来。
@@ -150,7 +150,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
 
 1. **读状态（只读 glab）**：`glab issue view <iid> --output json` 取 labels/description/state；`glab api --hostname <host> "projects/<id>/issues/<iid>/notes?per_page=100&page=1"` 逐页取全父 Issue 评论（见「notes 必须翻页取全」），并将 API 原样的 `body`、`created_at`、`id` 传入引擎；有受影响 MR 时，逐个读取该 MR 的 notes（同样翻页）。读哪条路径见上文「GitLab 读写」。每次准备 `transition` 都重新读，不能以 state 缓存替代。
 2. **一键 transition（1 次引擎调用）**：把 labels/body/notes/state + 已知 fields + 当前 `du` 喂给 `cd "$ENGINE_ROOT" && pnpm cli transition`（stdin JSON）。引擎一次产出：
-   - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
+   - `prefilled`（Assignee 按「交付协同表 → config.roles → 输入」解析并补 `@`；必填字段扫评论 Markdown 表格「| 字段 | 值 |」及存量「- 字段：值」按精确 key 预填，标「来自评论，请核实」，user 输入优先）
    - `missing[]`（每个缺字段带 hint：来源 / 格式 / 期望值）
    - `validate`（G1–G16，`reasons` 自带补救动作；G14 按 DU GateSet 生效）
    - `plan`（WritePlan：标签 / Assignee / 评论 / 是否 close）+ `comment`（合并评论正文 = 状态变更头 + 内容体，由 `renderNodeComment` 生成）+ `playbook`（本转换副作用动作包，见下）+ `nodeProgress`（当前节点子步骤 checklist）+ `preview`（散文 diff）+ `shouldConfirm` + `actionTier`/`confirmBatchTitle`（动作分层，见 `gate.md`）
@@ -165,7 +165,7 @@ Leader 直接用 glab CLI 操作 GitLab（glab 已认证，**无需 token**，�
    - Issue 写回成功并完成最终回读后更新 state 缓存（见下文），循环到「已完成」或用户停。
    - **节点内进度跟踪（层 2）**：每跑完一个 `nodeProgress` 子步骤，`pnpm cli progress`（stdin `{state, step, now}`）标记 done、写回 state；节点写回成功（换节点）后 `progress`（stdin `{state, resetToNode: <新节点>, now}`）重置进度。这样跨会话 resume 时能看到「开发中：技术方案 ✓ / 编码 ✓ / 自测 ☐」。
 
-`transition` 内部确定性编排 = 推导节点 + 评论字段扫描预填（`scanFieldsFromNotes`：精确 key 优先，缺失则按「实际日期 / 确认人 / 结论 / 依据」语义槽位回填，兼容 `render` 归一化评论）+ `validate` + `plan` + `render` + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。`evidence` 命令是独立的结构化取证工具（从 `## 状态变更` 块抽固定语义槽位，供 G1/G3/G11 人工排障），不参与 transition 内部预填。
+`transition` 内部确定性编排 = 推导节点 + 评论字段扫描预填（`scanFieldsFromNotes`：优先解析 Markdown 表格，兼容存量 bullet；精确 key 优先，缺失则按「实际日期 / 确认人 / 结论 / 依据」语义槽位回填，兼容 `render` 归一化评论）+ `validate` + `plan` + `render` + Assignee 智能预填；门禁退回（G2 二值）仍走 `plan-return`。引擎纯计算、永不写回——输出 `applied` 恒为 false。`evidence` 命令是独立的结构化取证工具（从 `## 状态变更` 块抽固定语义槽位，供 G1/G3/G11 人工排障），不参与 transition 内部预填。
 
 ### 需求/方案变更闭环（区别于实施调整）
 
@@ -236,7 +236,8 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 - 测试问题挂父需求（G11）：阻塞发布问题全部验证通过才放行待发布。
 - 变更闭环（G16）：存在未关闭的需求/方案/实现/测试变更影响单时，不得继续正向流转；变化分级 T1–T4，轻量档（T1/T2）关闭时的证据要求随级别降低（T3+ 才要求测试计划版本递增）。
 - 多环境测试：按冻结 GateSet 的 `environments`、`regression` 和 `minUnitCases` 校验当前计划；要求某环境时，该环境必须有当前计划版本的 TestRun（优先取 DU 证据，Issue 评论兜底），并且只有 test-plan 声明 Apifox `asset:` 时才强制 Apifox 资产审计。GateSet 可使轻量路线跳过测试中，但不减少原转换校验字段；单测、构建、静态检查和代码评审不能替代真实业务闭环执行。
-- feature MR 评审前置（G14，按 GateSet 生效）：DU GateSet `mrReview=true` 时，测试中→待发布 必填 `feature分支MR评审结论`（用 `code-review` sub-skill 跑 feature→master 全 MR diff，无 CRITICAL/HIGH 残留）；`mrReview=false`（如 frontend-copy）豁免该字段。
+- 测试中→待发布 的测试报告必须可人工复核：`回归范围或证据` 写本轮测试用例/场景 + 执行证据；`测试环境数据清单` 必须与这些测试用例/场景逐行对齐，写 test 环境使用/产生的数据、关键业务键、来源和保留/清理策略。若证据中使用 TC-/TP-/CASE- 编号，数据清单必须复用相同编号；任一编号缺少对应数据、或只给汇总数据，不得推进待发布。
+- feature MR 评审前置（G14，按 GateSet 生效）：DU GateSet `mrReview=true` 时，测试中→待发布 必填 `feature分支MR评审结论`（只打开/确认 feature→master 发布 MR 并跑全 MR diff，无 CRITICAL/HIGH 残留）；`mrReview=false`（如 frontend-copy）豁免该字段。此阶段不得合并 master；master 合并只属于发布 hard_gate 后的发布动作。
 - 需求评审取证（G15）：待评审→已评审必须完成所有 Issue 图片的 OCR+视觉核查；有前端页面/菜单/路由信号必须用代码核实实际 URL、组件与分流，找不到即统一提问、不能猜；并以 grilling 决策账本覆盖五类需求分支，任何未决问题都不通过。真实诉求理解并补齐追问后，可提出更优方案/交互优化反馈，但必须与阻塞问题分离；采纳才同步 proposal/design/test-plan，不采纳或暂缓不阻塞通过。
 - 禁止测试先行仪式：不采用“先写失败测试再实现”的开发仪式；实现后必须完成定向测试、完整业务闭环、全量回归、类型检查和代码走查。
 

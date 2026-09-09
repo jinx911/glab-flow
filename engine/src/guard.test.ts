@@ -225,15 +225,33 @@ describe('G11 bug — blocking issues apply to bug too', () => {
   });
   it('passes bug 测试中->待发布 when blocking issues verified', () => {
     const p: Payload = { type: 'bug', from: '测试中', to: '待发布',
-      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' }, testPlan: TEST_PLAN,
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'TP-001；TP-U01；TestRun v3/test passed', 测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve；TP-U01：unit fixture 数据，无业务单号，来源 vitest fixture，preserve', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' }, testPlan: TEST_PLAN,
       assigneeUser: '@dev', datesConfirmed: true };
     const r = validateTransition(model, facts(['type::bug', 'status::测试中']), p, TEST_NOTES);
     expect(r.ok).toBe(true);
   });
+  it('blocks 测试中->待发布 when test data is not aligned to cases or scenarios', () => {
+    const p: Payload = { type: 'story', from: '测试中', to: '待发布',
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'TP-001；TestRun v3/test passed', 测试环境数据清单: 'test：合同单 HT-20260909-001，来源 fixture，preserve', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' }, testPlan: TEST_PLAN,
+      assigneeUser: '@dev', datesConfirmed: true };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p, TEST_NOTES);
+    expect(r.ok).toBe(false);
+    expect(r.missing).toContain('测试环境数据清单');
+    expect(r.reasons.join('\n')).toContain('逐行对齐');
+  });
+  it('blocks 测试中->待发布 when a case id from evidence has no matching test data row', () => {
+    const p: Payload = { type: 'story', from: '测试中', to: '待发布',
+      fields: { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'TP-001；TP-U01；TestRun v3/test passed', 测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' }, testPlan: TEST_PLAN,
+      assigneeUser: '@dev', datesConfirmed: true };
+    const r = validateTransition(model, facts(['type::story', 'story-status::测试中']), p, TEST_NOTES);
+    expect(r.ok).toBe(false);
+    expect(r.missing).toContain('测试环境数据清单');
+    expect(r.reasons.join('\n')).toContain('TP-U01');
+  });
 });
 
 describe('G11 normalization — accepts affirmative synonyms, rejects the rest', () => {
-  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'r', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' };
+  const baseFields = { 测试完成日期: '2026-07-28', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'TP-001；TP-U01；TestRun v3/test passed', 测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve；TP-U01：unit fixture 数据，无业务单号，来源 vitest fixture，preserve', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' };
   const run = (val: string) => validateTransition(model, facts(['type::story', 'story-status::测试中']), {
     type: 'story', from: '测试中', to: '待发布',
     fields: { ...baseFields, 阻塞发布问题均已验证通过: val }, testPlan: TEST_PLAN, assigneeUser: '@dev', datesConfirmed: true,
@@ -300,7 +318,8 @@ const GATESET_TEST_DONE_FIELDS = {
   测试完成日期: '2026-09-01',
   测试Assignee: '@qa',
   测试结论: '通过',
-  回归范围或证据: 'r',
+  回归范围或证据: 'TP-001；TestRun v3/test passed',
+  测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve',
   阻塞发布问题均已验证通过: '是',
   涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
 };

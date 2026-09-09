@@ -1,145 +1,109 @@
-import type { ChangeScope, GateSet, GuardResult, Payload } from './types.js';
+import type { GuardResult, Payload } from './types.js';
 import { renderRequirementsReviewEvidence } from './review-evidence.js';
-import { latestEvidence } from './du.js';
 
-/** 证据摘要里展示的环境顺序：local → test → 其余按出现序（稳定输出，团队可比对）。 */
-const DIGEST_ENV_ORDER = ['local', 'test'];
+type FieldRow = [string, string | undefined];
 
-/** Public digest accepts only identifiers and outcomes, never report/path/token material. */
-const PUBLIC_ENVIRONMENTS = new Set(['local', 'test']);
-const PUBLIC_SCOPES = new Set<ChangeScope>([
-  'frontend-copy', 'functional', 'frontend-route', 'api-contract',
-  'data-model', 'permission', 'release',
-]);
-const SAFE_PLAN_VERSION = /^v[0-9]+(?:\.[0-9]+)*$/i;
-const SAFE_OUTCOME = /^(?:passed|failed|0|[1-9][0-9]*)$/;
-
-function validDigestVersion(value: unknown): boolean {
-  return typeof value === 'string' && SAFE_PLAN_VERSION.test(value.trim());
+function tableEscape(value: string): string {
+  return value.replace(/\|/g, '\\|').replace(/\n/g, '<br>');
 }
 
-function validDigestOutcome(value: unknown): boolean {
-  return typeof value === 'string' && SAFE_OUTCOME.test(value.trim());
+function isBlockValue(value: string): boolean {
+  return /\n/.test(value) && (
+    /^\s*\|.+\|\s*$/m.test(value) ||
+    /^\s*(?:[-*]|\d+[.)])\s+/m.test(value) ||
+    /<details\b/i.test(value) ||
+    /<table\b/i.test(value)
+  );
 }
 
-function validateEvidenceDigest(p: Payload): GuardResult {
-  const du = p.du;
-  if (!du) return { ok: true, missing: [], reasons: [] };
-  const reasons: string[] = [];
-  const checkEvidence = (environment: string, planVersion: string, outcome: string): void => {
-    if (!PUBLIC_ENVIRONMENTS.has(environment)) reasons.push(`证据摘要环境非法：${environment}`);
-    if (!validDigestVersion(planVersion)) reasons.push('证据摘要计划版本必须是 vN 或 vN.N 格式');
-    if (!validDigestOutcome(outcome)) reasons.push('证据摘要结论必须是 passed、failed 或非负整数');
-  };
-  for (const environment of new Set(du.evidence.map((entry) => entry.environment))) {
-    const run = latestEvidence(du, 'test-run', environment);
-    const audit = latestEvidence(du, 'asset-audit', environment);
-    if (run) checkEvidence(environment, run.planVersion, run.outcome);
-    if (audit) checkEvidence(environment, audit.planVersion, audit.outcome);
+function renderInfoTable(title: string, rows: FieldRow[]): string {
+  const visible = rows.filter(([, value]) => value?.trim()) as [string, string][];
+  if (!visible.length) return '';
+  const tableRows = visible.filter(([, value]) => !isBlockValue(value));
+  const blockRows = visible.filter(([, value]) => isBlockValue(value));
+  const blocks = [`## ${title}`];
+  if (tableRows.length) {
+    blocks.push([
+      '| 项目 | 内容 |',
+      '|---|---|',
+      ...tableRows.map(([key, value]) => `| ${tableEscape(key)} | ${tableEscape(value)} |`),
+    ].join('\n'));
   }
-  const gateSet = du.gateSet;
-  if (gateSet) {
-    if (gateSet.scopes.some((scope) => !PUBLIC_SCOPES.has(scope))) reasons.push('门禁摘要包含未支持的变更维度');
-    if (gateSet.environments.some((environment) => !PUBLIC_ENVIRONMENTS.has(environment))) reasons.push('门禁摘要包含未支持的环境');
-    if (!['affected-cases', 'full'].includes(gateSet.regression)) reasons.push('门禁摘要回归档位非法');
+  for (const [key, value] of blockRows) {
+    blocks.push([`### ${key}`, '', value.trim()].join('\n'));
   }
-  return reasons.length ? { ok: false, missing: ['publicEvidenceDigest'], reasons } : { ok: true, missing: [], reasons: [] };
-}
-
-/**
- * 从 DU 本地事实渲染团队可见的证据摘要块；明细留在本地 DU/云端报告，结论同步到 Issue。
- * 存量调用没有 DU 时不追加摘要，保持兼容。
- */
-function renderEvidenceDigest(p: Payload): string | undefined {
-  const du = p.du;
-  if (!du) return undefined;
-
-  const lines: string[] = [];
-  const environments = [...DIGEST_ENV_ORDER, ...new Set(du.evidence.map((e) => e.environment).filter((e) => !DIGEST_ENV_ORDER.includes(e)))];
-  for (const env of environments) {
-    const run = latestEvidence(du, 'test-run', env);
-    const audit = latestEvidence(du, 'asset-audit', env);
-    if (!run && !audit) continue;
-    const parts: string[] = [];
-    if (run) parts.push(`执行 ${run.planVersion} / ${run.outcome}`);
-    if (audit) parts.push(`审计 ${audit.planVersion} / ${audit.outcome}`);
-    lines.push(`- ${env}：${parts.join('；')}`);
-  }
-
-  const undisposed = du.resources.filter((r) => !r.disposedAt);
-  if (undisposed.length) lines.push(`- 资源登记：${undisposed.length} 项在册（终态出清理清单）`);
-  if (du.gateSet) lines.push(`- 门禁单：${du.gateSet.scopes.join('、')}（${du.gateSet.environments.join('/')}，MR 评审${du.gateSet.mrReview ? '要求' : '豁免'}，回归=${du.gateSet.regression}）`);
-  if (du.metricEvents.length) {
-    const count = (kind: string): number => du.metricEvents.filter((e) => e.kind === kind).length;
-    lines.push(`- 指标：确认 ${count('confirm')} 次 / 流转 ${count('transition')} 次 / 重测 ${count('rerun')} 次 / 返工 ${count('rework')} 次`);
-  }
-
-  if (!lines.length) return undefined;
-  return ['## 证据摘要（引擎从 DU 生成；明细见云端报告与本地工作目录）', '', ...lines].join('\n');
+  return [`## ${title}`, '', blocks.slice(1).join('\n\n')].join('\n');
 }
 
 export function renderStatusChange(p: Payload): string {
   const f = p.fields;
-  const lines = ['## 状态变更', '', `- 变更：\`${p.from}\` → \`${p.to}\``];
+  const rows: FieldRow[] = [['变更', `\`${p.from}\` → \`${p.to}\``]];
   const rendered = new Set<string>();
 
   const dateKey = Object.keys(f).find((k) => k.includes('日期'));
-  if (dateKey) { lines.push(`- 实际日期：${f[dateKey]}`); rendered.add(dateKey); }
+  if (dateKey) { rows.push(['实际日期', f[dateKey]]); rendered.add(dateKey); }
 
   const confirmerKeys = ['产品确认人', '测试Assignee', '研发Assignee', '具体产品验收人', '具体测试验证人', '测试验证人Assignee'];
   const confirmerKey = confirmerKeys.find((k) => f[k]);
-  if (confirmerKey) { lines.push(`- 确认人：${f[confirmerKey]}`); rendered.add(confirmerKey); }
+  if (confirmerKey) { rows.push(['确认人', f[confirmerKey]]); rendered.add(confirmerKey); }
 
   const conclKeys = ['评审结论', '测试结论', '验收结论', '验证结论'];
   const conclKey = conclKeys.find((k) => f[k]);
-  if (conclKey) { lines.push(`- 结论：${f[conclKey]}`); rendered.add(conclKey); }
+  if (conclKey) { rows.push(['结论', f[conclKey]]); rendered.add(conclKey); }
 
   const evKeys = ['需求文档或评审记录', '回归范围或证据', '验收依据', '验证依据', '发布记录或回滚信息', '技术方案评审通过记录或免评审结论'];
   const evKey = evKeys.find((k) => f[k]);
-  if (evKey) { lines.push(`- 依据：${f[evKey]}`); rendered.add(evKey); }
+  if (evKey) { rows.push(['依据', f[evKey]]); rendered.add(evKey); }
 
   for (const k of Object.keys(f)) {
-    if (!rendered.has(k) && f[k]) lines.push(`- ${k}：${f[k]}`);
+    if (!rendered.has(k) && f[k]) rows.push([k, f[k]]);
   }
 
-  if (p.assigneeUser) lines.push(`- 目标节点 Assignee：${p.assigneeUser}`);
-  return lines.join('\n');
+  if (p.assigneeUser) rows.push(['目标节点 Assignee', p.assigneeUser]);
+  return renderInfoTable('状态变更', rows);
 }
 
 export function renderReturn(target: string, issues: string[], confirmer: string, date: string): string {
-  return ['## 状态变更（退回）', '',
-    `- 退回：\`${target}\``, `- 实际日期：${date}`, `- 确认人：${confirmer}`,
-    '', '### 问题清单（需修订）', ...issues.map((i, n) => `${n + 1}. ${i}`),
-    '', '- 下一步：产品修订后重新进入待评审'].join('\n');
+  const rows: FieldRow[] = [['退回', `\`${target}\``], ['实际日期', date], ['确认人', confirmer]];
+  return [
+    renderInfoTable('状态变更（退回）', rows),
+    '### 问题清单（需修订）',
+    '',
+    ...issues.map((i, n) => `${n + 1}. ${i}`),
+    '',
+    '## 下一步',
+    '',
+    '- 产品修订后重新进入待评审',
+  ].join('\n');
 }
 
 export function renderChangeRequest(f: Record<string, string>): string {
-  const rows: [string, string | undefined][] = [
+  const rows: FieldRow[] = [
     ['提出人', f['提出人']], ['实际提出日期', f['实际提出日期']],
     ['变更原因', f['变更原因']], ['已评审内容', f['已评审内容']],
     ['变更后内容', f['变更后内容']], ['影响范围', f['影响范围']],
     ['计划日期影响', f['计划日期影响']], ['建议', f['建议']],
   ];
-  return ['## 需求变更申请', '', ...rows.filter(([, v]) => v).map(([k, v]) => `- ${k}：${v}`)].join('\n');
+  return renderInfoTable('需求变更申请', rows);
 }
 
 export function renderTestIssue(f: Record<string, string>): string {
-  const rows: [string, string | undefined][] = [
+  const rows: FieldRow[] = [
     ['发现人', f['发现人']], ['发现日期', f['发现日期']],
     ['实际结果', f['实际结果']], ['预期结果', f['预期结果']],
     ['复现步骤 / 证据', f['复现步骤 / 证据']], ['研发处理人', f['研发处理人']],
     ['是否阻塞发布', f['是否阻塞发布']], ['当前结论', f['当前结论']], ['验证结果', f['验证结果']],
   ];
-  return ['## 测试问题', '', ...rows.filter(([, v]) => v).map(([k, v]) => `- ${k}：${v}`)].join('\n');
+  return renderInfoTable('测试问题', rows);
 }
 
 export function renderCorrection(f: Record<string, string>): string {
-  const rows: [string, string | undefined][] = [
+  const rows: FieldRow[] = [
     ['对应节点', f['对应节点']], ['原记录链接', f['原记录链接']],
     ['更正内容', f['更正内容']], ['原因', f['原因']],
     ['提出人', f['提出人']], ['实际日期', f['实际日期']],
   ];
-  return ['## 补充/更正', '', ...rows.filter(([, v]) => v).map(([k, v]) => `- ${k}：${v}`)].join('\n');
+  return renderInfoTable('补充/更正', rows);
 }
 
 /**
@@ -161,13 +125,13 @@ export const NODE_CONTENT: Record<string, NodeCommentTemplate> = {
   'story:已评审:开发中': { title: '技术方案', keys: ['技术方案版本', '方案概述', '影响模块', '数据模型变更', 'API契约', '前端页面与路由', '权限与安全', '迁移与配置', '测试计划摘要', '计划提测时间', '计划上线时间', '风险与对策', '回滚方案'] },
   'story:开发中:测试中': { title: '提测说明', keys: ['代码评审结论', '提测日期', '研发Assignee', '涉及项目与开发分支', '测试说明', '本次改动', '测试范围', '环境准备与配置', '测试重点', '已知限制'] },
   'story:开发中:待发布': { title: '提测说明', keys: ['代码评审结论', '提测日期', '研发Assignee', '涉及项目与开发分支', '测试说明', '本次改动', '测试范围', '环境准备与配置', '测试重点', '已知限制'] },
-  'story:测试中:待发布': { title: '测试报告与上线方案', keys: ['测试完成日期', '测试Assignee', '测试结论', '回归范围或证据', '阻塞发布问题均已验证通过', 'feature分支MR评审结论', '涉及项目与开发分支', '业务覆盖范围', '缺陷处理结果', '遗留风险', '上线步骤', '配置清单', '回滚方案', '发布建议'] },
+  'story:测试中:待发布': { title: '测试报告与上线方案', keys: ['测试完成日期', '测试Assignee', '测试结论', '回归范围或证据', '测试环境数据清单', '阻塞发布问题均已验证通过', 'feature分支MR评审结论', '涉及项目与开发分支', '业务覆盖范围', '缺陷处理结果', '遗留风险', '上线步骤', '配置清单', '回滚方案', '发布建议'] },
   'story:待发布:生产验收中': { title: '上线操作手册', keys: ['发布日期', '研发Assignee', '发布记录或回滚信息', '部署顺序', '数据迁移', '配置清单', '上线后验证', '回滚方案'] },
   'story:生产验收中:已完成': { title: '验收报告', keys: ['验收完成日期', '具体产品验收人', '产品Assignee', '验收范围', '验收结论', '验收依据', '遗留事项', '后续行动'] },
   'bug:已确认缺陷:开发中': { title: '缺陷复现与根因', keys: ['复现步骤', '根因', '影响范围', '修复方案'] },
   'bug:开发中:测试中': { title: '提测说明', keys: ['代码评审结论', '提测日期', '研发Assignee', '涉及项目与开发分支', '测试说明', '本次改动', '测试范围', '环境准备与配置', '测试重点', '已知限制'] },
   'bug:开发中:待发布': { title: '提测说明', keys: ['代码评审结论', '提测日期', '研发Assignee', '涉及项目与开发分支', '测试说明', '本次改动', '测试范围', '环境准备与配置', '测试重点', '已知限制'] },
-  'bug:测试中:待发布': { title: '测试报告与上线方案', keys: ['测试完成日期', '测试Assignee', '测试结论', '回归范围或证据', '阻塞发布问题均已验证通过', 'feature分支MR评审结论', '涉及项目与开发分支', '业务覆盖范围', '缺陷处理结果', '遗留风险', '上线步骤', '配置清单', '回滚方案', '发布建议'] },
+  'bug:测试中:待发布': { title: '测试报告与上线方案', keys: ['测试完成日期', '测试Assignee', '测试结论', '回归范围或证据', '测试环境数据清单', '阻塞发布问题均已验证通过', 'feature分支MR评审结论', '涉及项目与开发分支', '业务覆盖范围', '缺陷处理结果', '遗留风险', '上线步骤', '配置清单', '回滚方案', '发布建议'] },
   'bug:待发布:生产验证中': { title: '上线操作手册', keys: ['发布日期', '研发Assignee', '发布记录或回滚信息', '部署顺序', '数据迁移', '配置清单', '上线后验证', '回滚方案'] },
   'bug:生产验证中:已完成': { title: '验证报告', keys: ['验证完成日期', '具体测试验证人', '测试验证人Assignee', '验证范围', '验证结论', '验证依据', '遗留事项', '后续行动'] },
 };
@@ -182,32 +146,32 @@ export function renderNodeComment(p: Payload): string {
   const f = p.fields;
   const rendered = new Set<string>();
   const blocks: string[] = [];
-
-  const head: string[] = ['## 状态变更', '', `- 变更：\`${p.from}\` → \`${p.to}\``];
-  const dateKey = Object.keys(f).find((k) => /日期/.test(k));
-  if (dateKey && f[dateKey]) { head.push(`- 实际日期：${f[dateKey]}`); rendered.add(dateKey); }
-  const confirmerKeys = ['产品确认人', '测试Assignee', '研发Assignee', '具体产品验收人', '具体测试验证人', '测试验证人Assignee'];
-  const confirmerKey = confirmerKeys.find((k) => f[k]);
-  if (confirmerKey) { head.push(`- 确认人：${f[confirmerKey]}`); rendered.add(confirmerKey); }
-  const conclKeys = ['评审结论', '测试结论', '验收结论', '验证结论'];
-  const conclKey = conclKeys.find((k) => f[k]);
-  if (conclKey) { head.push(`- 结论：${f[conclKey]}`); rendered.add(conclKey); }
-  const evKeys = ['需求文档或评审记录', '回归范围或证据', '验收依据', '验证依据', '发布记录或回滚信息', '技术方案评审通过记录或免评审结论'];
-  const evKey = evKeys.find((k) => f[k]);
-  if (evKey) { head.push(`- 依据：${f[evKey]}`); rendered.add(evKey); }
-  if (p.assigneeUser) head.push(`- 目标节点 Assignee：${p.assigneeUser}`);
-  blocks.push(head.join('\n'));
-
   const contentEntries = [
     NODE_CONTENT[`${p.type}:${p.from}:${p.to}`],
     ...(p.renderTransitions ?? []).map((transition) => NODE_CONTENT[`${p.type}:${transition.from}:${transition.to}`]),
   ].filter((entry): entry is { title: string; keys: string[] } => !!entry);
   const contentKeys = [...new Set(contentEntries.flatMap((entry) => entry.keys))];
-  const rows = contentKeys.filter((k) => f[k]).map((k) => `- ${k}：${f[k]}`);
+
+  const headRows: FieldRow[] = [['变更', `\`${p.from}\` → \`${p.to}\``]];
+  const dateKey = Object.keys(f).find((k) => /日期/.test(k));
+  if (dateKey && f[dateKey]) { headRows.push(['实际日期', f[dateKey]]); rendered.add(dateKey); }
+  const confirmerKeys = ['产品确认人', '测试Assignee', '研发Assignee', '具体产品验收人', '具体测试验证人', '测试验证人Assignee'];
+  const confirmerKey = confirmerKeys.find((k) => f[k]);
+  if (confirmerKey) { headRows.push(['确认人', f[confirmerKey]]); rendered.add(confirmerKey); }
+  const conclKeys = ['评审结论', '测试结论', '验收结论', '验证结论'];
+  const conclKey = conclKeys.find((k) => f[k]);
+  if (conclKey) { headRows.push(['结论', f[conclKey]]); rendered.add(conclKey); }
+  const evKeys = ['需求文档或评审记录', '回归范围或证据', '验收依据', '验证依据', '发布记录或回滚信息', '技术方案评审通过记录或免评审结论'];
+  const evKey = evKeys.find((k) => f[k]);
+  if (evKey && !contentKeys.includes(evKey)) { headRows.push(['依据', f[evKey]]); rendered.add(evKey); }
+  if (p.assigneeUser) headRows.push(['目标节点 Assignee', p.assigneeUser]);
+  blocks.push(renderInfoTable('状态变更', headRows));
+
+  const rows: FieldRow[] = contentKeys.filter((k) => f[k]).map((k) => [k, f[k]]);
   for (const k of contentKeys) if (f[k]) rendered.add(k);
   if (rows.length) {
     const titles = [...new Set(contentEntries.map((entry) => entry.title))];
-    blocks.push(`## ${titles.join(' / ')}\n\n${rows.join('\n')}`);
+    blocks.push(renderInfoTable(titles.join(' / '), rows));
   }
 
   // These historical free-text claims cannot stand in for a validated TestRun.
@@ -222,11 +186,6 @@ export function renderNodeComment(p: Payload): string {
 
   const next = f['下一步']?.trim() || `由 ${p.assigneeUser ?? '目标节点负责人'} 按「${p.to}」节点继续推进。`;
   blocks.push(`## 下一步\n\n- ${next}`);
-
-  // Keep the approved DU summary last so public validation can remove only this
-  // generated block while still checking every reader-facing handoff field.
-  const digest = renderEvidenceDigest(p);
-  if (digest) blocks.push(digest);
   return blocks.join('\n\n');
 }
 
@@ -265,8 +224,13 @@ export function validatePublicField(value: unknown): GuardResult {
 
 /** Reject machine-only material before a public Issue comment can be written. */
 export function validatePublicText(rendered: string): GuardResult {
-  const field = validatePublicField(rendered);
-  if (field.ok) return field;
+  if (!rendered.trim() || rendered.length > 20000 || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(rendered)) {
+    return { ok: false, missing: [], reasons: ['正式状态评论为空、过长或包含控制字符'] };
+  }
+  const forbidden = INTERNAL_COMMENT_CONTENT.find((pattern) => pattern.test(rendered));
+  const hash = rendered.match(SUSPICIOUS_HASH)?.[0];
+  const jwt = SUSPICIOUS_JWT.test(rendered);
+  if (!forbidden && !jwt && !(hash && /[a-f]/i.test(hash))) return { ok: true, missing: [], reasons: [] };
   return {
     ok: false,
     missing: [],
@@ -276,18 +240,5 @@ export function validatePublicText(rendered: string): GuardResult {
 
 export function validatePublicComment(p: Payload): GuardResult {
   const rendered = renderNodeComment(p);
-  // Strip only the exact digest generated from the DU, never a user-controlled heading.
-  const digest = renderEvidenceDigest(p);
-  const digestSuffix = digest ? `\n\n${digest}` : '';
-  const handoff = digestSuffix && rendered.endsWith(digestSuffix)
-    ? rendered.slice(0, -digestSuffix.length)
-    : rendered;
-  const handoffValidation = validatePublicText(handoff);
-  const digestValidation = validateEvidenceDigest(p);
-  if (handoffValidation.ok && digestValidation.ok) return { ok: true, missing: [], reasons: [] };
-  return {
-    ok: false,
-    missing: [...handoffValidation.missing, ...digestValidation.missing],
-    reasons: [...handoffValidation.reasons, ...digestValidation.reasons],
-  };
+  return validatePublicText(rendered);
 }

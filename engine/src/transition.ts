@@ -40,7 +40,8 @@ const FIELD_HINTS: Record<string, string> = {
   测试完成日期: '测试完成日期',
   测试Assignee: '@测试用户',
   测试结论: '通过 / 退回',
-  回归范围或证据: '回归范围或证据链接',
+  回归范围或证据: '本轮回归覆盖的测试用例/场景 + 执行证据链接或 TestRun 摘要；不能只写“已回归”',
+  测试环境数据清单: 'test 环境本轮使用或产生的数据清单，必须按回归场景/用例逐行对齐；回归证据里有 TC-/TP-/CASE- 编号时，数据清单必须复用相同编号，并列测试数据、关键业务键/单号/账号、来源/seed、保留或清理策略，便于人工页面或查库核对',
   测试环境: '执行测试的环境名 + URL（来自 config 的 test_environments，如 test https://app.test.example）',
   测试账号: '测试使用的账号（来自 config 的 test_environments.<env>.account）',
   reportId与环境: '执行证据：云端 reportId + 链接 + test-report get 回读的 environmentName 与 saveDetailType=all（缺 --upload-report detail 的 none 报告页空、不算证据须重跑）',
@@ -71,7 +72,7 @@ const PLAYBOOK_ACTIONS: Record<string, { subskill?: string; desc: string }> = {
   commit_push_feature: { subskill: 'git-ops', desc: '提交并推送 feature 分支剩余改动' },
   merge_to_deploy_branch: { subskill: 'git-ops', desc: '合并 feature → deploy_branch（如 test）' },
   trigger_jenkins: { subskill: 'jenkins-deploy', desc: '交互询问 Jenkins 参数（job / 分支 / 环境类 test_version·DEPLOY_ENV / force_package·isForce 等）→ 展示部署清单确认 → 触发测试环境构建（参数确认独立于 run_mode，full-auto 也不跳过）' },
-  create_mr_to_master: { subskill: 'git-ops', desc: '提 PR feature → master，标题=Issue 地址（含 iid）' },
+  open_release_mr_to_master: { subskill: 'git-ops', desc: '打开或确认 feature → master 发布 MR，标题=Issue 地址（含 iid）；此阶段只建 MR/更新 MR，不合并 master' },
   mr_review: { subskill: 'mr-review', desc: '评审 MR（推断需求/需求↔代码一致性/需求外改动/bug/回归）；无 HIGH 残留才放行，否则修复重评' },
   release_check: { subskill: 'release-check', desc: '产出上线步骤/配置清单/注意事项/回滚方案（引用 spec 上线清单 + 配置机制核查）' },
   deploy: { subskill: 'jenkins-deploy', desc: '执行生产部署——当前手动触发（你在 Jenkins/平台点击生产部署）；确认部署完成后推进 Issue。未来配了 prod job 可由 jenkins-deploy 驱动。' },
@@ -262,7 +263,7 @@ function buildPlaybook(
     }
     for (const decl of tr.playbook ?? []) {
       if (!conditionActive(decl.when, config)) continue;
-      if (gateSet && gateSet.mrReview === false && ['create_mr_to_master', 'mr_review'].includes(decl.action)) continue;
+      if (gateSet && gateSet.mrReview === false && ['open_release_mr_to_master', 'mr_review'].includes(decl.action)) continue;
       const key = `${decl.action}:${decl.when ?? ''}`;
       if (seen.has(key)) continue;
       seen.add(key);
@@ -281,19 +282,28 @@ function buildPlaybook(
   return steps;
 }
 
+function unescapeMarkdownTableCell(value: string): string {
+  return value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/\\\|/g, '|')
+    .trim();
+}
+
 /**
- * 扫全部评论里「- 字段：值」行（renderStatusChange / renderTestIssue 等产物格式），按精确 key 建字段→值映射。
- * 同名字段后出现的覆盖先出现的；`chronologicalNotes` 会先把 GitLab 默认
- * newest-first 的 API 回读归一为时间升序。仅精确匹配，不做模糊推断。
+ * 扫全部评论里的字段行，按精确 key 建字段→值映射。
+ * 兼容旧格式「- 字段：值」和新格式「| 字段 | 内容 |」；同名字段后出现的覆盖先出现的。
+ * `chronologicalNotes` 会先把 GitLab 默认 newest-first 的 API 回读归一为时间升序。
  */
 function scanFieldsFromNotes(notes: TransitionInput['notes']): Map<string, string> {
   const map = new Map<string, string>();
   for (const n of chronologicalNotes(notes)) {
     for (const line of n.body.split('\n')) {
-      const m = line.match(/^-\s+(.+?)[：:](.+)$/);
-      if (!m) continue;
-      const key = m[1]?.trim();
-      const val = m[2]?.trim();
+      const bullet = line.match(/^-\s+(.+?)[：:](.+)$/);
+      const table = line.match(/^\|\s*(.+?)\s*\|\s*(.*?)\s*\|\s*$/);
+      const key = bullet?.[1]?.trim() ?? table?.[1]?.trim();
+      const rawVal = bullet?.[2]?.trim() ?? table?.[2]?.trim();
+      const val = rawVal ? unescapeMarkdownTableCell(rawVal) : undefined;
+      if (key === '项目' || /^-+$/.test(key ?? '') || /^-+$/.test(val ?? '')) continue;
       if (key && val && val !== '待确认') map.set(key, val);
     }
   }

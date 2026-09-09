@@ -10,6 +10,18 @@ export interface Evidence {
   latest?: StateChangeRecord;
 }
 
+function setStateChangeField(record: StateChangeRecord, key: string, value: string): void {
+  if (key === '变更') record.变更 = value;
+  else if (key === '实际日期') record.实际日期 = value;
+  else if (key === '确认人') record.确认人 = value;
+  else if (key === '结论') record.结论 = value;
+  else if (key === '依据') record.依据 = value;
+}
+
+function unescapeMarkdownTableCell(value: string): string {
+  return value.replace(/<br\s*\/?>/gi, '\n').replace(/\\\|/g, '|').trim();
+}
+
 export function extractEvidence(comments: { body: string }[]): Evidence {
   const records: StateChangeRecord[] = [];
   for (const c of comments) {
@@ -24,12 +36,15 @@ export function extractEvidence(comments: { body: string }[]): Evidence {
         if (idx > 2) {
           const key = line.slice(2, idx).trim();
           const val = line.slice(idx + 1).trim();
-          if (key === '变更') cur.变更 = val;
-          else if (key === '实际日期') cur.实际日期 = val;
-          else if (key === '确认人') cur.确认人 = val;
-          else if (key === '结论') cur.结论 = val;
-          else if (key === '依据') cur.依据 = val;
+          setStateChangeField(cur, key, val);
         }
+      }
+      if (cur && line.startsWith('|')) {
+        const m = line.match(/^\|\s*(.+?)\s*\|\s*(.*?)\s*\|\s*$/);
+        const key = m?.[1]?.trim();
+        const val = m?.[2] ? unescapeMarkdownTableCell(m[2]) : undefined;
+        if (!key || key === '项目' || /^-+$/.test(key) || !val || /^-+$/.test(val)) continue;
+        setStateChangeField(cur, key, val);
       }
     }
     flush();

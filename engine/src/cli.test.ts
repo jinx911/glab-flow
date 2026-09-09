@@ -46,7 +46,9 @@ describe('cli plan — DU-aware transition projection', () => {
           涉及项目与开发分支: 'oa-platform: feature/leave-settlement',
           测试说明: 'A/B 配置已核对',
           测试完成日期: '2026-09-01', 测试Assignee: '@qa', 测试结论: '通过',
-          回归范围或证据: '受影响用例', 阻塞发布问题均已验证通过: '是',
+          回归范围或证据: 'TP-001 受影响用例；TestRun v3/test passed',
+          测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve',
+          阻塞发布问题均已验证通过: '是',
         },
         assigneeUser: '@qa', datesConfirmed: true,
         testPlan: '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n-->',
@@ -169,7 +171,7 @@ asset: TP-001 | scenario | scenario-101 | reuse
   };
   const accept = {
     type: 'story' as const, from: '测试中', to: '待发布',
-    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'report', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
+    fields: { 测试完成日期: '2026-08-24', 测试Assignee: '@qa', 测试结论: '通过', 回归范围或证据: 'TP-001；report v3/test', 测试环境数据清单: 'TP-001：test：合同单 HT-20260909-001，来源 fixture，preserve', 阻塞发布问题均已验证通过: '是', feature分支MR评审结论: '通过', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement' },
     assigneeUser: '@dev', datesConfirmed: true,
   };
 

@@ -239,6 +239,34 @@ function validateGateSetRequirements(payload: Payload): GuardResult {
   return missing.length ? fail(reasons, missing) : ok();
 }
 
+function validateTestDataAlignment(payload: Payload): GuardResult {
+  if (payload.from !== '测试中' || payload.to !== '待发布') return ok();
+  const evidence = payload.fields['回归范围或证据'] ?? '';
+  const dataList = payload.fields['测试环境数据清单'] ?? '';
+  if (!dataList.trim()) return ok();
+  const caseRefs = extractCaseRefs(evidence);
+  if (caseRefs.length) {
+    const normalizedDataList = dataList.toUpperCase();
+    const missingRefs = caseRefs.filter((ref) => !normalizedDataList.includes(ref));
+    if (missingRefs.length) {
+      return fail([
+        `测试环境数据清单必须与回归范围或证据逐行对齐，当前缺少用例/场景数据：${missingRefs.join('、')}。每个回归用例/场景必须列出测试数据、关键业务键、来源和保留/清理策略`,
+      ], ['测试环境数据清单']);
+    }
+  }
+  const hasScenarioOrCase = /用例|场景|case|TC-|TP-/i.test(dataList);
+  const hasAuditableData = /数据|业务键|单号|单|记录|账号|租户|员工|id/i.test(dataList);
+  if (hasScenarioOrCase && hasAuditableData) return ok();
+  return fail([
+    '测试环境数据清单必须与回归范围或证据中的测试场景/用例逐行对齐：至少包含用例/场景标识、测试数据、关键业务键、来源和保留/清理策略',
+  ], ['测试环境数据清单']);
+}
+
+function extractCaseRefs(text: string): string[] {
+  return unique((text.match(/\b(?:TC|TP|CASE)-[A-Za-z0-9._-]+\b/gi) ?? [])
+    .map((x) => x.toUpperCase()));
+}
+
 export function validateTransition(model: StateMachine, facts: IssueFacts, payload: Payload, notes: IssueNote[] = []): GuardResult {
   const t = transitionFor(model, payload.type, payload.from, payload.to);
   if (!t) return fail([`transition ${payload.from}->${payload.to} not allowed`]);
@@ -314,10 +342,11 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
   const testRunGate = validateTestRunTransition(payload, notes);
   const changeImpactGate = validateChangeImpactClosure(notes);
-  if (missing.length || reasons.length || !gateSetRequirements.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok) {
+  const testDataAlignmentGate = validateTestDataAlignment(payload);
+  if (missing.length || reasons.length || !gateSetRequirements.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok || !testDataAlignmentGate.ok) {
     return fail(
-      unique([...reasons, ...gateSetRequirements.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons]),
-      unique([...missing, ...gateSetRequirements.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing]),
+      unique([...reasons, ...gateSetRequirements.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons, ...testDataAlignmentGate.reasons]),
+      unique([...missing, ...gateSetRequirements.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing, ...testDataAlignmentGate.missing]),
     );
   }
   return ok();
