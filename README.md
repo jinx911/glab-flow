@@ -53,6 +53,7 @@ flowchart TD
 - 需求评审不是只挑错：理解真实诉求并补齐追问后，可以把更优方案或交互优化反馈给提单人；采纳才同步到需求/设计/测试策略，不采纳或暂缓不阻塞通过。
 - `local` / `test` 都通过 TestRun 证明；只有 test-plan 声明 Apifox `asset:` 时才额外要求 AssetAudit。
 - 测试执行前必须先做 E0 数据准备检查：seed/fixture、数据库引用、账号、数据前缀、真实命名和保留/升级策略不齐，不进入执行。
+- `proposal.md` / `design.md` / `test-plan.md` 是同一条交付链路：目标与 AC → 设计决策与风险 → case、环境、数据和证据。文档质量标准见 [skills/glab-flow/artifact-quality.md](skills/glab-flow/artifact-quality.md)，不接受只有需求复述、文件清单或临场测试说明的低质量产物。
 - 生产发布和终态验收是 hard_gate，必须人工确认；不会用 MR 合并提交或部署版本号替代发布/验证事实。
 
 更完整的流程图、Leader 编排图和证据链见 [docs/flow.md](docs/flow.md)。

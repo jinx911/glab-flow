@@ -98,6 +98,7 @@ flowchart TD
 - 生产 GateSet 要求回滚方案时，playbook 发出 `verify_rollback_ready` 核对已生成且已回读的方案；`release-check` 仍在测试验收阶段生成 `release-plan`，发布阶段不重新生成。
 - GateSet.skipStates 命中的节点只投影一层，`next`/标签/评论头使用最终目标，校验仍按原转换 fail-closed，并额外执行投影后的 hard gate 校验；不得借跳状态绕过 hard_gate。
 - Issue 写回完成并最终回读成功后，Leader 必须调 `pnpm cli du` 的 `cached-node` 更新 DU 对账基准，再更新 state。
+- `proposal.md` / `design.md` / `test-plan.md` 按 `skills/glab-flow/artifact-quality.md` 形成同一条可追溯链路：需求目标与 AC → 设计决策、风险和影响范围 → case、环境、测试数据和证据。只有需求复述、文件清单或临场测试说明的产物视为未完成。
 
 ## 3. 七层架构
 

@@ -245,6 +245,7 @@ cd "$ENGINE_ROOT" && echo '{...}' | pnpm cli state-init
 
 节点内容生成由 `sub-skills/` 内置子 skill 提供——Leader 对每个节点 Read 对应子 skill 后内联执行，或 spawn `general-purpose` 以其为 prompt：
 
+- 文档质量权威 → `artifact-quality.md`：约束 `proposal.md` / `design.md` / `test-plan.md` 的职责边界、可追溯链路、图表/边界/风险/数据要求；低质量产物必须补齐后再进入节点写回。
 - 需求/方案 → `sub-skills/spec-author.md`
 - 开发 → `sub-skills/git-ops.md` / `sub-skills/code-review.md`（实现后验证）
 - 测试 → `sub-skills/test-design.md` / `sub-skills/test-flow-apifox.md`（声明 Apifox 资产时）/ `sub-skills/test-flow-e2e.md`（脚本与前端 E2E）

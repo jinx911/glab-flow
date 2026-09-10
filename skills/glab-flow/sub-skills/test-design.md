@@ -9,6 +9,8 @@ description: 技术方案完成后、开发开始前的测试计划设计（用�
 
 技术方案完成后、编码开始前，Leader 执行本文件：把规格（proposal.md / design.md 的验收标准）转成一份可执行的测试计划。计划在开发中用于 local 闭环，在测试中用于 test 验收；产出是 `test-plan.md`，落到 spec 目录，不是代码。
 
+质量权威见 `../artifact-quality.md`。`test-plan.md` 的职责是把 `proposal.md` 的 AC 和 `design.md` 的技术风险转成可执行、可复跑、可审计的验证矩阵；它不是执行日志，也不是“测试通过说明”。
+
 ## 测试计划产出
 
 唯一产出物：
@@ -21,16 +23,18 @@ description: 技术方案完成后、开发开始前的测试计划设计（用�
 
 test-plan.md 须包含下列章节，缺一不可：
 
-- **测试目标**：本计划验证什么（对齐 proposal.md 的背景与目标）。
+- **测试目标**：本计划验证什么（对齐 proposal.md 的业务目标和 design.md 的技术风险）。
 - **测试范围**：范围内 / 范围外（明确列出不在本轮测试的模块与原因）。
+- **AC → case → 风险映射**：proposal.md 的每条 AC 至少映射一个 case；design.md 的每个关键风险至少有验证方式。
 - **测试环境与数据集**（集中管理入口，值不复制——只引用 test-config 索引、脚本上下文和可选 Apifox ID）：
   - **环境矩阵**：本地 / Stage 各一行——web_url、脚本 root/命令/env 文件、Apifox envId（仅声明资产时）、凭据变量名（`credentials.vars`，值在 apifox-vars.json 或运行时 env 文件）、数据前缀（`E2E{iid}L/T`）、数据库 MCP 引用。
   - **场景 ↔ 数据集映射表**：每行 `场景 ID | 场景名 | 环境 | testDataId/fixture | 数据集名`——**环境列必填**（每环境一行）：行值来自本环境真实库时两环境各一条（各自的 testDataId/fixture）；仅当行值在两环境库都真实存在才可共用一份（映射表合并为一行标「共用」）。执行时按当前环境取对应行，杜绝拿 local 数据集跑 test 轮。
   - **前置 fixture**：哪些场景需先跑哪条 SQL seed（`fixtures/*.sql`），跑的顺序；涉及数据准备的 case 必须声明 `data-prep:`，写清数据来源、真实业务命名和生命周期（preserve/shared-candidate/temporary）。
-- **用例清单**：按用例编号、标题、类型（unit/integration/e2e/API）、步骤、预期、关联验收标准。
+- **用例清单**：按用例编号、标题、类型（unit/integration/e2e/API/script/data/manual）、步骤、预期、关联验收标准、关联风险、证据类型。
 - **验收标准 → 测试条目映射**：proposal.md 的每条 AC（AC1/AC2…）都映射到至少一个测试条目编号，确保无遗漏。
 - **边界与异常用例**：空值、越界、非法输入、并发、大流量、权限越权等显式列出。
 - **测试数据与前置条件**：依赖的账号、数据、环境状态。
+- **执行入口与证据规则**：每个 case 明确由 Apifox asset、受管脚本、E2E runner、单测或人工核对执行；说明 TestRun/AssetAudit/脚本报告/人工核对项如何产生和回读。
 
 文件顶部必须带引擎可读取的唯一计划版本；每个用例声明必须执行的环境和方法。示例：
 
@@ -51,6 +55,64 @@ data-prep: TP-002 | fixtures/华东客户合同续费.sql | 华东客户合同�
 - 计划内容、覆盖范围或方法发生实质变化时递增 `plan-version`；旧版本的 TestRun 立即失效，必须按新计划重跑。
 - 纯后端需求没有 UI 验收时不写 `e2e`；不要为了“每环境都跑 E2E”伪造无意义用例。
 - 每个 `api` case 必须声明 Apifox `scenario`；每个 `script` case 必须声明 `script: <case> | <relative-path> | <command>`；每个 `data` case 必须声明 `data-prep: <case> | <relative-source> | <realistic-name> | <preserve|shared-candidate|temporary>`。仅在当前项目实际使用聚合入口、数据集或保存运行配置时声明 `suite-or-group`、`test-data`、`scenario-instance`。套件能力以当前 Apifox UI/CLI 回读为准，不假定所有项目都有该功能。
+
+## test-plan.md 标准骨架
+
+```md
+# Test Plan: <iid>
+
+<!-- glab-flow:test-plan:v1
+plan-version: v1
+case: TP-001 | local,test | api,script
+script: TP-001 | <relative-path> | <command>
+data-prep: TP-001 | fixtures/<真实业务数据>.sql | <真实业务命名> | shared-candidate
+-->
+
+## 1. 测试目标
+| 来源 | 目标 / 风险 | 验证方式 |
+|---|---|---|
+| proposal/design | <目标或风险> | <方式> |
+
+## 2. 测试范围
+| 范围 | 内容 | 理由 |
+|---|---|---|
+| 范围内 | <模块/接口/页面> | <关联 AC/设计风险> |
+| 范围外 | <不测内容> | <明确理由> |
+
+## 3. AC → case → 风险映射
+| AC | 设计风险 | Case ID | 方法 | 环境 | 证据 |
+|---|---|---|---|---|---|
+| AC1 | <风险> | <CaseID> | api/script/e2e/unit | local,test | TestRun/报告/人工核对 |
+
+## 4. 环境矩阵
+| 环境 | 入口/URL | 脚本 root | 命令 | env 文件/变量 | Apifox envId | 账号变量 | 数据库引用 | 数据前缀 |
+|---|---|---|---|---|---|---|---|---|
+| local | <来自 test-config> | <root> | <cmd> | <env> | <id/不涉及> | <vars> | <db> | <prefix> |
+| test | <来自 test-config> | <root> | <cmd> | <env> | <id/不涉及> | <vars> | <db> | <prefix> |
+
+## 5. 场景 ↔ 测试数据映射
+| Case ID | 场景名 | 环境 | 测试数据 | 关键业务键 | 来源/fixture | 生命周期 | 人工核对方式 |
+|---|---|---|---|---|---|---|---|
+| <CaseID> | <业务场景> | test | <真实命名数据> | <单号/账号/ID> | <fixture/数据库回读> | preserve/shared-candidate/temporary | <页面/SQL> |
+
+## 6. 前置条件与数据准备
+| Case ID | 前置条件 | 准备动作 | 回读确认 | 缺失处理 |
+|---|---|---|---|---|
+
+## 7. 用例清单
+| Case ID | 标题 | 关联 AC | 方法 | 环境 | 步骤 | 预期 | 证据类型 |
+|---|---|---|---|---|---|---|---|
+
+## 8. 边界与异常用例
+| Case ID | 异常/边界 | 输入/触发条件 | 期望行为 | 覆盖风险 |
+|---|---|---|---|---|
+
+## 9. 执行入口与证据规则
+| Case ID | 执行入口 | 证据产物 | 回读方式 |
+|---|---|---|---|
+```
+
+计划中的每个 Case ID 必须在 marker、AC 映射、数据映射和用例清单中保持一致；进入 `测试中→待发布` 时，Issue 评论里的 `测试环境数据清单` 也必须复用这些 Case ID。
 
 ## 本地测试脚本治理
 
@@ -105,17 +167,17 @@ API 用例在设计阶段列「用例描述 + 期望契约 + 执行入口」。�
 
 ### 验收标准 → 测试条目映射
 
-每条 AC 至少一个测试条目，映射关系以表格形式给出：
+每条 AC 至少一个测试条目，且每个 design 风险至少有验证方式。映射关系以表格形式给出：
 
 ```
-| AC | 测试条目 | 类型 | 备注 |
-|----|---------|------|------|
-| AC1 | T01-价格计算-正常折扣 | unit | — |
-| AC1 | T02-价格计算-负数输入返回0 | unit | 边界 |
-| AC2 | T03-下单接口-成功 | API | asset: Apifox 场景 或 script: 受管脚本 |
+| AC | 设计风险 | Case ID | 类型 | 环境 | 证据 |
+|----|---------|---------|------|------|------|
+| AC1 | 价格计算精度 | <CaseID-正常计算> | unit | local,test | TestRun |
+| AC1 | 负数输入边界 | <CaseID-边界输入> | unit | local,test | TestRun |
+| AC2 | 下单接口契约 | <CaseID-接口成功> | API/script | local,test | Apifox 报告或脚本报告 |
 ```
 
-无映射的 AC 视为遗漏，必须补测试条目或显式标注「本轮不测 + 理由」。
+无映射的 AC 视为遗漏，必须补测试条目或显式标注「本轮不测 + 理由」。设计风险无验证方式时，不能进入开发实现。
 
 ### 边界与异常用例
 

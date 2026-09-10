@@ -21,6 +21,7 @@ const REUSABLE_DOCS = [
   'docs/plans/2026-07-28-glab-flow.md',
   'docs/plans/2026-07-29-glab-flow-isolation-infra.md',
   'skills/glab-flow/SKILL.md',
+  'skills/glab-flow/artifact-quality.md',
   'skills/glab-flow/gate.md',
   'skills/glab-flow/guards.md',
   'skills/glab-flow/nodes.md',
@@ -215,6 +216,41 @@ describe('glab-flow process contracts', () => {
     expect(docs).toMatch(/测试环境数据清单[\s\S]{0,120}人工.*核对|人工.*核对[\s\S]{0,120}测试环境数据清单/);
     expect(docs).toMatch(/测试环境数据清单[\s\S]{0,120}(逐行对齐|每个场景)/);
     expect(docs).toMatch(/TC-\/TP-\/CASE- 编号[\s\S]{0,120}(相同编号|复用相同编号)/);
+  });
+
+  it('documents artifact quality standards across proposal, design and test-plan', () => {
+    const quality = readProjectFile('skills/glab-flow/artifact-quality.md');
+    const specAuthor = readProjectFile('skills/glab-flow/sub-skills/spec-author.md');
+    const testDesign = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
+    const readme = readProjectFile('README.md');
+    const skill = readProjectFile('skills/glab-flow/SKILL.md');
+    const flow = readProjectFile('docs/flow.md');
+
+    expect(readme).toContain('artifact-quality.md');
+    expect(skill).toContain('artifact-quality.md');
+    expect(flow).toContain('artifact-quality.md');
+    expect(quality).toMatch(/proposal\.md[\s\S]{0,80}为什么做/);
+    expect(quality).toMatch(/design\.md[\s\S]{0,100}怎么实现/);
+    expect(quality).toMatch(/test-plan\.md[\s\S]{0,120}每条 AC 怎么测/);
+    expect(quality).toMatch(/需求目标[\s\S]{0,80}AC[\s\S]{0,80}设计点[\s\S]{0,80}测试 case[\s\S]{0,80}测试数据/);
+    expect(quality).toMatch(/模糊词/);
+    expect(quality).toMatch(/change-impact/);
+
+    expect(specAuthor).toMatch(/artifact-quality\.md/);
+    expect(specAuthor).toMatch(/用户范围与权限/);
+    expect(specAuthor).toMatch(/业务流程与状态/);
+    expect(specAuthor).toMatch(/边界条件与异常处理/);
+    expect(specAuthor).toMatch(/非功能需求/);
+    expect(specAuthor).toMatch(/埋点与统计/);
+    expect(specAuthor).toMatch(/总体设计/);
+    expect(specAuthor).toMatch(/关键文件与改动/);
+    expect(specAuthor).toMatch(/可观测性/);
+    expect(specAuthor).toMatch(/测试策略输入/);
+
+    expect(testDesign).toMatch(/AC → case → 风险映射/);
+    expect(testDesign).toMatch(/场景 ↔ 测试数据映射/);
+    expect(testDesign).toMatch(/执行入口与证据规则/);
+    expect(testDesign).toMatch(/marker、AC 映射、数据映射和用例清单/);
   });
 
   it('keeps 测试中→待发布 as release-MR preparation only, never master merge', () => {
