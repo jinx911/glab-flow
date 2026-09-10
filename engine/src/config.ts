@@ -9,18 +9,6 @@ export interface JenkinsJobConfig {
   defaultParams?: Record<string, string>;
 }
 
-export interface ApifoxEnvironmentConfig {
-  id?: string;
-  name?: string;
-  baseUrl?: string;
-}
-
-export interface ApifoxProjectConfig {
-  projectId: string;
-  branch: string;
-  environments: Record<string, ApifoxEnvironmentConfig>;
-}
-
 export interface TestEnvironmentConfig {
   url: string;
   runtime?: 'local-docker' | 'deployed';
@@ -56,10 +44,6 @@ export interface GlabConfig {
   };
   databases?: Record<string, { mcp: string; desc?: string }>;
   testEnvironments?: Record<string, TestEnvironmentConfig>;
-  apifox?: {
-    projects: Record<string, ApifoxProjectConfig>;
-    routes?: Record<string, { project: string; repositories: string[]; apiPrefixes: string[] }>;
-  };
 }
 
 interface RawJenkinsJob {
@@ -95,14 +79,6 @@ interface RawConfig {
     };
     desc?: string;
   }>;
-  apifox?: {
-    projects?: Record<string, {
-      project_id?: string | number;
-      branch?: string;
-      environments?: Record<string, { id?: string | number; name?: string; base_url?: string }>;
-    }>;
-    routes?: Record<string, { project?: string; repositories?: string[]; api_prefixes?: string[] }>;
-  };
 }
 
 // Matches a ```yaml\n...\n``` fenced block exactly (no CRLF / trailing-space / uppercase support).
@@ -251,49 +227,6 @@ export function parseConfig(markdown: string): GlabConfig {
               },
             ]),
           ),
-        }
-      : {}),
-    ...(raw.apifox?.projects
-      ? {
-          apifox: {
-            projects: Object.fromEntries(
-              Object.entries(raw.apifox.projects)
-                .filter(([, project]) => project?.project_id !== undefined && project.project_id !== null && String(project.project_id).trim() !== '')
-                .map(([key, project]) => [
-                  key,
-                  {
-                    projectId: String(project!.project_id),
-                    branch: project!.branch?.trim() || 'main',
-                    environments: Object.fromEntries(
-                      Object.entries(project!.environments ?? {}).map(([name, environment]) => [
-                        name,
-                        {
-                          ...(environment.id !== undefined && environment.id !== null && String(environment.id).trim() !== '' ? { id: String(environment.id) } : {}),
-                          ...(environment.name ? { name: environment.name } : {}),
-                          ...(environment.base_url ? { baseUrl: environment.base_url } : {}),
-                        },
-                      ]),
-                    ),
-                  },
-              ]),
-            ),
-            ...(raw.apifox.routes
-              ? {
-                  routes: Object.fromEntries(
-                    Object.entries(raw.apifox.routes)
-                      .filter(([, route]) => route?.project)
-                      .map(([key, route]) => [
-                        key,
-                        {
-                          project: route!.project as string,
-                          repositories: route!.repositories ?? [],
-                          apiPrefixes: route!.api_prefixes ?? [],
-                        },
-                      ]),
-                  ),
-                }
-              : {}),
-          },
         }
       : {}),
   };

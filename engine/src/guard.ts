@@ -1,9 +1,8 @@
-import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, TestRun, TestPlan, ApifoxAssetAudit, ApifoxAssetRecord, LatestTestRun, LatestApifoxAssetAudit, TestMethod, DuState, Transition, GateSet } from './types.js';
+import type { StateMachine, IssueFacts, IssueNote, Payload, GuardResult, WritePlan, WriteOp, TestRun, TestPlan, LatestTestRun, TestMethod, DuState, Transition, GateSet } from './types.js';
 import { transitionFor } from './model.js';
 import { parseAssigneeTable } from './parse.js';
 import { STATUS_PREFIX, ROLES } from './constants.js';
 import { parseLatestTestRun, parseTestPlan, validateTestRun } from './test-run.js';
-import { parseLatestApifoxAssetAudit, validateApifoxAssetAudit } from './asset-audit.js';
 import { validateRequirementsReviewEvidence } from './review-evidence.js';
 import { validateChangeImpactClosure } from './change-impact.js';
 import { gateSetValidationErrors, isWaivedByGateSet } from './gate-set.js';
@@ -15,20 +14,10 @@ const fail = (reasons: string[], missing: string[] = []): GuardResult => ({ ok: 
 const unique = (values: string[]): string[] => [...new Set(values)];
 
 
-/** 当前计划在该环境是否要求 v2 审计（presentation/auth-profile 证据 DU 尚无法承载）。 */
-function planRequiresV2Audit(plan: TestPlan, environment: string): boolean {
-  return plan.cases.some((item) => item.environments.includes(environment) && (item.presentations.length || item.authProfiles.length));
-}
-
-function planRequiresApifoxAudit(plan: TestPlan, environment: string): boolean {
-  return plan.cases.some((item) => item.environments.includes(environment) && item.assets.length);
-}
-
 /**
  * DU 本地证据 → TestRun 形状（评论瘦身，P2）。
  * cases/evidence 按当前计划推导填充（DU 明细在本地 detailRef，评论格式的
- * 回读锚点以中性占位满足结构）；assetAudit 拼成 `${planVersion}/${environment}`
- * 与评论标记约定一致，让关联校验照常工作。outcome 非 passed 一律不合成
+ * 回读锚点以中性占位满足结构）。outcome 非 passed 一律不合成
  * 通过形状，直接以 invalid-latest 带根因拒绝——fail-closed，用户看到
  * 「须重跑」而不是合成形状缺 case 的逐项噪音。
  */
@@ -52,40 +41,7 @@ function duTestRunFor(du: DuState | undefined, plan: TestPlan, environment: stri
     cases,
     evidence,
   };
-  if (planRequiresApifoxAudit(plan, environment)) run.assetAudit = `${entry.planVersion}/${entry.environment}`;
   return { kind: 'valid' as const, run };
-}
-
-/**
- * DU 本地证据 → ApifoxAssetAudit 形状（评论瘦身，P2）。
- * project/branch 是展示字段，DU 不登记（明细在本地 detailRef）；审计语义由
- * 「计划内资产全覆盖 + 计划版本一致 + 无未处置问题 + 有本地明细指针」表达。
- * outcome 即未处置问题数：非法值（空/非整数/负数）fail-closed 以
- * invalid-latest 拒绝，不静默归 0——主源不允许弱于兜底源。
- */
-function duAssetAuditFor(du: DuState | undefined, plan: TestPlan, environment: string): LatestApifoxAssetAudit | undefined {
-  const entry = du ? latestEvidence(du, 'asset-audit', environment) : undefined;
-  if (!entry) return undefined;
-  // DU 无法承载 presentation/auth-profile 证据，回落 Issue 评论（spec 留待后续阶段补齐）。
-  if (planRequiresV2Audit(plan, environment)) return undefined;
-  const raw = entry.outcome.trim();
-  const unresolved = Number(raw);
-  if (!raw || !Number.isInteger(unresolved) || unresolved < 0) {
-    return { kind: 'invalid-latest', errors: [`DU asset-audit outcome 无效（须为非负整数）：${entry.outcome}`] };
-  }
-  const assets = plan.cases
-    .filter((item) => item.environments.includes(environment))
-    .flatMap((item) => item.assets.map((type): ApifoxAssetRecord => ({ caseId: item.id, type, id: entry.detailRef ?? 'du', action: 'reuse' })));
-  const audit: ApifoxAssetAudit = {
-    environment: entry.environment,
-    planVersion: entry.planVersion,
-    project: '',
-    branch: '',
-    unresolvedFindings: unresolved,
-    evidence: entry.detailRef ?? 'du',
-    assets,
-  };
-  return { kind: 'valid' as const, audit };
 }
 
 /** Applies one versioned test plan to the local and test acceptance gates. */
@@ -113,25 +69,6 @@ export function validateTestRunTransition(payload: Payload, notes: IssueNote[] =
   const parsedLatest = duTestRunFor(payload.du, parsedPlan.plan, environment) ?? parseLatestTestRun(notes, environment);
   const validation = validateTestRun(parsedPlan.plan, environment, parsedLatest);
   return validation.ok ? ok() : fail(validation.errors, [`${environment}TestRun`]);
-}
-
-/** Requires a current, read-back Apifox asset audit before each environment TestRun can pass. */
-export function validateApifoxAssetAuditTransition(payload: Payload, notes: IssueNote[] = []): GuardResult {
-  const environment = payload.from === '开发中' && payload.to === '测试中'
-    ? 'local'
-    : payload.from === '测试中' && payload.to === '待发布'
-      ? 'test'
-      : undefined;
-  if (!environment) return ok();
-  if (payload.du?.gateSet && !payload.du.gateSet.environments.includes(environment)) return ok();
-  const parsedPlan = parseTestPlan(payload.testPlan);
-  if (!parsedPlan.ok) return fail([`测试计划缺失或无效：${parsedPlan.errors.join('；')}`], ['testPlan']);
-  if (!planRequiresApifoxAudit(parsedPlan.plan, environment)) return ok();
-  // DU 优先（同上）：明细归 DU，Issue 评论仅兜底；计划要求 v2 审计时适配器
-  // 自行回落评论（presentation/auth-profile 证据 DU 尚无法承载）。
-  const parsedLatest = duAssetAuditFor(payload.du, parsedPlan.plan, environment) ?? parseLatestApifoxAssetAudit(notes, environment);
-  const validation = validateApifoxAssetAudit(parsedPlan.plan, environment, parsedLatest);
-  return validation.ok ? ok() : fail(validation.errors, [`${environment}AssetAudit`]);
 }
 
 /**
@@ -225,15 +162,11 @@ function validateGateSetRequirements(payload: Payload): GuardResult {
   if (gateSet.regression === 'full' && (payload.from === '开发中' || payload.from === '测试中')) {
     const evidence = payload.fields['回归范围或证据'] ?? '';
     const environment = payload.from === '开发中' ? 'local' : 'test';
-    const parsedPlan = parseTestPlan(payload.testPlan);
-    const auditRequired = parsedPlan.ok ? planRequiresApifoxAudit(parsedPlan.plan, environment) : true;
     const duRun = payload.du ? latestEvidence(payload.du, 'test-run', environment) : undefined;
-    const duAudit = payload.du ? latestEvidence(payload.du, 'asset-audit', environment) : undefined;
-    const hasStructuredFullEvidence = duRun?.outcome === 'passed'
-      && (!auditRequired || (duAudit?.outcome === '0' && duRun.planVersion === duAudit.planVersion));
+    const hasStructuredFullEvidence = duRun?.outcome === 'passed';
     if (!hasStructuredFullEvidence && !/全量|完整|full/i.test(evidence)) {
       missing.push('回归范围或证据');
-      reasons.push('GateSet 要求 full 回归：提供通过的 DU TestRun（若计划声明 Apifox 资产则同时提供 AssetAudit），或明确记录全量/完整回归');
+      reasons.push('GateSet 要求 full 回归：提供通过的 DU TestRun，或明确记录全量/完整回归');
     }
   }
   return missing.length ? fail(reasons, missing) : ok();
@@ -339,14 +272,13 @@ export function validateTransition(model: StateMachine, facts: IssueFacts, paylo
   const reviewEvidenceGate = payload.type === 'story' && payload.from === '待评审' && payload.to === '已评审'
     ? validateRequirementsReviewEvidence(facts.body, notes, payload.reviewEvidence)
     : ok();
-  const assetAuditGate = validateApifoxAssetAuditTransition(payload, notes);
   const testRunGate = validateTestRunTransition(payload, notes);
   const changeImpactGate = validateChangeImpactClosure(notes);
   const testDataAlignmentGate = validateTestDataAlignment(payload);
-  if (missing.length || reasons.length || !gateSetRequirements.ok || !reviewEvidenceGate.ok || !assetAuditGate.ok || !testRunGate.ok || !changeImpactGate.ok || !testDataAlignmentGate.ok) {
+  if (missing.length || reasons.length || !gateSetRequirements.ok || !reviewEvidenceGate.ok || !testRunGate.ok || !changeImpactGate.ok || !testDataAlignmentGate.ok) {
     return fail(
-      unique([...reasons, ...gateSetRequirements.reasons, ...reviewEvidenceGate.reasons, ...assetAuditGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons, ...testDataAlignmentGate.reasons]),
-      unique([...missing, ...gateSetRequirements.missing, ...reviewEvidenceGate.missing, ...assetAuditGate.missing, ...testRunGate.missing, ...changeImpactGate.missing, ...testDataAlignmentGate.missing]),
+      unique([...reasons, ...gateSetRequirements.reasons, ...reviewEvidenceGate.reasons, ...testRunGate.reasons, ...changeImpactGate.reasons, ...testDataAlignmentGate.reasons]),
+      unique([...missing, ...gateSetRequirements.missing, ...reviewEvidenceGate.missing, ...testRunGate.missing, ...changeImpactGate.missing, ...testDataAlignmentGate.missing]),
     );
   }
   return ok();

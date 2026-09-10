@@ -26,9 +26,9 @@ flowchart TD
       S2 -->|"需求评审通过"| S3["已评审"]
       S2 -.->|"需求评审退回"| S1
       S3 -->|"GateSet 绑定 + 技术方案评审 + 计划日期确认"| S4["开发中"]
-      S4 -->|"代码评审 + local TestRun<br/>声明 Apifox asset 时再审计"| S5["测试中"]
+      S4 -->|"代码评审 + local TestRun"| S5["测试中"]
       S4 -->|"轻量 GateSet 可跳过测试中"| S6["待发布"]
-      S5 -->|"test TestRun + 阻塞问题全验证<br/>声明 Apifox asset 时再审计"| S6
+      S5 -->|"test TestRun + 阻塞问题全验证"| S6
       S5 -.->|"整体返工 / 变更影响单要求返工"| S4
       S6 -->|"发布 hard_gate"| S7["生产验收中"]
       S7 -->|"产品验收 hard_gate"| S8["已完成 / 关闭 Issue"]
@@ -51,7 +51,7 @@ flowchart TD
 - 每次写回前先读 GitLab + DU 并 `reconcile`；写回顺序固定为 metadata → state-comment → close（终态）→ readback。
 - `已评审→开发中` 与 Bug `已确认缺陷→开发中` 是 GateSet 绑定边界；绑定后才能按门禁推进。
 - 需求评审不是只挑错：理解真实诉求并补齐追问后，可以把更优方案或交互优化反馈给提单人；采纳才同步到需求/设计/测试策略，不采纳或暂缓不阻塞通过。
-- `local` / `test` 都通过 TestRun 证明；只有 test-plan 声明 Apifox `asset:` 时才额外要求 AssetAudit。
+- `local` / `test` 都通过 TestRun 证明；glab-flow 内置测试入口是项目脚本、fixture/seed、数据库回读和 E2E，不再要求外部测试平台资产。
 - 测试执行前必须先做 E0 数据准备检查：seed/fixture、数据库引用、账号、数据前缀、真实命名和保留/升级策略不齐，不进入执行。
 - `proposal.md` / `design.md` / `test-plan.md` 是同一条交付链路：目标与 AC → 设计决策与风险 → case、环境、数据和证据。文档质量标准见 [skills/glab-flow/artifact-quality.md](skills/glab-flow/artifact-quality.md)，不接受只有需求复述、文件清单或临场测试说明的低质量产物。
 - 生产发布和终态验收是 hard_gate，必须人工确认；不会用 MR 合并提交或部署版本号替代发布/验证事实。
@@ -83,9 +83,8 @@ flowchart TD
 
 ## 完整安装（未通过即禁止使用）
 
-glab-flow 不支持“只装一部分先跑”的模式。安装成功必须同时具备 Git、Node.js 20+、pnpm 10.33.0、GitLab CLI、CodeGraph、ripgrep、Playwright Chromium、Claude Code/Codex 技能链接、GitLab 授权和目标业务工作区的 CodeGraph 索引。Apifox CLI/授权只在测试计划声明 Apifox 资产时作为测试 provider 启用。
 
-当前仅支持 macOS（Homebrew）。安装器会展示将执行的全局安装操作；传 `--yes` 才会跳过确认。它不会读取、打印或保存 GitLab/Apifox Token。
+当前仅支持 macOS（Homebrew）。安装器会展示将执行的全局安装操作；传 `--yes` 才会跳过确认。它不会读取、打印或保存 GitLab Token。
 
 ```bash
 # 推荐：从 Git 仓库克隆开始。<business-workspace> 是被 glab-flow 推进需求的业务仓库，
@@ -117,12 +116,11 @@ scripts/doctor.sh --workspace /absolute/path/to/business-workspace
 | 文件 | 职责 |
 |---|---|
 | `.glab-flow/config.md` | **交付流程**：GitLab host/projectId、分支命名、run_mode（审计字段）、Jenkins、数据库索引 |
-| `.glab-flow/test-config.md` | **测试配置**：local/test 环境 Profile、脚本运行根与命令、可选 Apifox 项目路由（改动仓库→项目）、环境 ID 索引、凭据变量名、测试数据策略、共用登录契约 |
-| `.glab-flow/apifox-vars.json` | **Apifox 环境参数值**（仅声明 Apifox 资产时由 CLI `--variables` 消费）；脚本测试的环境值走 `test-config.md` 的 `scripts.env_file` / `scripts.variables` |
+| `.glab-flow/test-config.md` | **测试配置**：local/test 环境 Profile、脚本运行根与命令、凭据变量名、数据库索引、测试数据策略、共用登录契约 |
 
 格式详见 `skills/glab-flow/config.md` / `test-config.example.md`。
 
-## 测试执行体系（脚本优先，Apifox 按需启用）
+## 测试执行体系（脚本优先）
 
 **双跑铁律**：自测（开发中）与测试环境测试（测试中）都必须包含接口测试 + E2E，只跑接口不算完成。
 
@@ -130,22 +128,19 @@ scripts/doctor.sh --workspace /absolute/path/to/business-workspace
 # 1. 先把当前环境的运行上下文送到脸上：仓库路由、脚本根、命令、env 文件、数据库/前端/账号索引
 pnpm cli test-config --repos <repo1,repo2> --env local --iid <iid> < .glab-flow/test-config.md
 
-# 2. 按 test-plan 的 script: 声明执行受管脚本；只切 env，不改用例逻辑
+# 2. 按 test-plan 的 script: 声明执行项目脚本；只切 env，不改用例逻辑
 pnpm test:flow -- --issue <iid> --env local
 pnpm test:flow -- --issue <iid> --env test
 
-# 3. 执行完成后把证据记入 DU；声明 Apifox asset: 的用例才需要额外记录 AssetAudit
+# 3. 执行完成后把证据记入 DU
 pnpm cli du record <iid> test-run --env local --plan-version <version> --status passed
 ```
 
-- **测试计划**：`test-plan.md` 必含环境矩阵、用例清单、`script:` 或 `asset:` marker；涉及数据准备的 case 必须声明 `data-prep:`（来源、真实业务命名、保留/升级策略）；脚本路径相对 `scripts.root`，不能散落在工作区。
+- **测试计划**：`test-plan.md` 必含环境矩阵、用例清单、`script:` marker；涉及数据准备的 case 必须声明 `data-prep:`（来源、真实业务命名、保留/升级策略）；脚本路径相对 `scripts.root`，不能散落在工作区。
 - **数据预检**：进入 local/test 执行前先跑 E0 数据准备检查，确认 seed/fixture、数据库引用、账号、数据前缀和清理/保留策略都已就绪；缺数据不允许边跑边补。
-- **参数三轴口诀**：随环境轴变（每环境一值）→ `scripts.env_file` / `scripts.variables`；随轮次轴变（同环境 N 值）→ fixture/数据集；不变 → 写死 case。可复用的真实测试数据保留在 `.glab-flow/<iid>/spec/fixtures/` 或升级共享资产，禁止 `test/demo/tmp` 这类无业务含义命名。
-- **Apifox 按需启用**：只有 test-plan 声明 `asset:` 时才创建/审计 Apifox 场景、套件、数据集，并使用 `apifox-vars.json`、`-e <envId>`、报告环境回读。
+- **参数三轴口诀**：随环境轴变（每环境一值）→ `scripts.env_file` / `scripts.variables`；随轮次轴变（同环境 N 值）→ fixture/seed/数据行；不变 → 写死 case。可复用的真实测试数据保留在 `.glab-flow/<iid>/spec/fixtures/` 或升级共享资产，禁止 `test/demo/tmp` 这类无业务含义命名；常用业务键必须符合目标租户真实规则，例如 KN 租户工号使用数据库中存在的 `KNxxxx`。
 - **产物落点**：所有产出按 `.glab-flow/<iid>/` 归位（spec / tests / fixtures / archive）；工作区根的 `playwright-report/`、`test-results/` 是临时执行位，证据记入 DU 后清理或归档。
 - **证据门禁**：执行后回读报告/日志 stats + 环境名 + planVersion，禁止只凭 CLI stdout 说通过。
-- **环境事实核对**：测试计划环境、`test-config --env` 输出、执行命令/env 文件、报告环境必须一致；声明 Apifox 资产时再额外核对 Apifox 页面/报告环境。
-- **共用认证**：每个角色使用 AuthProfile 的登录引导和后置临时 token 提取；业务接口统一引用鉴权变量，账号、密码和 token 值不进入 Apifox 资产、Issue 或报告。
 
 ## 引擎 CLI（纯计算：标准输入 → 标准输出，无 I/O）
 
@@ -169,7 +164,7 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
   metrics          (stdin {du,event?})            # -> 交付指标汇总（确认/流转/重测/环境阻塞/返工/人工介入 + 周期）
   evidence          (stdin [{body,created_at,id}] from `glab api .../notes`)  # -> 抽取的状态变更证据
   config            (stdin = config markdown 文件内容)                      # -> GlabConfig JSON（Leader: cat <config.md> | pnpm cli config）
-  test-config       (--repos a,b --env local [--iid N]; stdin = test-config.md)  # -> TestContext JSON（scripts/root/env vars + 可选 apifoxTargets/envId + 凭据变量/数据库）
+  test-config       (--repos a,b --env local [--iid N]; stdin = test-config.md)  # -> TestContext JSON（scripts/root/env vars + 可选 testTargets/envId + 凭据变量/数据库）
   state-init        (stdin {iid,type,host,projectId,workspaceRoot,runMode?,now?})  # -> RunState JSON（Leader 写到 .glab-flow/*-state.json）
 ```
 
@@ -177,7 +172,6 @@ cd <glab-flow repo> && pnpm cli <cmd>   # skill 运行时经 ENGINE_ROOT 解析�
 
 ## 变更闭环
 
-需求、技术方案、实现或测试中发现错误时，先用 `change` 写入不可变的 open 影响单并自动定级 T1–T4（tier 从 open 单 scopes 重推导、禁自报）；它会推导必须同步的 proposal、design、测试计划、Apifox 资产、环境重测、计划日期或发布材料，必要时给出 GateSet 棘轮扩容提案（只升不降）。open 单存在时 G16 阻断正向状态流转。完成所有受影响项后，以刚回读的 Issue notes 调 `change-close`；若测试计划被影响且定级 T3+，`plan-version` 必须递增，旧环境证据会自动失效（T1/T2 轻量档豁免）。
 
 ## 测试、类型检查与构建
 
@@ -193,7 +187,7 @@ pnpm build                    # tsc → engine/dist（可选；用 node engine/d
 engine/state-machine.yaml     # 状态机模型（story+bug，含 gateMatrix 维度→门禁推导），来源为 Harness 的 docs/issue-state-machine.md
 engine/src/{types,model,contract,guard,parse,gitlab,render,plan,evidence,test-config,cli,du,gate-set,next-step,reconcile,change,tier,resource,metrics,action-policy}.ts   # + *.test.ts
 skills/glab-flow/{SKILL,config,config.example,test-config.example,nodes,guards,gate,resume,learn,tools}.md
-skills/glab-flow/sub-skills/*.md    # 含 test-design / test-flow-apifox / test-flow-e2e (测试三件套)
+skills/glab-flow/sub-skills/*.md    # 含 test-design / test-flow-e2e / test-flow-e2e (测试三件套)
 agents/{intake,review-preview,release-check}.md
 install.sh / uninstall.sh     # 双端安装 (~/.claude + ~/.codex)
 ```

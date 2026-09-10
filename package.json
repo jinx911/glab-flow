@@ -13,7 +13,6 @@
     "url": "https://github.com/jinx911/glab-flow/issues"
   },
   "homepage": "https://github.com/jinx911/glab-flow#readme",
-  "keywords": ["gitlab", "agent-skill", "workflow", "delivery", "apifox", "codex", "claude-code"],
   "packageManager": "pnpm@10.33.0",
   "engines": {
     "node": ">=20",

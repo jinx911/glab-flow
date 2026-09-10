@@ -20,13 +20,11 @@ const TEST_PLAN = `<!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api,e2e
 case: TP-U01 | local,test | unit
-asset: TP-001 | scenario
 -->`;
 const LOCAL_RUN = `<!-- glab-flow:test-run:v1
 environment: local
 plan-version: v3
 outcome: passed
-asset-audit: v3/local
 cases: TP-001=passed,TP-U01=passed
 evidence: api=report:101,e2e=note:https://git.example/local,unit=vitest-26-passed
 -->`;
@@ -34,29 +32,10 @@ const TEST_RUN = `<!-- glab-flow:test-run:v1
 environment: test
 plan-version: v3
 outcome: passed
-asset-audit: v3/test
 cases: TP-001=passed,TP-U01=passed
 evidence: api=report:102,e2e=note:https://git.example/test,unit=vitest-26-passed
 -->`;
-const LOCAL_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
-environment: local
-plan-version: v3
-project: 8731182
-branch: main
-unresolved-findings: 0
-evidence: list-get:https://apifox.example/local
-asset: TP-001 | scenario | scenario-101 | reuse
--->`;
-const TEST_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
-environment: test
-plan-version: v3
-project: 8731182
-branch: main
-unresolved-findings: 0
-evidence: list-get:https://apifox.example/test
-asset: TP-001 | scenario | scenario-101 | reuse
--->`;
-const TEST_NOTES = [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }, { body: TEST_AUDIT }, { body: TEST_RUN }];
+const TEST_NOTES = [{ body: LOCAL_RUN }, { body: TEST_RUN }];
 const VALID_REVIEW_EVIDENCE: RequirementsReviewEvidence = {
   images: [], frontend: { applicable: false, routes: [] },
   grilling: { coverage: ['目标与范围', '角色与权限', '业务规则与边界', '数据与兼容', '验收与多环境验证'], decisions: [], unresolved: [] },
@@ -364,7 +343,7 @@ describe('GateSet-scoped guards (P3)', () => {
 });
 
 describe('DU-first evidence (P2)', () => {
-  it('accepts script-managed TestRun from DU without Apifox AssetAudit', () => {
+  it('accepts script-managed TestRun from DU without asset audit coupling', () => {
     const scriptPlan = `<!-- glab-flow:test-plan:v1
 plan-version: v4
 case: TP-S01 | local | script
@@ -380,12 +359,11 @@ script: TP-S01 | scripts/leave-settlement.spec.ts | pnpm test:flow -- --case TP-
     };
     const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
     expect(r.ok).toBe(true);
-    expect(r.missing).not.toContain('localAssetAudit');
+    expect(r.missing).not.toContain('localTestRun');
   });
 
-  it('accepts local TestRun+AssetAudit from DU evidence without Issue comments', () => {
+  it('accepts local TestRun from DU evidence without Issue comments', () => {
     const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' },
       { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
@@ -402,12 +380,11 @@ script: TP-S01 | scripts/leave-settlement.spec.ts | pnpm test:flow -- --case TP-
       fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN,
       assigneeUser: '@qa', datesConfirmed: true,
     };
-    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }]);
+    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: LOCAL_RUN }]);
     expect(r.ok).toBe(true);
   });
   it('rejects when DU records failed test-run, surfacing the rerun root cause', () => {
     const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
       { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'failed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
@@ -419,50 +396,8 @@ script: TP-S01 | scripts/leave-settlement.spec.ts | pnpm test:flow -- --case TP-
     expect(r.ok).toBe(false);
     expect(r.reasons.some((x) => x.includes('DU 记录 outcome=failed，须重跑后再记录'))).toBe(true);
   });
-  it('rejects a non-numeric DU asset-audit outcome instead of coercing it to zero (fail-closed)', () => {
-    const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: 'abc', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
-    ]);
-    const p: Payload = {
-      type: 'story', from: '开发中', to: '测试中',
-      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
-      assigneeUser: '@qa', datesConfirmed: true,
-    };
-    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
-    expect(r.ok).toBe(false);
-    expect(r.reasons.some((x) => x.includes('DU asset-audit outcome 无效（须为非负整数）：abc'))).toBe(true);
-  });
-  it('rejects a negative or fractional DU asset-audit outcome (fail-closed)', () => {
-    for (const outcome of ['-1', '1.5', '']) {
-      const du = duWith([{ kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome, recordedAt: DU_NOW }]);
-      const p: Payload = {
-        type: 'story', from: '开发中', to: '测试中',
-        fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
-        assigneeUser: '@qa', datesConfirmed: true,
-      };
-      const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
-      expect(r.ok).toBe(false);
-      expect(r.reasons.some((x) => x.includes('DU asset-audit outcome 无效'))).toBe(true);
-    }
-  });
-  it('surfaces a positive DU unresolved-findings count instead of zeroing it', () => {
-    const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '2', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
-    ]);
-    const p: Payload = {
-      type: 'story', from: '开发中', to: '测试中',
-      fields: DU_SUBMIT_FIELDS, testPlan: TEST_PLAN, du,
-      assigneeUser: '@qa', datesConfirmed: true,
-    };
-    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, []);
-    expect(r.ok).toBe(false);
-    expect(r.reasons.some((x) => x.includes('仍有 2 个未处置问题'))).toBe(true);
-  });
   it('rejects when DU evidence plan version drifts from the current test plan', () => {
     const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v2', outcome: '0', recordedAt: DU_NOW },
       { kind: 'test-run', environment: 'local', planVersion: 'v2', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
@@ -474,46 +409,11 @@ script: TP-S01 | scripts/leave-settlement.spec.ts | pnpm test:flow -- --case TP-
     expect(r.ok).toBe(false);
     expect(r.reasons.some((x) => x.includes('版本不匹配'))).toBe(true);
   });
-  it('falls back to a valid v2 Issue comment when the plan requires presentation/auth-profile evidence', () => {
-    // 计划声明 presentation/auth-profile → 必须走 v2 审计；DU 合成对象无法承载，
-    // 适配器回落评论路径，合法 v2 评论照常通过（不被 DU-first 短路卡死）。
-    const governedPlan = `<!-- glab-flow:test-plan:v1
-plan-version: v3
-case: TP-001 | local,test | api,e2e
-case: TP-U01 | local,test | unit
-asset: TP-001 | scenario
-presentation: TP-001 | scenario
-auth-profile: TP-001 | client-user
--->`;
-    const v2Audit = `<!-- glab-flow:apifox-asset-audit:v2
-environment: local
-plan-version: v3
-project: 8731182
-branch: main
-unresolved-findings: 0
-evidence: list-get:https://apifox.example/local
-asset: TP-001 | scenario | scenario-101 | reuse
-presentation: TP-001 | scenario | local | local | local
-auth-profile: TP-001 | client-user | auth_token
--->`;
-    const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
-      { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
-    ]);
-    const p: Payload = {
-      type: 'story', from: '开发中', to: '测试中',
-      fields: DU_SUBMIT_FIELDS, testPlan: governedPlan, du,
-      assigneeUser: '@qa', datesConfirmed: true,
-    };
-    const r = validateTransition(model, facts(['type::story', 'story-status::开发中']), p, [{ body: v2Audit }, { body: LOCAL_RUN }]);
-    expect(r.ok).toBe(true);
-  });
 });
 
 describe('环境执行证据（记录侧）', () => {
   it('accepts a DU test-run without a runtime version', () => {
     const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
       { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {
@@ -532,7 +432,6 @@ describe('G11b 阻塞问题交叉核对（Q2：自报字段不够，评论必须
     fields: { ...GATESET_TEST_DONE_FIELDS, feature分支MR评审结论: '通过' }, testPlan: TEST_PLAN,
     assigneeUser: '@dev', datesConfirmed: true,
     du: duWith([
-      { kind: 'asset-audit', environment: 'test', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
       { kind: 'test-run', environment: 'test', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]),
   });
@@ -589,7 +488,7 @@ describe('G11b 多问题最新状态语义', () => {
 
 describe('Q4 unit 覆盖按维度要求（GateSet.minUnitCases）', () => {
   it('rejects plan without enough unit cases when GateSet requires them', () => {
-    const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local,test | api\nasset: TP-001 | scenario\n-->';
+    const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local,test | api\n-->';
     const p: Payload = {
       type: 'story', from: '开发中', to: '测试中',
       fields: DU_SUBMIT_FIELDS, testPlan: noUnitPlan,
@@ -601,9 +500,8 @@ describe('Q4 unit 覆盖按维度要求（GateSet.minUnitCases）', () => {
     expect(r.reasons.some((x) => x.includes('unit 用例不足') && x.includes('3'))).toBe(true);
   });
   it('frontend-copy GateSet (minUnitCases=0) passes without unit cases', () => {
-    const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local | api\nasset: TP-001 | scenario\n-->';
+    const noUnitPlan = '<!-- glab-flow:test-plan:v1\nplan-version: v3\ncase: TP-001 | local | api\n-->';
     const du = duWith([
-      { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW },
       { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW },
     ]);
     const p: Payload = {

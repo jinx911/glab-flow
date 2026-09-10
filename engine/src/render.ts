@@ -190,7 +190,6 @@ export function renderNodeComment(p: Payload): string {
 }
 
 const INTERNAL_COMMENT_CONTENT = [
-  /apifox/i,
   /(?:^|[^a-z])local(?:$|[^a-z])/i,
   /本地(?:环境|路径|测试|执行|资产)/,
   /report\s*id/i,

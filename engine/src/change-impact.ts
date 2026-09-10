@@ -16,7 +16,7 @@ import { validatePublicField, validatePublicText } from './render.js';
 
 const SCOPES = new Set<ChangeScope>(['frontend-copy', 'functional', 'api-contract', 'data-model', 'permission', 'frontend-route', 'release']);
 const SOURCES = new Set<ChangeSource>(['requirement', 'technical-design', 'implementation', 'test']);
-const ARTIFACTS = new Set<ChangeArtifact>(['proposal', 'design', 'test-plan', 'apifox-assets', 'implementation', 'local-rerun', 'test-rerun', 'release-check']);
+const ARTIFACTS = new Set<ChangeArtifact>(['proposal', 'design', 'test-plan', 'test-assets', 'implementation', 'local-rerun', 'test-rerun', 'release-check']);
 const DEVELOPMENT_SCOPES = new Set<ChangeScope>(['functional', 'api-contract', 'data-model', 'permission', 'frontend-route']);
 
 const ok = (): GuardResult => ({ ok: true, missing: [], reasons: [] });
@@ -30,7 +30,7 @@ const PUBLIC_ARTIFACT_LABELS: Record<ChangeArtifact, string> = {
   proposal: '需求提案',
   design: '技术方案',
   'test-plan': '测试计划',
-  'apifox-assets': '接口资产',
+  'test-assets': '测试脚本/数据资产',
   implementation: '实现改动',
   'local-rerun': '复测',
   'test-rerun': '环境复测',
@@ -83,7 +83,7 @@ export function deriveChangeImpact(input: ChangeImpactInput): ChangeImpact {
   if (input.source === 'technical-design') required.push('design');
   if (input.source === 'implementation' || input.source === 'test') required.push('implementation');
   if (needsDevelopmentSync) {
-    required.push('design', 'test-plan', 'apifox-assets', 'local-rerun');
+    required.push('design', 'test-plan', 'test-assets', 'local-rerun');
     if (hasEnteredTest(input.type, input.currentNode)) required.push('test-rerun');
   }
   if (input.scopes.includes('release')) required.push('release-check');

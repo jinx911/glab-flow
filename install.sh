@@ -12,7 +12,7 @@ usage() {
 Usage: ./install.sh --workspace <business-workspace> [--yes]
 
 Installs and verifies the complete glab-flow runtime: Git, Node.js, pnpm,
-glab, Apifox CLI, CodeGraph, ripgrep, Playwright Chromium, npm dependencies,
+glab, CodeGraph, ripgrep, Playwright Chromium, npm dependencies,
 agent skill links and login/index health checks.
 
 --workspace  Business workspace glab-flow will drive. CodeGraph is indexed
@@ -72,9 +72,9 @@ WORKSPACE="$(cd "$WORKSPACE" && pwd)"
 PLATFORM="macOS/Homebrew"
 cat <<EOF
 [glab-flow] 完整安装计划（${PLATFORM}）
-  1. 安装/更新 Git、Node.js 20+、pnpm、glab、Apifox CLI、CodeGraph、ripgrep、Playwright Chromium
+  1. 安装/更新 Git、Node.js 20+、pnpm、glab、CodeGraph、ripgrep、Playwright Chromium
   2. 为 Claude Code 与 Codex 安装 glab-flow 技能和内置 agents
-  3. 安全完成 GitLab / Apifox 登录，并建立 $WORKSPACE 的 CodeGraph 索引
+  3. 安全完成 GitLab 登录，并建立 $WORKSPACE 的 CodeGraph 索引
   4. 运行 doctor；任一能力、授权或索引缺失都会以失败退出
 EOF
 confirm "这会安装全局软件并修改你的 Agent 配置，继续吗？"
@@ -92,9 +92,9 @@ if ! git -C "$ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   if [[ "$YES" == "1" ]]; then args+=(--yes); fi
   exec "$INSTALL_ROOT/install.sh" "${args[@]}"
 fi
-info "安装 pnpm、Apifox CLI、CodeGraph 和 Playwright…"
-npm install -g pnpm@10.33.0 apifox-cli@latest @colbymchenry/codegraph@latest playwright@latest
-for command_name in pnpm glab apifox codegraph rg playwright; do command -v "$command_name" >/dev/null 2>&1 || die "$command_name 安装后未进入 PATH，请重新打开终端后重试。"; done
+info "安装 pnpm、CodeGraph 和 Playwright…"
+npm install -g pnpm@10.33.0 @colbymchenry/codegraph@latest playwright@latest
+for command_name in pnpm glab codegraph rg playwright; do command -v "$command_name" >/dev/null 2>&1 || die "$command_name 安装后未进入 PATH，请重新打开终端后重试。"; done
 info "安装 Playwright Chromium 浏览器…"
 playwright install chromium
 info "将 CodeGraph 注册到已安装的 Agent 客户端…"
@@ -115,7 +115,6 @@ info "安装引擎依赖并构建…"
 pnpm --dir "$ROOT" install --frozen-lockfile
 pnpm --dir "$ROOT" build
 if ! glab auth status >/dev/null 2>&1; then info "请完成 GitLab 授权…"; glab auth login; fi
-if ! apifox whoami >/dev/null 2>&1; then info "请完成 Apifox 授权；Token 不会由 glab-flow 记录。"; apifox login; fi
 info "初始化业务工作区的 CodeGraph 索引…"
 codegraph init "$WORKSPACE"
 "$ROOT/scripts/doctor.sh" --workspace "$WORKSPACE"

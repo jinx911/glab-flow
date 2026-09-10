@@ -20,8 +20,6 @@ flowchart TD
       S3 -->|"GateSet 绑定首轮（declaredScopes）<br/>技术方案评审/日期同批确认"| SB["Leader 冻结 DU<br/>重新运行 transition"]
       SB -->|"正常 WritePlan / Issue 写回"| S4["开发中"]
       S4 -.->|"产物层偏差(proposal/design/test-plan 有话变假)<br/>影响单→同步→必要回退/重测→闭环<br/>实现缺陷=实施调整,不走此路"| S4
-      S4 -->|"门禁:代码评审 + 按 GateSet 的 local TestRun；声明 Apifox 资产时审计"| S5["测试中"]
-      S5 -->|"按 GateSet 的 test TestRun；声明 Apifox 资产时审计 + 阻塞问题全验证"| S6["待发布"]
       S5 -.->|"测试问题(实施调整):评论挂父需求<br/>阻塞修复→复测,不退回"| S5
       S5 -.->|"整体返工"| S4
       S5 -.->|"变更影响单要求返工"| S4
@@ -34,8 +32,6 @@ flowchart TD
       direction LR
       B1["已确认缺陷"] -->|"绑定首轮（declaredScopes 或已有 frozen GateSet）"| BB["Leader 冻结 DU<br/>重新运行 transition"]
       BB -->|"正常 WritePlan / Issue 写回"| B2["开发中"]
-      B2 -->|"代码评审 + 按 GateSet 的 local TestRun；声明 Apifox 资产时审计"| B3["测试中"]
-      B3 -->|"按 GateSet 的 test TestRun；声明 Apifox 资产时审计"| B4["待发布"]
       B4 -->|"发布 (hard)"| B5["生产验证中"]
       B5 -->|"生产验证 (hard·终态)"| B6["已完成 ✅关闭Issue"]
     end
@@ -94,7 +90,6 @@ flowchart TD
 - 确认与否由**动作分层**决定：L1（gate=null）自动执行；L2（业务 gate）一次批量确认；L3（hard_gate）恒人工（G3）。`run_mode` 只作审计记录。
 - 每轮先用 GitLab 最新 labels/notes 与 DU 做 `reconcile`，对账未完成不得写回；`label-ahead` 必须 L2 选择，`du-ahead` 按 `writebackAudit` 只补首个未完成阶段。
 - `已评审→开发中`（Story）和 `已确认缺陷→开发中`（Bug）是 GateSet 绑定边界。Story 可由 `declaredScopes` 提案；Bug 必须提供非空 `declaredScopes`，或已有 frozen GateSet，否则停止。绑定首轮只负责 Leader 执行 `bind_gateset` 并落盘冻结 DU，不写 Issue 状态；Bug 在有 `declaredScopes` 但 DU 未冻结时明确返回 `validate.ok=false`、`plan` 未定义且 playbook 不含 `issue_writeback`。DU 落盘后重新运行 transition，才生成正常 `WritePlan` 与 Issue 写回/最终回读；冻结后不允许静默重绑，只能通过 `change` 棘轮扩容或显式改判留痕。
-- GateSet 的逻辑环境当前仅为 `local` / `test`。只有启用环境缺少 TestRun、或计划声明 Apifox 资产但缺少 AssetAudit（或 full 回归证据）时才发出回归动作；动作按 test-plan 声明的方法执行，完成后记录 DU 证据并重新运行 transition。提测时 local 回归位于 feature commit 之后、merge/deploy 之前。
 - 生产 GateSet 要求回滚方案时，playbook 发出 `verify_rollback_ready` 核对已生成且已回读的方案；`release-check` 仍在测试验收阶段生成 `release-plan`，发布阶段不重新生成。
 - GateSet.skipStates 命中的节点只投影一层，`next`/标签/评论头使用最终目标，校验仍按原转换 fail-closed，并额外执行投影后的 hard gate 校验；不得借跳状态绕过 hard_gate。
 - Issue 写回完成并最终回读成功后，Leader 必须调 `pnpm cli du` 的 `cached-node` 更新 DU 对账基准，再更新 state。
@@ -130,16 +125,15 @@ flowchart TD
 
 ```text
 TestPlan（逻辑环境）
-  → test-config --env（脚本 root/env 文件/变量 + 可选 Apifox 环境）
+  → test-config --env（脚本 root/env 文件/变量）
   → data-prep / seed / fixture（真实命名 + 当前环境数据库核对）
-  → 脚本 runner / Apifox CLI -e（目标环境）
+  → 脚本 runner / Playwright（目标环境）
   → Report environmentName 或命令摘要（实际运行）
-  → AssetAudit v2（仅声明 Apifox 资产时：展示 + AuthProfile）
   → TestRun（状态门禁）
 ```
 
-- 环境事实任一不一致即停止：例如脚本变量指向 local 但计划跑 test，或 Stage 入口的 Apifox 页面列显示 local。
-- 数据准备任一不一致即停止：`data-prep:`、`testData.seedFiles`、数据库引用、数据前缀、账号和真实命名必须在执行前核对完成；可复用数据保留或升级共享资产。
+- 环境事实任一不一致即停止：例如脚本变量指向 local 但计划跑 test，或浏览器入口、API 网关、数据库引用不属于同一逻辑环境。
+- 数据准备任一不一致即停止：`data-prep:`、`testData.seedFiles`、数据库引用、数据前缀、账号和真实命名必须在执行前核对完成；员工号、租户、合同状态、业务枚举等常用业务键必须来自当前环境真实库或可回放 seed，例如 KN 租户工号使用数据库中存在的 `KNxxxx`；可复用数据保留或升级共享资产。
 - 测试中→待发布 的 `回归范围或证据` 必须列出本轮测试用例/场景和执行证据；`测试环境数据清单` 必须按这些测试用例/场景逐行对齐。若证据中使用 TC-/TP-/CASE- 编号，数据清单必须复用相同编号逐项列出 test 环境使用/产生的数据、关键业务键、来源与保留/清理策略，供人工页面核对或查库。
-- 场景步骤、套件成员与数据集优先复用；跨环境只有配置差异时使用场景实例或环境入口，不复制完整流程。
+- 场景步骤、脚本和 fixture 优先复用；跨环境只有配置差异时只切 env 文件/变量，不复制完整流程。
 - 登录是可复用 AuthProfile：运行时变量注入账号密码，登录后置提取临时 token，业务接口统一引用鉴权变量；401/403 不静默重试。

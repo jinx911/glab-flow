@@ -9,6 +9,8 @@ description: 每节点门禁仪式（取证→校验→计划→预览→确认�
 
 门禁是 glab-flow 流转的安全阀：在每个节点，Leader 必须先回读 GitLab 与 DU、完成 `reconcile`，再按固定的 6 步仪式走完，才能把 Issue 推到下一节点。仪式把"取证 → 校验 → 计划 → 预览 → 确认 → 应用"串成一条不可跳序的管线；DU 是执行事实和 GateSet 的主档，state 只是缓存，门禁证据 DU 优先（无 DU 的存量 Issue 才回退评论）。再叠加动作分层（L1/L2/L3，决定"预览→应用"那一跳是否需要人）与 hard_gate 红线，确保每一次状态变更都可审计、可回溯、可中止。本文件规定仪式每一步的命令与判定，以及动作分层如何决定确认行为。
 
+测试门禁的共同输入是 `testPlan`：开发中→测试中读取同一计划版本的 local TestRun，测试中→待发布读取同一计划版本的 test TestRun。缺任一环境的最新通过记录、计划版本不一致、或用自由文本替代执行事实，均不得推进。
+
 ## 节点门禁仪式（transition 一键，每节点固定）
 
 仪式仍是「取证 → 校验 → 计划 → 预览 → 确认 → 应用」不可跳序的管线；在前 4 步之前必须先完成一次最新事实回读和 `reconcile`。前 4 步（取证/校验/计划/预览）由 `transition` **一次调用**完成，Leader 只在「确认 → 应用」那一跳介入。
@@ -46,7 +48,6 @@ Leader 读取 GitLab labels/body/state、全量父 Issue/MR notes，以及本地
 
 ### GateSet 生成的环境动作
 
-GateSet 的逻辑环境当前只有 `local` / `test`。引擎只在当前转换所需环境缺少 TestRun，或计划声明 Apifox 资产但缺少 AssetAudit（或 full 回归证据缺失）时生成 `run_affected_regression` / `run_full_regression`；已有环境证据时不生成回归动作。生成的动作按 test-plan 声明的方法执行，执行后必须用 `pnpm cli du` 的 `record` 把 TestRun（声明 Apifox 资产时再记录 AssetAudit）记入 DU，并重新运行 `transition`。开发中→测试中的 local 回归必须排在 feature commit 之后、merge/deploy 之前。
 
 GateSet `rollbackPlan=true` 时，生产发布前的动作是 `verify_rollback_ready`，只核对 `release-check` 在测试验收阶段生成且已回读的 `release-plan`；发布阶段不重新生成发布计划。
 
@@ -87,13 +88,10 @@ Leader 停，不做推测性流转，把 `preview`（脏因）列给人工：
 
 - 草稿中缺需求草稿 → 委派 `spec-author` 产出六清楚草稿。
 - 待评审缺评审意见 → 委派 `review-preview` 预审产出问题清单。
-- 开发中缺代码、local TestRun，或声明 Apifox 资产但缺 local AssetAudit → 委派 `git-ops` + `codegraph` 实现，再按 test-plan 执行脚本/E2E/API；声明 Apifox 资产时盘点/回读 Apifox 资产并完成 local 完整业务闭环。实现后做定向测试、全量回归、类型检查和代码走查。
-- 测试中缺 test TestRun，或声明 Apifox 资产但缺 test AssetAudit → 按同一份 test-plan 委派脚本执行 / `test-flow-apifox` / `test-flow-e2e` 在 test 环境执行；不得把 local 回执或自由文本报告作为替代。
 - 测试中→待发布 缺 `feature分支MR评审结论`（G14）→ playbook 的 `open_release_mr_to_master`（git-ops 只打开/确认 feature→master 发布 MR，标题=Issue 地址；**不得合并 master**）+ `mr_review`（`mr-review` sub-skill，优先 mr-review-lite、降级 code-review）跑全 MR diff，无 CRITICAL/HIGH 残留才填「通过」放行；有残留则留在测试中修复重评，不进 待发布。真正合并/部署只属于发布 hard_gate（待发布→生产验收中/生产验证中）。
 
 agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 步重新取证、第 2 步重新校验，直到 `ok:true` 再建计划。换句话说：**门禁不通过 → 回去干活，而不是改门禁**。
 
-**证据源（DU 优先）**：local/test 的 TestRun 优先从 DU 读取；Apifox AssetAudit 只在 test-plan 声明 `asset:` 时读取和校验（`transition`/`validate` 的 stdin 传 `du`，引擎取该环境最新执行事实）；无 DU 的存量 Issue 自动回落 Issue 评论 marker 解析，不迁移。执行明细不再要求发 Issue 评论——Issue 主要保留状态流转评论与变更闭环回执。
 
 **跳状态投影**：GateSet `skipStates` 仅把命中的中间节点投影为其下一节点（只一层）；`next`、标签和状态评论头使用最终目标，但 `validate` 仍按原始转换执行，所需字段与 guards 不减少。它不能绕过生产部署或终态验收等 `hard_gate`。
 
@@ -106,6 +104,3 @@ agent 产出落到 Issue 评论或 `<specDir>` 文档后，Leader 回到第 1 �
 - 护栏 G1–G16 的完整判定与触发条件见 `guards.md`。
 - 各节点的下一节点、必填项、门禁类型、Assignee 角色见 `nodes.md`。
 - `run_mode` 作为审计字段的取值（state vs config）见 `resume.md`；对账（`reconcile`）见 `resume.md`「脏状态」。
-# Apifox v2 资产审计补充
-
-当 `test-plan.md` 声明 `presentation: <case> | <asset-type>` 或 `auth-profile: <case> | <profile>` 时，local/test 的最新审计必须是 `glab-flow:apifox-asset-audit:v2`。v2 逐项记录预期页面环境、实际页面环境、报告环境，以及 profile 与临时 token 变量名；三种环境不一致、缺认证回执、未知声明或任何凭据/token 值均阻断对应的 AssetAudit 与 TestRun。

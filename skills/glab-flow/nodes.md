@@ -6,16 +6,15 @@
 
 **工作产物落点**：所有 issue 文档（需求草稿 / 技术方案 `design.md` / 测试计划 / 回滚等）→ `<workspace.root>/.glab-flow/<iid>/spec/`（路径来自 config，见 `config.md`；`<iid>` 为 GitLab Issue iid）。**禁止**写进业务代码仓的 `docs/`——文档归 Docs-as-Code 工作目录，代码仓只放代码。统一文件管理规则见下方「产物文件管理」节。
 
-## 产物文件管理（本地脚本 + Apifox 云端统一规则）
+## 产物文件管理（本地脚本 + 真实测试数据统一规则）
 
-**原则**：测试证据事实源是 DU；可复跑脚本住本地 `.glab-flow/<iid>/tests/`，可共享接口资产住 Apifox。GitLab Issue 是流转真相，只展示安全摘要；脚本、报告明细、内部链接和凭据不进公共评论。
+**原则**：测试证据事实源是 DU；可复跑脚本住本地 `.glab-flow/<iid>/tests/` 或 test-config 的 `scripts.root`，fixture/seed 与可复用测试数据按业务域沉淀。GitLab Issue 是流转真相，只展示安全摘要；脚本、报告明细、内部链接和凭据不进公共评论。
 
 ### 本地目录树与生命周期
 
 ```
 <workspace.root>/.glab-flow/
 ├─ test-config.md               # 项目级测试配置（一次建立，跨需求复用）
-├─ apifox-vars.json             # Apifox 变量文件（仅声明 Apifox 资产时使用；脚本环境走 tests/env）
 ├─ <iid>-state.json             # 流程状态缓存（GitLab 为真相，此为派生）
 └─ <iid>/                       # 需求工作目录
    ├─ du.json                   # DU 主档（证据/资源/门禁单/指标——执行事实）
@@ -32,20 +31,18 @@
 | 阶段 | 动作 |
 |---|---|
 | **流转中** | 产物按树归位，**禁止散落工作区根/全局位置**；测试脚本放 `test-config` 输出的 `scripts.root`，执行报告进 DU `detailRef` 或 `archive/`；E2E 临时执行位（`playwright-report/`、`test-results/`、根 `e2e/`）跑完即清；登录态文件用后即删 |
-| **终态钩子** | `resource --op cleanup` 出清单逐项处置（Apifox 侧 TMP 资产删除/升级共享）；本地的 lessons 先经 learn 升级审批再清理 |
+| **终态钩子** | `resource --op cleanup` 出清单逐项处置（TMP 脚本/fixture/测试数据删除或升级共享）；本地的 lessons 先经 learn 升级审批再清理 |
 | **终态后** | `<iid>/` 整目录**保留**（spec 是团队 Docs-as-Code 资产、du.json 是审计证据、fixtures 是数据重放凭证——Issue 关闭不等于文档作废）；仅在「同需求 reopen 重做」或 workspace 容量治理时按用户指示清理 |
 
-### 测试脚本与 Apifox 资产治理
 
 - **脚本归位**：本地直接写测试脚本是首选执行方式之一，但必须被 test-plan 的 `script:` 行声明，路径相对 `test-config --env <env>` 输出的 `scripts.root`；禁止在工作区根、临时目录或个人目录散放脚本。
 - **环境切换**：脚本只消费 `test-config` 输出的 `webUrl`、`databases`、`testData.prefix`、`credentials`、`scripts.envFile`/`scripts.variables`；禁止在脚本里硬编码 local/test URL、账号或数据库。local/test 切换只改 `--env`。
-- **数据准备**：涉及数据的 case 必须在 test-plan 声明 `data-prep:`，进入 local/test 执行前先核对 seed/fixture、数据库引用、账号、数据前缀和生命周期；数据命名要贴近真实业务（客户、合同、组织、审批单等真实语义），禁止 `test/demo/tmp` 占位名；执行产生的可复用数据默认保留在 `<iid>/spec/fixtures/` 或登记为共享候选资产。
+- **数据准备**：涉及数据的 case 必须在 test-plan 声明 `data-prep:`，进入 local/test 执行前先核对 seed/fixture、数据库引用、账号、数据前缀和生命周期；数据命名要贴近真实业务（客户、合同、组织、审批单等真实语义），员工号、租户、合同状态、业务枚举等高频业务键必须来自当前环境真实库或可回放 seed，例如 KN 租户工号使用数据库中存在的 `KNxxxx`；禁止 `test/demo/tmp` 占位名；执行产生的可复用数据默认保留在 `<iid>/spec/fixtures/` 或登记为共享候选资产。
 - **证据记录**：脚本执行结果写入 DU `test-run`，`detailRef` 指向命令摘要、CI/Jenkins 报告或本地归档；Issue 只展示计划版本和通过/失败摘要。
 
-- **资产归位**：场景按业务域、数据集按矩阵域、套件按用途（冒烟/回归/发布回归）建目录归位，不放根目录；空目录及时删（见 `sub-skills/test-design.md`）。
+- **资产归位**：脚本按业务域、fixture/seed 按数据矩阵域、报告按归档用途归位，不放根目录；空目录及时删（见 `sub-skills/test-design.md`）。
 - **TMP → 共享升级**：`TMP-<iid>-` 临时资产上线且矩阵稳定后去前缀升级共享（终态清理清单触发）；真实数据优先升级保留，占位数据删除。
-- **报告累积**：执行报告由 Apifox 云端保留（团队可查，**不在本地归档报告文件**——E4 回读后证据指针进 DU 即完成使命）；测试问题排查所需的报告详情直接给云端链接。
-- **凭据持久化**：测试账密可持久化到 Apifox 环境/全局变量（已裁定），`apifox-vars.json` 相应精简为 Apifox 环境切换所需的最小集；脚本测试使用 `scripts.envFile` / `scripts.variables`。
+- **报告累积**：执行报告由 DU `detailRef` 指向 CI/Jenkins 报告或 `<iid>/archive/` 本地归档；测试问题排查所需的报告详情保留在内部证据，不直接塞进公共评论。
 
 | 节点 | 工作agent | 产出 | 门禁 | 流转写回 |
 |---|---|---|---|---|
@@ -53,8 +50,6 @@
 | 草稿中 | spec-author | 需求草稿(六清楚) | 草稿门槛 | →待评审 |
 | 待评审 | review-preview | 评审意见+问题清单+图片/OCR/路由/grilling 取证 | 需求评审(二值) | 通过→已评审 / 退回→草稿中 |
 | 已评审 | spec-author/architect | 技术方案 `design.md` → `.glab-flow/<iid>/spec/` | 技术方案评审(只记录)+开发门槛 | 进开发 Assignee=研发 |
-| 开发中 | git-ops+codegraph+code-review | 代码+MR描述+DU local 执行事实 | 按 GateSet 要求的代码评审 + local TestRun；声明 Apifox 资产时再要 AssetAudit | →测试中或按 `skipStates` 投影到最终目标, Assignee=测试 |
-| 测试中 | test-flow（按 marker 分发到脚本/Apifox/E2E） | DU test 执行事实;必要时测试问题评论 | GateSet 要求的 test TestRun；声明 Apifox 资产时再要 AssetAudit + 阻塞全验证 | →待发布, Assignee=研发 |
 | 待发布 | jenkins-deploy | 执行上线(deploy) | 发布(hard_gate) | →生产验收中, Assignee=产品 |
 | 生产验收中→已完成 | Leader起草终态评论 | 验收记录 | 产品验收(hard_gate·terminal) | →已完成+关闭, Assignee=产品; 反哺context/faq/cases |
 
@@ -141,7 +136,6 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 - **待评审→已评审**：有效的 `reviewEvidence` 是需求评审通过的前置条件；它逐图证明 OCR/视觉核查，前端需求证明页面地址的路由/组件/分流代码证据，并证明 grilling 五类分支已覆盖且无未决项。真实用户诉求理解并补齐追问后，如有更优方案或交互优化，必须与阻塞问题分离记录为 `reviewEvidence.improvements`：每条含建议、依据和提单人采纳/不采纳/暂缓结论；采纳项同步到 proposal/design/test-plan，未采纳或暂缓不阻塞通过。
 - **已评审→开发中（Story）/已确认缺陷→开发中（Bug）**：两条绑定边界都把技术方案/根因声明的受影响维度传入 `transition` 的 `declaredScopes`，引擎返回 `proposedGateSet`（`skipStates`/`environments`/`mrReview`/`regression`/`rollbackPlan`/`minUnitCases`，由 `state-machine.yaml` 的 `gateMatrix` 对所有匹配维度做组合式严格推导：逐项合并门禁，取更严格的环境、回归、回滚与用例要求；规则省略字段时继承 `matrix.defaults`）。Bug 若无非空 `declaredScopes`，必须先传入已有 frozen GateSet，否则 fail-closed。GateSet 提案与计划提测/上线日期放在**同一次 L2 批量确认**；绑定首轮由 Leader 执行 `pnpm cli du` 的 `bind-gateset` 并落盘冻结 DU，不写 Issue 状态；Bug 在此首轮明确为 `validate.ok=false`、`plan` 未定义且 playbook 不含 `issue_writeback`。DU 冻结后重新运行 transition，才生成正常 WritePlan、Issue 写回与最终回读。此后 G14 等门禁按该 GateSet 生效，变化只经 `change` 棘轮扩容（只升不降）或显式改判（`overrides` 留痕），不得静默重绑。
-- **需求/方案变更（区别于实施调整）**：判据——改完后 proposal/design/test-plan 里有话变假才是变更；实现缺陷修复（方案没错）是**实施调整**，不开单（开发中=自测迭代重跑 local；测试中=测试问题评论+阻塞修复+复测，见「测试中」节）。产物层偏差才走变更：不直接改旧提案、设计评论或状态标签，先调用 `change`（首选；T1–T4 自动定级 + GateSet 棘轮扩容；source=偏差从谁暴露：requirement/technical-design/implementation·test 分别建议回退 待评审/已评审/开发中）新增 open 的变更影响单，按 `requiredArtifacts` 同步 proposal/design/test-plan/Apifox 资产、代码、环境重测或发布材料；需要回退时走 `plan-return`。所有证据齐全后调用 `change-close` 新增 closed 回执。open 单存在时 G16 阻断一切正向状态流转；T3+ 测试计划变更必须递增 `plan-version`，旧 local/test 证据自动失效（T1/T2 轻量档豁免版本严格递增）。
 
 ### 写回顺序（三阶段串行）
 
@@ -162,16 +156,16 @@ Bug 流（`type::bug` + `status::*`）同构，终态责任=测试，不需要�
 
 ### 已评审后：测试计划（唯一版本化输入）
 
-技术方案评审完成、编码开始前，`test-design` 必须建立唯一的 `<workspace.root>/.glab-flow/<iid>/spec/test-plan.md`。它是“开发中”的二级步骤，必须早于编码和本地自测；计划以 machine-readable marker 声明版本和每个用例应执行的环境/方法。它同时是 local 与 test 的唯一输入，不能各写一套“自测计划/测试计划”。计划发生实质变化时升级 `plan-version`，旧 TestRun 随即失效。
+技术方案评审完成、编码开始前，`test-design` 必须建立唯一的 `<workspace.root>/.glab-flow/<iid>/spec/test-plan.md`。它是“开发中”的二级步骤，必须早于编码和本地自测；计划以 machine-readable marker 声明版本和每个用例应执行的环境/方法。它同时是 local 与 test 的唯一输入，不能各写一套“自测计划/测试计划”。计划发生实质变化时升级 `plan-version`，旧 TestRun 随即失效。测试计划变更必须递增 `plan-version`。
 
 ```text
 <!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api,e2e
-case: TP-002 | local,test | script
+case: TP-002 | local,test | script,data
+script: TP-001 | api-contract.spec.ts | pnpm test:flow -- --case TP-001
 script: TP-002 | leave-settlement.spec.ts | pnpm test:flow -- --case TP-002
-asset: TP-001 | scenario
-asset: TP-001 | suite-or-group
+data-prep: TP-002 | fixtures/kn-contract-renewal.sql | KN租户合同续费审批数据-员工KN1001 | shared-candidate
 -->
 ```
 
@@ -179,35 +173,27 @@ asset: TP-001 | suite-or-group
 
 提测说明必须先列出**涉及项目与开发分支**：每个改动仓库写成「项目：开发分支」，多项目用分号分隔；它是测试定位代码、构建来源和回归范围的最小交接信息，缺失不允许进入测试中。
 
-提测前必须完成代码评审，并按当前 GateSet 的 `environments` 与 `regression` 要求完成 local TestRun；若 test-plan 对该环境声明了 Apifox `asset:`，还必须完成对应 AssetAudit。对所有计划标记 `local` 的用例在本地环境实际执行。**证据优先记 DU**（`transition`/`validate` 传 `payload.du`，引擎取该环境最新执行事实），Issue 评论 marker 仅作存量 Issue 的兜底解析；执行明细不进 Issue，公共评论只写人需要复核的交接字段。缺失、格式错误、计划版本不一致、脚本文件未归位、Apifox 资源未回读（仅声明资产时）、存在未处置问题、用例未通过或缺少任一要求方法的证据，均不得进入测试中。不得用“单测/构建通过”“P0 冒烟”或自由文本结论代替闭环执行记录。
+提测前必须完成代码评审，并按当前 GateSet 的 `environments` 与 `regression` 要求完成 local TestRun。对所有计划标记 `local` 的用例在本地环境实际执行。**证据优先记 DU**（`transition`/`validate` 传 `payload.du`，引擎取该环境最新执行事实），Issue 评论 marker 仅作存量 Issue 的兜底解析；执行明细不进 Issue，公共评论只写人需要复核的交接字段。缺失、格式错误、计划版本不一致、脚本文件未归位、数据未按场景准备、存在未处置问题、用例未通过或缺少任一要求方法的证据，均不得进入测试中。不得用“单测/构建通过”“P0 冒烟”或自由文本结论代替闭环执行记录。
 
-只有命中的 GateSet 环境证据缺失时，playbook 才生成回归动作（`run_affected_regression` 或 `run_full_regression`）；动作使用测试计划声明的方法执行，完成后必须用 `pnpm cli du` 的 `record` 记录 DU TestRun（声明 Apifox 资产时同时记录 AssetAudit）并重新运行 `transition`。提测顺序是 feature commit → local 回归（如缺证据）→ merge/deploy；local 不得放在 merge 或部署之后。GateSet 逻辑环境当前仅支持 `local` / `test`。
 
-0. **接口同步 Apifox**：若本次改动新增/修改了接口，**先更新 Apifox 的接口定义再往下走**——确保自测和后续测试用的是最新接口定义，而不是过时的旧版。当前方式：IDEA Apifox 插件手动更新上传（Leader 主动提醒，不靠自觉记忆）；长期方向：后端加 springdoc/scribe 生成 OpenAPI + Apifox CLI `auto-import` 定期自动拉取。
-0.5. **测试上下文注入（配置送到脸上，不靠找）**：自测开始前跑一次，环境/账号/脚本根/可选 Apifox 项目/环境 ID/数据库/前端构建/测试数据前缀**一次拿全**：
+0. **接口契约同步到脚本测试**：若本次改动新增/修改了接口，先核对源码路由、OpenAPI/接口文档和脚本断言是否同步，再往下走；确保自测和后续测试用的是最新接口契约，而不是过时的旧版。
+0.5. **测试上下文注入（配置送到脸上，不靠找）**：自测开始前跑一次，环境/账号/脚本根/数据库/前端构建/测试数据前缀**一次拿全**：
    ```bash
    cat <workspace.root>/.glab-flow/test-config.md | cd "$ENGINE_ROOT" && pnpm cli test-config --repos <本次改动仓库,逗号分隔> --env local --iid <iid>
    ```
-   - `--repos` 从 Issue 影响模块/spec 的「关键文件」取改动仓库；routes 按仓库推导该用的测试入口：带 `apifox` 的路由输出 Apifox 项目，不带 `apifox` 的路由表示纯脚本测试。
-   - 输出的 `scripts.root` 是脚本文件统一落点；`scripts.command` / `scripts.envFile` / `scripts.variables` 是一键切换环境的运行上下文。输出的 `apifox.envId` 仅在计划声明 Apifox 资产时喂给 Apifox CLI（`--project <projectId> --environment <envId>`）；`databases.*` 查 `config.md` 的 databases 得 MCP；`testData.prefix` 已替换 iid。
    - 文件不存在 → 引导用户按 `test-config.example.md` 建一次（每项目一次），**不让自测在无测试配置下裸跑**。字段细节见 `test-config.example.md`。
 1. **接口/API、E2E、数据、手工验证、脚本**：仅执行 test-plan 中对 local 声明的方法。接口和 E2E 均被计划要求时，两者都要完成；声明 `script` 时按 `script:` 的文件与命令执行；纯后端需求没有 e2e 用例时才不执行 E2E。
-2. **执行环 E0–E4（test-flow 通用）**：E0 上下文注入+**本环境数据准备检查**（按 `data-prep:` 和 `testData.seedFiles` 跑前置 fixture、从本环境库取真实行值灌 fixture/数据集，禁跨环境行值；确认命名真实、生命周期与保留/升级策略已登记）→ E1 预检（三段链路/凭据/参数完备）→ E2 资产审计（仅声明 Apifox `asset:` 时）→ E3 执行脚本/Apifox/E2E → E4 回读三核（执行环境/计划版本/stats，Apifox 再核 saveDetailType/environmentName）。失败按「失败回环」分流：改代码→该环境重跑；改资产/数据→回 local 重跑；改计划→版本递增（三类改判据定是否开变更单）。
-3. **资产盘点并回读**：先查现有场景、套件/场景分组、测试数据和场景实例；复用优先，只有业务步骤/断言确有差异才新建。场景按“业务域/功能能力”命名，套件/分组仅承载稳定的冒烟/模块回归/发布回归入口；环境差异用 Profile、数据集或场景实例，不复制场景。临时数据使用 `TMP-<iid>-` 前缀（`resource --op check` 强制校验），创建即 `resource --op register` 登记，需求结束前清理或升级为共享资产。对计划声明 `presentation:` 的入口，额外回读 Apifox 页面名称、目录、标签和运行环境，并与报告 `environmentName` 核对；对 `auth-profile:`，回读登录后置临时变量和统一鉴权引用，但不记录任何凭据/token 值。以 `asset-audit` 生成并回读当前环境审计（事实记 DU），空场景、空套件/分组、空数据集、重复/孤儿资产、展示漂移或未清理临时数据均停止。
-4. **生成 TestRun 事实**：将每个计划用例的 `passed`、`asset-audit: v3/local` 和 API/E2E/数据/手工证据记入 DU（`kind: test-run`、`environment: local`、`planVersion`、`outcome`、`detailRef` 指向报告/明细）；存量 Issue 也可发评论 marker 后回读。门禁只认该环境最新事实：
 
    ```text
    <!-- glab-flow:test-run:v1
    environment: local
    plan-version: v3
    outcome: passed
-   asset-audit: v3/local
    cases: TP-001=passed,TP-002=passed
    evidence: api=report:101,e2e=note:https://...,script=cmd:pnpm-test-flow
    -->
    ```
 
-   纯脚本计划没有 Apifox `asset:` 时，TestRun 可不带 `asset-audit` 字段；但必须带 `script` 执行证据和所有计划 case 的通过结果。
 
 自测前**核实环境可用**（URL 可达 / 数据库 MCP 可连 / 账号有效），不可用则停下来报告缺口，不臆造环境。
 
@@ -224,16 +210,15 @@ asset: TP-001 | suite-or-group
 
 测试执行前，Leader **必须**先拿全测试上下文——不靠记忆、不翻散落配置：
 
-1. **跑 test-context（环境/账号/脚本根/可选 Apifox 项目一次拿全）**：
+1. **跑 test-context（环境/账号/脚本根/数据库/前端入口一次拿全）**：
    ```bash
    cat <workspace.root>/.glab-flow/test-config.md | cd "$ENGINE_ROOT" && pnpm cli test-config --repos <改动仓库> --env <候选环境> --iid <iid>
    ```
-   把 `test-config.md` 里 `environments` 的候选环境列成表让用户选（AskUserQuestion：本地 local / 测试 test / …），选中环境跑上面命令（或每个候选都跑、展示对比）。输出即完备上下文：**脚本 root/命令/env 文件/变量**、账号、数据库 MCP 引用、前端构建、测试数据前缀；若路由声明 Apifox，则同时输出 Apifox 项目+环境 ID。
-2. 脚本执行只消费 `scripts.*` 和环境 Profile，不硬编码 local/test；`apifox.envId` 仅在计划声明 Apifox 资产时作为 Apifox CLI 的 `--environment`；`databases.*` 查 `config.md` 的 databases 得 MCP 名；`credentials` 仅供运行时注入和内部执行记录使用，不能写入正式 Issue 评论或公共交接内容。
-3. **区分三个入口**（配错则请求落错站）：登录入口 / 接口网关（Apifox 用例以 Apifox 环境 baseUrls 为准；脚本用例以 `scripts.variables`/env 文件注入为准）/ 前端入口（`webUrl`，E2E 浏览器用）。
+   把 `test-config.md` 里 `environments` 的候选环境列成表让用户选（AskUserQuestion：本地 local / 测试 test / …），选中环境跑上面命令（或每个候选都跑、展示对比）。输出即完备上下文：**脚本 root/命令/env 文件/变量**、账号、数据库 MCP 引用、前端构建、测试数据前缀。
+3. **区分三个入口**（配错则请求落错站）：登录入口 / 接口网关（脚本用例以 `scripts.variables`/env 文件注入为准）/ 前端入口（`webUrl`，E2E 浏览器用）。
 4. **test-config.md 不存在或缺字段** → 停下引导按 `test-config.example.md` 补（每项目一次），不臆造地址、不用本地环境冒充测试环境。
-5. 按 GateSet 的 `environments` 与 `regression` 执行 test 环境验证；仅当 GateSet 要求 `test` 时执行所有标记 `test` 的用例，并将 `environment: test` 的 TestRun 事实记入 DU；若计划声明 Apifox `asset:`，同步记录 AssetAudit（存量 Issue 也可发评论 marker）。`测试中→待发布` 只读取最新、同计划版本的 test 记录；不得拿 local 结果、旧计划版本或自由文本测试报告替代。
-6. 测试环境执行前的预检（三段链路健康与凭据注入）见 `sub-skills/test-flow-apifox.md`。
+5. 按 GateSet 的 `environments` 与 `regression` 执行 test 环境验证；仅当 GateSet 要求 `test` 时执行所有标记 `test` 的用例，并将 `environment: test` 的 TestRun 事实记入 DU。`测试中→待发布` 只读取最新、同计划版本的 test 记录；不得拿 local 结果、旧计划版本或自由文本测试报告替代。
+6. 测试环境执行前的预检（三段链路健康与凭据注入）见 `sub-skills/test-flow-e2e.md`。
 
 ### 测试中→待发布：MR 评审前置（G14，按 GateSet）+ 提前产出发布计划
 
@@ -289,11 +274,11 @@ nodeProgress 子步骤与转换 playbook 是两个维度（前者 = 节点内做
 | 开发中.技术方案 | spec-author / architect |
 | 开发中.测试计划 | test-design |
 | 开发中.编码实现 | git-ops + codegraph |
-| 开发中.本地自测 | test-flow（按 marker 分发到脚本/Apifox/E2E） |
+| 开发中.本地自测 | test-flow（按 marker 分发到脚本/脚本测试/E2E） |
 | 开发中.代码评审 | code-review |
-| 测试中.用例执行 | test-flow（按 marker 分发到脚本/Apifox/E2E） |
+| 测试中.用例执行 | test-flow（按 marker 分发到脚本/脚本测试/E2E） |
 | 测试中.阻塞修复 | git-ops + code-review + 实现后验证 |
-| 测试中.复测 | test-flow（按 marker 分发到脚本/Apifox/E2E） |
+| 测试中.复测 | test-flow（按 marker 分发到脚本/脚本测试/E2E） |
 | 待发布.发布计划就绪 | release-check |
 | 待发布.上线前确认 | Leader（核对 release-check 清单） |
 | 生产验收中.生产验证 / 验收确认 | Leader（按 release-check 验证） |

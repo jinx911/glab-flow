@@ -34,7 +34,7 @@ export interface Payload {
   renderTransitions?: Transition[];
   /** Current contents of the Issue-scoped, versioned test-plan.md. */
   testPlan?: string;
-  /** DU 本地事实（P2 起：TestRun/可选 AssetAudit 证据优先取本地，不再要求 Issue 评论）。 */
+  /** DU 本地事实（P2 起：TestRun 证据优先取本地，不再要求 Issue 评论）。 */
   du?: DuState;
   /** Evidence completed before a Story requirement review can be approved. */
   reviewEvidence?: RequirementsReviewEvidence;
@@ -93,7 +93,7 @@ export type ChangeArtifact =
   | 'proposal'
   | 'design'
   | 'test-plan'
-  | 'apifox-assets'
+  | 'test-assets'
   | 'implementation'
   | 'local-rerun'
   | 'test-rerun'
@@ -236,7 +236,7 @@ export interface TransitionInput {
   fields?: Record<string, string>;
   /** Current contents of .glab-flow/<iid>/spec/test-plan.md, read by Leader. */
   testPlan?: string;
-  /** DU 本地事实（P2 起：TestRun/可选 AssetAudit 证据优先取本地，Issue 评论仅兜底）。 */
+  /** DU 本地事实（P2 起：TestRun 证据优先取本地，Issue 评论仅兜底）。 */
   du?: DuState;
   /** 技术方案声明的受影响维度；已评审→开发中 时用于推导 proposedGateSet（引擎不写 DU）。 */
   declaredScopes?: ChangeScope[];
@@ -287,8 +287,6 @@ export type TestEnvironment = string;
 /** GateSet currently binds only the two logical validation phases supported by the runtime. */
 export type GateEnvironment = 'local' | 'test';
 export type TestMethod = 'api' | 'e2e' | 'data' | 'manual' | 'unit' | 'script';
-export type ApifoxAssetType = 'scenario' | 'suite-or-group' | 'test-data' | 'scenario-instance';
-export type ApifoxAssetAction = 'reuse' | 'create' | 'update' | 'retire' | 'cleanup';
 
 export interface TestPlanCase {
   id: string;
@@ -298,9 +296,6 @@ export interface TestPlanCase {
   scripts: TestScriptRef[];
   /** Data prerequisites that must be prepared before this case runs. */
   dataPreps: TestDataPrepRef[];
-  assets: ApifoxAssetType[];
-  /** Assets whose Apifox list/detail projection must be audited by a v2 receipt. */
-  presentations: ApifoxAssetType[];
   /** Named, non-secret authentication profiles required by this test case. */
   authProfiles: string[];
 }
@@ -327,8 +322,6 @@ export interface TestRun {
   environment: TestEnvironment;
   planVersion: string;
   outcome: 'passed' | 'failed';
-  /** Present only when the current plan declares Apifox assets for this environment. */
-  assetAudit?: string;
   cases: Record<string, 'passed'>;
   evidence: Partial<Record<TestMethod, string>>;
 }
@@ -342,57 +335,9 @@ export type TestRunValidation =
   | { ok: true; errors: [] }
   | { ok: false; errors: string[] };
 
-/** A resource inspected through Apifox CLI and tied to one planned test case. */
-export interface ApifoxAssetRecord {
-  caseId: string;
-  type: ApifoxAssetType;
-  id: string;
-  action: ApifoxAssetAction;
-}
-
-/** One user-visible Apifox projection and its corresponding report environment. */
-export interface ApifoxAssetPresentation {
-  caseId: string;
-  type: ApifoxAssetType;
-  expectedEnvironment: string;
-  displayedEnvironment: string;
-  reportEnvironment: string;
-}
-
-/** Non-secret receipt that a case used the declared login contract and temporary token variable. */
-export interface ApifoxAuthProfileReceipt {
-  caseId: string;
-  profile: string;
-  tokenVariable: string;
-}
-
-/** Parsed immutable Issue comment proving that planned Apifox resources were audited. */
-export interface ApifoxAssetAudit {
-  /** v1 is accepted for historical plans; v2 carries presentation/authentication evidence. */
-  markerVersion?: 'v1' | 'v2';
-  environment: TestEnvironment;
-  planVersion: string;
-  project: string;
-  branch: string;
-  unresolvedFindings: number;
-  evidence: string;
-  assets: ApifoxAssetRecord[];
-  presentations?: ApifoxAssetPresentation[];
-  authProfiles?: ApifoxAuthProfileReceipt[];
-}
-
-export type LatestApifoxAssetAudit =
-  | { kind: 'absent' }
-  | { kind: 'valid'; audit: ApifoxAssetAudit }
-  | { kind: 'invalid-latest'; errors: string[] };
-
-export type ApifoxAssetAuditValidation =
-  | { ok: true; errors: [] }
-  | { ok: false; errors: string[] };
-
 /** DU 本地执行事实（spec §3.1）：Issue 只留流转评论，明细归 DU。 */
 export interface DuEvidenceEntry {
-  kind: 'test-run' | 'asset-audit';
+  kind: 'test-run';
   environment: TestEnvironment;
   planVersion: string;
   outcome: string;
@@ -404,7 +349,7 @@ export interface DuEvidenceEntry {
 /** DU 资源登记项（spec §3.4，P4 使用）：创建即登记，终态出清理清单。 */
 export interface DuResourceEntry {
   id: string;
-  kind: 'branch' | 'worktree' | 'apifox-scenario' | 'apifox-suite' | 'apifox-test-data' | 'apifox-scenario-instance' | 'auth-profile-ref' | 'test-data' | 'report' | 'deploy-version';
+  kind: 'branch' | 'worktree' | 'test-script' | 'test-fixture' | 'test-data' | 'auth-profile-ref' | 'report' | 'deploy-version';
   scope: 'non-prod' | 'prod';
   lifecycle: 'temporary' | 'shared-candidate' | 'permanent';
   createdAt: string;
