@@ -31,7 +31,6 @@ const FIELD_HINTS: Record<string, string> = {
   计划上线时间: '计划上线日期',
   代码评审结论: '代码评审结论（通过/退回）',
   测试计划版本: 'test-plan.md 的 glab-flow:test-plan:v1 中 plan-version',
-  Apifox资产审计记录: '刚回读的 glab-flow:apifox-asset-audit:v1 评论链接/摘要；引擎校验计划版本、资源回读、未处置问题与当前环境',
   local测试执行记录: '刚回读的 local glab-flow:test-run:v1 评论链接/摘要；引擎会校验，不以该文本本身取信',
   test测试执行记录: '刚回读的 test glab-flow:test-run:v1 评论链接/摘要；引擎会校验，不以该文本本身取信',
   提测日期: '本次提测日期',
@@ -44,9 +43,8 @@ const FIELD_HINTS: Record<string, string> = {
   测试环境数据清单: 'test 环境本轮使用或产生的数据清单，必须按回归场景/用例逐行对齐；回归证据里有 TC-/TP-/CASE- 编号时，数据清单必须复用相同编号，并列测试数据、关键业务键/单号/账号、来源/seed、保留或清理策略，便于人工页面或查库核对',
   测试环境: '执行测试的环境名 + URL（来自 config 的 test_environments，如 test https://app.test.example）',
   测试账号: '测试使用的账号（来自 config 的 test_environments.<env>.account）',
-  reportId与环境: '执行证据：云端 reportId + 链接 + test-report get 回读的 environmentName 与 saveDetailType=all（缺 --upload-report detail 的 none 报告页空、不算证据须重跑）',
+  reportId与环境: '执行证据：本地/CI 报告 ID 或文件路径 + 环境标识；报告必须能回读执行环境、计划版本和用例结果',
   请求与断言统计: '执行证据：报告回读 stats（requests/passed/failed/assertions），与 CLI 输出核对',
-  Apifox资产状态: '资产治理：场景/套件/测试数据是否归位、命名分组区分 local/test、页面展示与执行是否一致；不得混写「Apifox 已完整沉淀」',
   阻塞发布问题均已验证通过: '是 / 已验证 / 无阻塞（来自测试问题评论的验证结果）',
   feature分支MR评审结论: 'feature→master MR 代码评审结论（用 code-review sub-skill 跑全 MR diff）；填「通过，无 HIGH 残留」或退回',
   发布日期: '发布日期',
@@ -184,7 +182,6 @@ function gateSetSteps(
   const environment = environmentForGate(tr);
   const evidenceGap = environment && gateSet?.environments.includes(environment)
     && (validation.missing.includes(`${environment}TestRun`)
-      || validation.missing.includes(`${environment}AssetAudit`)
       || (gateSet.regression === 'full' && validation.reasons.some((reason) => reason.includes('full 回归'))));
   if (evidenceGap) {
     const regression = gateSet?.regression ?? 'affected-cases';
@@ -194,7 +191,7 @@ function gateSetSteps(
       action,
       subskill: 'test-flow',
       environment,
-      desc: `在 ${environment} 环境执行${scope}回归（GateSet）；记录 DU TestRun（声明 Apifox 资产时同时记录 AssetAudit）后重新运行 transition`,
+      desc: `在 ${environment} 环境执行${scope}回归（GateSet）；用脚本测试生成报告并记录 DU TestRun 后重新运行 transition`,
       phase: 'pre-writeback',
       isWriteback: false,
     });

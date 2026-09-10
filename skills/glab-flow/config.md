@@ -5,7 +5,7 @@ description: glab-flow 配置格式与查找链。项目配置在 <workspace.roo
 
 # glab-flow 配置格式与查找链
 
-glab-flow 是自包含的 GitLab-native 流程引擎：所有项目相关的参数（GitLab 实例、项目、工作区根、分支命名、run 模式、Jenkins、数据库、测试环境、脚本测试上下文、可选 Apifox 路由）都集中在 markdown 配置文件里，引擎通过确定性解析器读取，Leader（编排者）从不在代码里硬编码这些值。本文件规定配置的格式、查找链与字段语义。
+glab-flow 是自包含的 GitLab-native 流程引擎：所有项目相关的参数（GitLab 实例、项目、工作区根、分支命名、run 模式、Jenkins、数据库、测试环境、脚本测试上下文）都集中在 markdown 配置文件里，引擎通过确定性解析器读取，Leader（编排者）从不在代码里硬编码这些值。本文件规定配置的格式、查找链与字段语义。
 
 ## 格式
 
@@ -37,7 +37,6 @@ stdin 是整份 markdown 文件内容，stdout 是 `GlabConfig` JSON。解析器
 - `jenkins.jobs` —— 多仓 Jenkins 作业映射，每项 `{ job_name, branch_param?, env_param?, default_params? }`，键为仓库名（如 `service-api`、`frontend`）。配了之后 jenkins-deploy 按当前操作仓库选 job + 参数模板；与单 `job_name` 可共存。
 - `databases` —— 命名的**逻辑**数据目标映射，每项 `{ mcp, desc? }`。它描述本地 Docker 或 DMS 的路由意图，不保存连接串、密码或 Token。测试 DMS 仍须在执行时按 DMS 规则选择 RDS 或镜像，并由 `websites.uuid` 解析租户。
 - `test_environments` —— 仅维护 `local` 与 `test` 两个环境 Profile。每项 `{ url, runtime?, login?, data?, frontend?, desc? }`：`login.credential_ref` 指向安全凭据存储，`data` 声明平台/默认租户/可选租户和测试数据清理约束，`frontend.build` 声明是否需要本地构建。**禁止** `account`、`password`、Cookie、Token 等明文敏感字段。
-- `apifox.projects` —— 可选 Apifox 项目映射。只有 test-plan 声明 Apifox `asset:` 时才使用；每项必须有 `{ project_id, branch?, environments }`；`branch` 默认 `main`，`environments.local` 与 `environments.test` 分别指向两套环境。`apifox.routes` 把接口前缀及相关代码仓映射到正确项目；前端改动调用 PHP API 时也以路由为准，不得按前端仓名误选 Java 项目。
 
 完整模板见同目录的 `config.example.md`——直接复制、改值即可。
 
@@ -63,7 +62,6 @@ Leader 启动 glab-flow 时按下面的顺序找第一份存在的配置文件�
    - `gitlab.host` ← `config.gitlab.host`
    - `gitlab.project_id` ← `config.gitlab.projectId`（或 `project_path`，取决于用户填法；解析后统一落在 `gitlab.projectId`）
    - `run_mode` ← `config.runMode`
-   - 可选项按需读取（`deployBranch` / `jenkins` / `databases` / `testEnvironments` / `apifox`）。
 
 **绝不硬编码** `host`/`project_id`/`workspace.root`——这三个值因项目而异，写死会让 glab-flow 只能服务一个项目。同一份引擎 + 不同配置 = 不同项目的流程驱动。
 
@@ -98,11 +96,6 @@ Leader 启动 glab-flow 时按下面的顺序找第一份存在的配置文件�
 | `test_environments.<name>.data` | 可选 | `testEnvironments.<name>.data` | 平台/租户逻辑数据目标、租户解析规则与测试数据约束 |
 | `test_environments.<name>.frontend.build` | 可选 | `testEnvironments.<name>.frontend.build` | 本地构建是否必需及命令、工作目录、产物目录 |
 | `test_environments.<name>.desc` | 可选 | `testEnvironments.<name>.desc` | 测试环境说明 |
-| `apifox.projects.<repo>.project_id` | 可选 | `apifox.projects.<repo>.projectId` | 该仓/接口域使用的 Apifox 项目 ID |
-| `apifox.projects.<repo>.branch` | 可选 | `apifox.projects.<repo>.branch` | Apifox 分支；缺省 `main` |
-| `apifox.projects.<repo>.environments.local` | 可选 | `apifox.projects.<repo>.environments.local` | 本地接口测试环境（与 test 分离） |
-| `apifox.projects.<repo>.environments.test` | 可选 | `apifox.projects.<repo>.environments.test` | 测试环境（与 local 分离） |
-| `apifox.routes.<name>` | 可选 | `apifox.routes.<name>` | 接口前缀/受影响仓库到 Apifox 项目的路由 |
 
 \* `project_id` 与 `project_path` 至少给一个；都给以 `project_id` 为准；都不给 → 解析器抛 `missing required fields`。
 

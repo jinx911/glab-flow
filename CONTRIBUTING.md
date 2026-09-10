@@ -6,7 +6,7 @@
 
 1. 从 `master` 创建 `codex/<topic>` 开发分支，不直接提交受保护分支。
 2. 阅读 [README](README.md)、[项目介绍页](index.html) 和 `skills/glab-flow/SKILL.md`；状态机权威仍来自目标 Harness 的规则文档。
-3. 本地配置、测试报告、Apifox 变量、账号、token 与 Issue 运行产物不得提交。`.glab-flow/` 已被忽略。
+3. 本地配置、测试报告、脚本环境变量、账号、token 与 Issue 运行产物不得提交。`.glab-flow/` 已被忽略。
 
 ## 贡献边界
 

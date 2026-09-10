@@ -31,7 +31,7 @@ describe('computeNextStep', () => {
   it('terminal node with du lists undisposed resources as cleanup todos', () => {
     const T = '2026-09-01T00:00:00Z';
     let du = { ...initDu({ iid: 88, type: 'story', now: T }), cachedNode: '已完成' };
-    du = registerResource(du, { id: 'TMP-88-members', kind: 'apifox-test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T }, T);
+    du = registerResource(du, { id: 'TMP-88-members', kind: 'test-data', scope: 'non-prod', lifecycle: 'temporary', createdAt: T }, T);
     du = registerResource(du, { id: 'branch-f-88', kind: 'branch', scope: 'non-prod', lifecycle: 'permanent', createdAt: T }, T);
     du = disposeResource(du, 'branch-f-88', 'kept', T);
     const out = computeNextStep(loadModel(), { ...base, labels: ['type::story', 'story-status::已完成'], du });
@@ -45,7 +45,6 @@ describe('computeNextStep', () => {
     const du = {
       iid: 88, type: 'story' as const, cachedNode: '开发中', affectedScopes: [], updatedAt: '2026-09-01T00:00:00Z',
       evidence: [
-        { kind: 'asset-audit' as const, environment: 'local', planVersion: 'v1', outcome: '0', recordedAt: '2026-09-01T00:00:00Z', detailRef: 'list-get:https://apifox.example/local' },
         { kind: 'test-run' as const, environment: 'local', planVersion: 'v1', outcome: 'passed', recordedAt: '2026-09-01T00:00:00Z' },
       ],
       resources: [], metricEvents: [],
@@ -54,7 +53,7 @@ describe('computeNextStep', () => {
       ...base,
       fields: { 代码评审结论: '通过', 提测日期: '2026-09-01', 研发Assignee: '@dev', 涉及项目与开发分支: 'oa-platform: feature/leave-settlement', 测试说明: 'A/B 配置已核对' },
       assigneeUser: '@qa', datesConfirmed: true,
-      testPlan: '<!-- glab-flow:test-plan:v1\nplan-version: v1\ncase: TP-001 | local | api,e2e\nasset: TP-001 | scenario\n-->',
+      testPlan: '<!-- glab-flow:test-plan:v1\nplan-version: v1\ncase: TP-001 | local | api,e2e\n-->',
       du,
     });
     expect(out.where).toBe('开发中');

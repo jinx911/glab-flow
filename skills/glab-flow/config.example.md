@@ -71,7 +71,6 @@ run_mode: "semi-auto"                     # semi-auto（默认）| full-auto
 #
 # `credential_ref` 由本机钥匙串、环境变量或受控密钥注入解析；严禁写 account/password/token。
 
-# apifox:                                 # 按仓库选择 Apifox 项目；接口先行测试使用
 #   projects:
 #     sample_web:
 #       project_id: "<项目 ID>"

@@ -22,9 +22,9 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 | `e2e-runner` agent（Vercel Agent Browser，首选） | 驱动真实浏览器跑关键用户流程 |
 | Playwright（降级 / CI） | e2e-runner 不可用时直接跑 Playwright 脚本 |
 
-工具是**运行时依赖**（见 `../tools.md`），glab-flow 不自带浏览器能力，只提供执行方法论与结果契约。调用约定（与 `test-flow-apifox.md` 一致）：
+工具是**运行时依赖**（见 `../tools.md`），glab-flow 不自带浏览器能力，只提供执行方法论与结果契约。调用约定：
 
-- **目标环境唯一取 test-config 的 `webUrl` / `scripts.*`**（`test-config --env <环境>` 输出，见 nodes.md「三个入口」）：E2E 入口必须与当前逻辑环境一致；若同一计划同时声明 Apifox API 资产，还要核对 webUrl 主机与该环境 Apifox baseUrl 指向同一环境（同 host 域段或人工确认一致）。**禁止 API 跑 test、浏览器打 local** 的分裂配置；两源不一致 → 停下修配置，不带着分裂跑。不依赖工作区 playwright.config 的硬编码 baseURL。
+- **目标环境唯一取 test-config 的 `webUrl` / `scripts.*`**（`test-config --env <环境>` 输出，见 nodes.md「三个入口」）：E2E 入口必须与当前逻辑环境一致；API 脚本、浏览器入口、数据库引用必须指向同一逻辑环境。**禁止 API 跑 test、浏览器打 local** 的分裂配置；两源不一致 → 停下修配置，不带着分裂跑。不依赖工作区 playwright.config 的硬编码 baseURL。
 - **先做数据预检**：若 e2e case 同时声明 `data` 或依赖前置状态，按 `data-prep:` 和 `testData.seedFiles` 准备 seed/fixture，核对数据库引用、账号、数据前缀和真实业务命名；缺数据时先补数据资产，不打开浏览器硬测。
 - **同步取结果**：执行后必须拿到结构化结果（通过/失败 + 失败明细 + 截图/trace），不异步丢任务。
 - **对齐 test-plan.md**：执行范围对齐 test-design 的 e2e 用例编号，结果回填到用例编号，便于追溯。
@@ -51,7 +51,7 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 
 ## 结果收集（证据三段式）
 
-与 `test-flow-apifox.md` 一致，执行证据进入该环境的 TestRun，作为 local 或 test 门禁输入（见 `../gate.md`）。口头「点了一遍没问题」不被接受。
+执行证据进入该环境的 TestRun，作为 local 或 test 门禁输入（见 `../gate.md`）。口头「点了一遍没问题」不被接受。
 
 1. **命令**：实际执行的 e2e-runner / Playwright 调用（含目标环境 URL、用例范围、浏览器）。
 2. **计数**：`E2E 用例: X passed, Y failed, Z skipped`。
@@ -59,7 +59,7 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 
 若 test-plan 声明 `script` 方法，命令必须来自 `script:` 行或 `test-config` 的 `scripts.command`，环境变量来自 `scripts.envFile`/`scripts.variables`；local/test 切换只变 `--env`，不复制两套脚本。
 
-若 test-plan 声明 `data-prep:`，TestRun 的 `evidence.data` 必须记录 seed/fixture 执行、数据库回读或数据集回读摘要。测试产生的可复用数据按计划生命周期保留或登记共享候选，不能跑完即丢。
+若 test-plan 声明 `data-prep:`，TestRun 的 `evidence.data` 必须记录 seed/fixture 执行、数据库回读或脚本生成数据摘要。测试产生的可复用数据按计划生命周期保留或登记共享候选，不能跑完即丢。
 
 ## 挂评论
 
@@ -69,6 +69,6 @@ E2E 用例由 test-design 设计完毕（写在 test-plan.md，类型 = e2e）�
 
 ## glab-flow 上下文
 
-- **节点归属**：local 执行在「开发中」收尾，test 执行在「测试中」收尾。每次运行都把 e2e 结果写入对应环境 TestRun；nodeProgress 的「自测/用例执行」步骤涵盖 API（test-flow-apifox）+ E2E（本文件）。
+- **节点归属**：local 执行在「开发中」收尾，test 执行在「测试中」收尾。每次运行都把 e2e 结果写入对应环境 TestRun；nodeProgress 的「自测/用例执行」步骤涵盖 API 脚本 + E2E（本文件）。
 - **单 Leader**：调度 e2e-runner/Playwright、收集结果、判定阻塞、挂评论，不组建多 agent 团队。
 - **门禁对齐**：E2E 结果是「测试验收」门禁输入；UI 类 AC 的 E2E 未过 → Leader 不推进状态。

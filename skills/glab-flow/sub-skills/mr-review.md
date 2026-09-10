@@ -20,7 +20,7 @@ description: 测试中→待发布 的 feature→master MR 评审子 skill。推
 
 MR 评审优先用 **`mr-review-lite`**（外部运行时 skill，见 `../tools.md`）；未安装则**降级**用 glab-flow 自带的 `code-review.md` sub-skill（含跨栈激活维度）。两种都按下面的方法论 + 严重度门槛，不报错中止。
 
-调用约定（与 `test-flow-apifox.md` 一致）：
+调用约定：
 
 - **同步取结果**：拿到结构化问题清单（严重度/文件/行/问题/建议）再判定，不异步丢任务。
 - **对齐需求**：把父 Issue 正文 + proposal.md/design.md 喂给评审，让它对齐需求目标。标准化材料用 `review-pack` 命令产出（spec 路径 + DU 内部证据摘要 + 门禁缺口 + 评审指令），与 MR diff 一起注入，不手工拼；该内部摘要不写入公共 Issue 评论。

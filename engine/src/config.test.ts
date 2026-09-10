@@ -108,7 +108,7 @@ describe('parseConfig', () => {
     expect(parseConfig(md).testEnvironments?.local).toEqual({ url: 'http://x', account: 'user', password: 'secret' });
   });
 
-  it('maps Apifox project routing with distinct local and test environments', () => {
+  it('ignores removed Apifox config blocks rather than exposing runtime dependency', () => {
     const md = [
       '```yaml',
       'gitlab: { host: h, project_id: "1" }',
@@ -124,14 +124,7 @@ describe('parseConfig', () => {
       '```',
     ].join('\n');
 
-    expect(parseConfig(md).apifox?.projects.sample_web).toEqual({
-      projectId: '10001',
-      branch: 'main',
-      environments: {
-        local: { name: '本地环境', baseUrl: 'http://app.local.test' },
-        test: { id: '20002', name: 'Test', baseUrl: 'https://test.example.com' },
-      },
-    });
+    expect(parseConfig(md)).not.toHaveProperty('apifox');
   });
 
   it('passes through gitlab.harness_clone when present', () => {

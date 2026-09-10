@@ -11,13 +11,11 @@ const TEST_PLAN = `<!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api,e2e
 case: TP-U01 | local,test | unit
-asset: TP-001 | scenario
 -->`;
 const LOCAL_RUN = `<!-- glab-flow:test-run:v1
 environment: local
 plan-version: v3
 outcome: passed
-asset-audit: v3/local
 cases: TP-001=passed,TP-U01=passed
 evidence: api=report:101,e2e=note:https://git.example/local,unit=vitest-26-passed
 -->`;
@@ -25,29 +23,10 @@ const TEST_RUN = `<!-- glab-flow:test-run:v1
 environment: test
 plan-version: v3
 outcome: passed
-asset-audit: v3/test
 cases: TP-001=passed,TP-U01=passed
 evidence: api=report:102,e2e=note:https://git.example/test,unit=vitest-26-passed
 -->`;
-const LOCAL_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
-environment: local
-plan-version: v3
-project: 8731182
-branch: main
-unresolved-findings: 0
-evidence: list-get:https://apifox.example/local
-asset: TP-001 | scenario | scenario-101 | reuse
--->`;
-const TEST_AUDIT = `<!-- glab-flow:apifox-asset-audit:v1
-environment: test
-plan-version: v3
-project: 8731182
-branch: main
-unresolved-findings: 0
-evidence: list-get:https://apifox.example/test
-asset: TP-001 | scenario | scenario-101 | reuse
--->`;
-const notes = [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }, { body: TEST_AUDIT }, { body: TEST_RUN }];
+const notes = [{ body: LOCAL_RUN }, { body: TEST_RUN }];
 
 function baseInput(over: Partial<TransitionInput>): TransitionInput {
   return { type: 'story', iid: 42, labels: [], body: '', notes, testPlan: TEST_PLAN, state: 'opened', ...over };
@@ -205,12 +184,12 @@ describe('transition — versioned environment test runs', () => {
 
   it('blocks submission without the current test plan or a local TestRun', () => {
     expect(runTransition(model, localSubmission({ testPlan: undefined })).validate.missing).toContain('testPlan');
-    expect(runTransition(model, localSubmission({ notes: [] })).validate.missing).toContain('localAssetAudit');
+    expect(runTransition(model, localSubmission({ notes: [] })).validate.missing).toContain('localTestRun');
   });
 
   it('allows submission after the current local TestRun and blocks release without test TestRun', () => {
-    expect(runTransition(model, localSubmission({ notes: [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }] })).validate.ok).toBe(true);
-    expect(runTransition(model, testAcceptance({ notes: [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }] })).validate.missing).toContain('testAssetAudit');
+    expect(runTransition(model, localSubmission({ notes: [{ body: LOCAL_RUN }] })).validate.ok).toBe(true);
+    expect(runTransition(model, testAcceptance({ notes: [{ body: LOCAL_RUN }] })).validate.missing).toContain('testTestRun');
   });
 
   it('invalidates both gates when the plan version changes', () => {
@@ -343,7 +322,7 @@ describe('transition — evidence smart prefill', () => {
   it('prefills required fields from note "- 字段：值" lines', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-      notes: [{ body: NOTE }, { body: TEST_AUDIT }, { body: TEST_RUN }], fields: rest, datesConfirmed: true,
+      notes: [{ body: NOTE }, { body: TEST_RUN }], fields: rest, datesConfirmed: true,
     }));
     expect(r.payload?.fields.测试完成日期).toBe('2026-08-05');
     expect(r.prefilled.测试完成日期).toContain('2026-08-05');
@@ -364,7 +343,7 @@ describe('transition — evidence smart prefill', () => {
     ].join('\n');
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::测试中'], body: TABLE_BODY,
-      notes: [{ body: tableNote }, { body: TEST_AUDIT }, { body: TEST_RUN }],
+      notes: [{ body: tableNote }, { body: TEST_RUN }],
       fields: rest, datesConfirmed: true,
     }));
     expect(r.payload?.fields.测试完成日期).toBe('2026-08-06');
@@ -431,9 +410,8 @@ describe('GateSet skip states (P3)', () => {
   const DU_NOW = '2026-09-01T00:00:00Z';
   const frontendCopyDu = (): DuState => {
     const base = initDu({ iid: 42, type: 'story', now: DU_NOW });
-    // local TestRun + AssetAudit 证据（frontend-copy environments=[local]，validateTestRunTransition 固定查 local）
-    const withAudit = recordEvidence(base, { kind: 'asset-audit', environment: 'local', planVersion: 'v3', outcome: '0', recordedAt: DU_NOW, detailRef: 'list-get:https://apifox.example/local' }, DU_NOW);
-    const withRun = recordEvidence(withAudit, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW }, DU_NOW);
+    // local TestRun 证据（frontend-copy environments=[local]，validateTestRunTransition 固定查 local）
+    const withRun = recordEvidence(base, { kind: 'test-run', environment: 'local', planVersion: 'v3', outcome: 'passed', recordedAt: DU_NOW }, DU_NOW);
     const withNode = setCachedNode(withRun, '开发中', DU_NOW);
     return { ...withNode, gateSet: freezeGateSet(deriveGateSet(loadModel().gateMatrix!, ['frontend-copy']), DU_NOW) };
   };
@@ -497,7 +475,7 @@ describe('GateSet skip states (P3)', () => {
       notes: [], du,
     }));
     expect(r.validate.ok).toBe(false);
-    expect(r.validate.missing).toContain('localAssetAudit');
+    expect(r.validate.missing).toContain('localTestRun');
     expect(r.plan).toBeUndefined();
     expect(r.next).toBe('待发布');
   });
@@ -561,7 +539,7 @@ describe('GateSet skip states (P3)', () => {
       fields: TEST_DONE_FIELDS, datesConfirmed: true, notes: [], du,
     }));
     expect(r.validate.ok).toBe(true);
-    expect(r.validate.missing).not.toContain('testAssetAudit');
+    expect(r.validate.missing).not.toContain('testTestRun');
   });
 
   it('emits only the GateSet-enabled environment regression action when evidence is missing', () => {
@@ -625,7 +603,7 @@ describe('GateSet skip states (P3)', () => {
     const r = runTransition(model, baseInput({
       labels: ['type::story', 'story-status::开发中'], body: TABLE_BODY,
       fields: TEST_SUBMISSION_FIELDS, datesConfirmed: true,
-      notes: [{ body: LOCAL_AUDIT }, { body: LOCAL_RUN }],
+      notes: [{ body: LOCAL_RUN }],
     }));
     expect(r.next).toBe('测试中');
     expect(r.validate.ok).toBe(true);

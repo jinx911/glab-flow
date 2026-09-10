@@ -1,16 +1,16 @@
 import type { DuResourceEntry, DuState } from './types.js';
 
 /**
- * workspace 级 Apifox 资产目录（R1/E5：复用优先从「全量 list+人肉比对」变检索）。
+ * workspace 级测试资产目录（R1/E5：复用优先从「全量 list+人肉比对」变检索）。
  * 落盘 `<workspace.root>/.glab-flow/asset-catalog.md`（Leader 维护，引擎只算）。
- * 条目来源：① 终态 TMP→共享升级时登记 ② test-design 新建共享资产时登记。
+ * 条目来源：① 终态 TMP/E2E 数据→共享升级时登记 ② 测试脚本/fixture 新建共享资产时登记。
  */
 export interface AssetCatalogEntry {
-  /** 业务域/功能能力（场景）或矩阵域（数据集）或用途（套件）——检索的第一键。 */
+  /** 业务域/功能能力、数据矩阵域或用途（回归/冒烟/发布）——检索的第一键。 */
   domain: string;
   name: string;
-  apifoxId: string;
-  kind: 'scenario' | 'suite-or-group' | 'test-data' | 'scenario-instance';
+  assetId: string;
+  kind: 'test-script' | 'test-fixture' | 'test-data';
   /** 覆盖的用例类型/能力一句话（新需求判断能否复用的依据）。 */
   covers: string;
   /** 最后验证时的计划版本（复用前核对是否已随最近的接口变化更新）。 */
@@ -23,8 +23,8 @@ const CATALOG_MARKER = '<!-- glab-flow:asset-catalog:v1';
 /** 渲染目录为 markdown（人可读 + marker 包裹可回读）。 */
 export function renderAssetCatalog(entries: AssetCatalogEntry[]): string {
   const lines = entries.map((e) =>
-    `- ${e.domain} | ${e.name} | ${e.kind} | ${e.apifoxId} | ${e.covers}${e.lastVerifiedPlanVersion ? ` | 最后验证 ${e.lastVerifiedPlanVersion}` : ''} | 登记 ${e.registeredAt}`);
-  return [CATALOG_MARKER, `count: ${entries.length}`, ...lines, '-->', '', '（资产目录由终态升级与新共享资产登记自动维护；检索按「业务域 | 名称关键词」过滤后再对 Apifox 回读确认）'].join('\n');
+    `- ${e.domain} | ${e.name} | ${e.kind} | ${e.assetId} | ${e.covers}${e.lastVerifiedPlanVersion ? ` | 最后验证 ${e.lastVerifiedPlanVersion}` : ''} | 登记 ${e.registeredAt}`);
+  return [CATALOG_MARKER, `count: ${entries.length}`, ...lines, '-->', '', '（资产目录由终态升级与新共享资产登记自动维护；检索按「业务域 | 名称关键词」过滤后回读脚本/fixture/数据来源确认）'].join('\n');
 }
 
 /** 回读目录（与 render 互逆；损坏行跳过不整文件失败）。 */
@@ -47,7 +47,7 @@ export function parseAssetCatalog(text: string | undefined): { ok: true; entries
     const verified = parts.find((p) => p.startsWith('最后验证 '))?.slice(5);
     entries.push({
       domain: parts[0]!, name: parts[1]!, kind: parts[2]! as AssetCatalogEntry['kind'],
-      apifoxId: parts[3]!, covers: parts[4]!, lastVerifiedPlanVersion: verified,
+      assetId: parts[3]!, covers: parts[4]!, lastVerifiedPlanVersion: verified,
       registeredAt: parts.find((p) => p.startsWith('登记 '))?.slice(3) ?? '',
     });
   }
@@ -55,9 +55,9 @@ export function parseAssetCatalog(text: string | undefined): { ok: true; entries
   return { ok: true, entries };
 }
 
-/** 追加/更新条目（按 apifoxId 幂等；更新时保留 registeredAt）。不可变。 */
+/** 追加/更新条目（按 assetId 幂等；更新时保留 registeredAt）。不可变。 */
 export function upsertCatalogEntry(entries: AssetCatalogEntry[], entry: AssetCatalogEntry): AssetCatalogEntry[] {
-  const idx = entries.findIndex((e) => e.apifoxId === entry.apifoxId);
+  const idx = entries.findIndex((e) => e.assetId === entry.assetId);
   if (idx < 0) return [...entries, entry];
   const next = [...entries];
   next[idx] = { ...entry, registeredAt: entries[idx]!.registeredAt };
@@ -79,8 +79,8 @@ export function catalogEntriesFromDisposal(du: DuState, now: string): AssetCatal
     .map((r) => ({
       domain: r.id.includes('-') ? r.id.slice(0, r.id.indexOf('-')) : r.id,
       name: r.id,
-      apifoxId: r.id,
-      kind: (r.kind.startsWith('apifox-') ? r.kind.slice('apifox-'.length) : r.kind) as AssetCatalogEntry['kind'],
+      assetId: r.id,
+      kind: r.kind as AssetCatalogEntry['kind'],
       covers: '终态升级共享（处置时补充覆盖描述）',
       registeredAt: r.disposedAt ?? now,
     }));

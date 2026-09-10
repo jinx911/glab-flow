@@ -77,7 +77,6 @@ glab-flow 在 Issue 流转过程中会把会话缓存写入 `<workspace.root>/.g
 
 **GateSet 绑定恢复顺序**：若当前是 Story `已评审→开发中` 或 Bug `已确认缺陷→开发中` 且需要绑定，Leader 先以 `declaredScopes` 运行 `transition` 取得提案，确认后执行 `pnpm cli du` 的 `bind-gateset` 并落盘冻结 DU。绑定首轮不写 Issue 状态；对 Bug，若有 `declaredScopes` 但 DU 尚无 frozen GateSet，首次结果为 `validate.ok=false`、`plan` 未定义且 playbook 不含 `issue_writeback`。DU 写入完成后重新读取最新事实并重新运行 `transition`，待正常 `WritePlan` 生成后再执行 Issue 写回与最终回读；不能用绑定前的旧输出继续流转。Bug 没有非空 `declaredScopes` 且 DU 没有 frozen GateSet 时，恢复同样停止。
 
-恢复 playbook 时，只有启用的 GateSet 环境缺少 TestRun、或计划声明 Apifox 资产但缺少 AssetAudit（或 full 回归证据）才执行 `run_affected_regression` / `run_full_regression`；按 test-plan 声明的方法执行后记入 DU，再重新运行 `transition`。提测的 local 回归仍须位于 feature commit 之后、merge/deploy 之前。
 
 ## state schema 参考
 

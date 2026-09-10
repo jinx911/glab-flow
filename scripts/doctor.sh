@@ -25,7 +25,7 @@ check_command() {
   local command_name="$1" label="$2"
   if command -v "$command_name" >/dev/null 2>&1; then pass "$label ($(command -v "$command_name"))"; else fail "$label 未安装"; fi
 }
-for pair in "git:Git" "node:Node.js" "pnpm:pnpm" "glab:GitLab CLI" "apifox:Apifox CLI" "codegraph:CodeGraph" "rg:ripgrep" "playwright:Playwright"; do
+for pair in "git:Git" "node:Node.js" "pnpm:pnpm" "glab:GitLab CLI" "codegraph:CodeGraph" "rg:ripgrep" "playwright:Playwright"; do
   command_name="${pair%%:*}"; label="${pair#*:}"; check_command "$command_name" "$label"
 done
 
@@ -47,7 +47,6 @@ for client in "${HOME}/.claude" "${HOME}/.codex"; do
 done
 
 if command -v glab >/dev/null 2>&1 && glab auth status >/dev/null 2>&1; then pass "GitLab 已授权"; else fail "GitLab 未授权；运行 glab auth login"; fi
-if command -v apifox >/dev/null 2>&1 && apifox whoami >/dev/null 2>&1; then pass "Apifox 已授权"; else fail "Apifox 未授权或网络不可达；运行 apifox login"; fi
 if command -v playwright >/dev/null 2>&1 && playwright install --list 2>/dev/null | grep -qi chromium; then pass "Playwright Chromium 已安装"; else fail "Playwright Chromium 未安装；运行 playwright install chromium"; fi
 if [[ -n "$WORKSPACE" && -d "$WORKSPACE/.codegraph" ]] && codegraph status "$WORKSPACE" >/dev/null 2>&1; then pass "业务工作区 CodeGraph 已初始化"; else fail "业务工作区尚未完成 CodeGraph 初始化；运行 codegraph init <workspace>"; fi
 if command -v pnpm >/dev/null 2>&1 && pnpm --dir "$ROOT" cli version >/dev/null 2>&1; then pass "glab-flow 引擎可运行"; else fail "glab-flow 引擎依赖未完成；运行 pnpm --dir $ROOT install --frozen-lockfile"; fi

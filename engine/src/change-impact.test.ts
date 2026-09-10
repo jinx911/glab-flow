@@ -7,7 +7,6 @@ import type { ChangeImpactInput, Payload } from './types.js';
 const PLAN_V3 = `<!-- glab-flow:test-plan:v1
 plan-version: v3
 case: TP-001 | local,test | api
-asset: TP-001 | scenario
 -->`;
 const PLAN_V4 = PLAN_V3.replace('plan-version: v3', 'plan-version: v4');
 
@@ -28,7 +27,7 @@ describe('change-impact closure', () => {
   it('derives all downstream artifacts and a safe return target without modifying status', () => {
     const { impact, plan } = buildChangeImpactPlan(input);
     expect(impact).toMatchObject({ returnTarget: '已评审', previousPlanVersion: 'v3' });
-    expect(impact.requiredArtifacts).toEqual(['design', 'test-plan', 'apifox-assets', 'local-rerun', 'test-rerun']);
+    expect(impact.requiredArtifacts).toEqual(['design', 'test-plan', 'test-assets', 'local-rerun', 'test-rerun']);
     expect(plan).toEqual({
       issueIid: 66,
       ops: [{ kind: 'add_comment', body: expect.stringContaining('status: open') }],
@@ -63,7 +62,7 @@ describe('change-impact closure', () => {
     const base = {
       iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes,
       completed: {
-        design: 'design.md#permissions', 'test-plan': 'test-plan.md#v4', 'apifox-assets': 'audit:123',
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#v4', 'test-assets': 'audit:123',
         'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
       },
     };
@@ -79,7 +78,7 @@ describe('change-impact closure', () => {
     const close = buildChangeClosePlan({
       iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes: [{ body: open }], testPlan: PLAN_V4,
       completed: {
-        design: 'design.md#permissions', 'test-plan': 'test-plan.md#v4', 'apifox-assets': 'audit:123',
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#v4', 'test-assets': 'audit:123',
         'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
       },
     });
@@ -94,7 +93,7 @@ describe('change-impact closure', () => {
     const close = buildChangeClosePlan({
       iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes: [{ body: open }], testPlan: PLAN_V4,
       completed: {
-        design: 'design.md#permissions', 'test-plan': 'test-plan.md#v4', 'apifox-assets': 'audit:123',
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#v4', 'test-assets': 'audit:123',
         'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
       },
     });
@@ -109,7 +108,7 @@ describe('change-impact closure', () => {
     const { impact } = buildChangeImpactPlan({
       ...input, currentNode: '开发中', source: 'requirement', scopes: ['functional'], testPlan: undefined,
     });
-    expect(impact.requiredArtifacts).toEqual(['proposal', 'design', 'test-plan', 'apifox-assets', 'local-rerun']);
+    expect(impact.requiredArtifacts).toEqual(['proposal', 'design', 'test-plan', 'test-assets', 'local-rerun']);
     expect(impact.returnTarget).toBe('待评审');
   });
 
@@ -119,7 +118,7 @@ describe('change-impact closure', () => {
     const base = {
       iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes, testPlan: PLAN_V3,
       completed: {
-        design: 'design.md#permissions', 'test-plan': 'test-plan.md#unchanged', 'apifox-assets': 'audit:123',
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#unchanged', 'test-assets': 'audit:123',
         'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
       },
     } as const;
@@ -136,7 +135,7 @@ describe('change-impact closure', () => {
     const base = {
       iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes, testPlan: PLAN_V3,
       completed: {
-        design: 'design.md#permissions', 'test-plan': 'test-plan.md#unchanged', 'apifox-assets': 'audit:123',
+        design: 'design.md#permissions', 'test-plan': 'test-plan.md#unchanged', 'test-assets': 'audit:123',
         'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
       },
     } as const;
@@ -166,7 +165,7 @@ describe('change-impact closure', () => {
     const close = buildChangeClosePlan({
       iid: 66, changeId: input.changeId, closer: '@dev', closeDate: '2026-08-25', notes: [{ body: open }], testPlan: PLAN_V4,
       completed: {
-        design: 'token=supersecret', 'test-plan': '/Users/private/test-plan.md', 'apifox-assets': 'report:123',
+        design: 'token=supersecret', 'test-plan': '/Users/private/test-plan.md', 'test-assets': 'report:123',
         'local-rerun': 'run:local-123', 'test-rerun': 'run:test-123',
       },
     });

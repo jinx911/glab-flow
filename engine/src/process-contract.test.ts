@@ -30,7 +30,6 @@ const REUSABLE_DOCS = [
   'skills/glab-flow/learn.md',
   'skills/glab-flow/sub-skills/spec-author.md',
   'skills/glab-flow/sub-skills/test-design.md',
-  'skills/glab-flow/sub-skills/test-flow-apifox.md',
   'skills/glab-flow/sub-skills/test-flow-e2e.md',
   'skills/glab-flow/sub-skills/git-ops.md',
   'skills/glab-flow/sub-skills/code-review.md',
@@ -304,9 +303,9 @@ describe('glab-flow process contracts', () => {
     expect(skill).toMatch(/test[\s\S]{0,100}TestRun/);
     expect(nodes).toContain('<!-- glab-flow:test-plan:v1');
     expect(nodes).toContain('<!-- glab-flow:test-run:v1');
-    expect(readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md')).toContain('<!-- glab-flow:apifox-asset-audit:v1');
     expect(testDesign).toContain('plan-version');
     expect(testDesign).toMatch(/同一.*test-plan|同一.*计划/);
+    expect(testDesign).toMatch(/script: <case> \| <relative-path> \| <command>/);
     expect(gate).toMatch(/testPlan/);
     expect(gate).toMatch(/local TestRun/);
     expect(gate).toMatch(/test TestRun/);
@@ -331,23 +330,22 @@ describe('glab-flow process contracts', () => {
     expect(model).toMatch(/测试中: \[用例执行, 阻塞修复, 复测\]/);
   });
 
-  it('requires governed Apifox assets only when the plan declares Apifox assets', () => {
+  it('keeps glab-flow script-first without built-in Apifox asset gates', () => {
     const skill = readProjectFile('skills/glab-flow/SKILL.md');
     const design = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
-    const apifox = readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md');
     const tools = readProjectFile('skills/glab-flow/tools.md');
     const guard = readProjectFile('engine/src/guard.ts');
     const testRun = readProjectFile('engine/src/test-run.ts');
 
-    expect(skill).toMatch(/只有 test-plan 声明 Apifox `asset:` 时才强制 Apifox 资产审计/);
+    expect(skill).toMatch(/脚本优先|script-first/);
+    expect(skill).not.toMatch(/apifox/i);
     expect(design).toMatch(/script: <case> \| <relative-path> \| <command>/);
-    expect(design).toMatch(/先检索.*复用|复用.*禁止.*复制/);
-    expect(design).toMatch(/TMP-<iid>-/);
-    expect(apifox).toMatch(/空壳|重复|孤儿/);
-    expect(apifox).toMatch(/当前 CLI.*项目 UI|项目 UI.*当前 CLI/);
-    expect(tools).toMatch(/纯脚本计划不需要 Apifox AssetAudit/);
-    expect(guard).toMatch(/planRequiresApifoxAudit/);
+    expect(design).toMatch(/真实业务命名|KNxxxx|数据库真实值/);
+    expect(tools).toMatch(/脚本测试/);
+    expect(tools).not.toMatch(/apifox/i);
+    expect(guard).not.toMatch(/AssetAudit|apifox/i);
     expect(testRun).toMatch(/script 测试必须声明 script 资产/);
+    expect(testRun).not.toMatch(/asset-audit|apifox/i);
   });
 
   it('requires OCR, route evidence and resolved grilling before requirement review approval', () => {
@@ -371,30 +369,31 @@ describe('glab-flow process contracts', () => {
     expect(guards).toMatch(/G15/);
   });
 
-  it('treats visible Apifox environment and reusable authentication as governed evidence', () => {
+  it('treats script environment, authentication and realistic data as governed evidence', () => {
     const design = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
-    const apifox = readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md');
+    const e2e = readProjectFile('skills/glab-flow/sub-skills/test-flow-e2e.md');
     const flow = readProjectFile('docs/flow.md');
 
-    expect(design).toMatch(/presentation:/);
-    expect(design).toMatch(/auth-profile:/);
+    expect(design).toMatch(/script: <case> \| <relative-path> \| <command>/);
+    expect(design).toMatch(/data-prep: <case> \| <relative-source> \| <realistic-name>/);
+    expect(design).toMatch(/真实业务命名|KNxxxx|数据库真实值/);
     expect(design).toMatch(/临时.*token|token.*临时/);
-    expect(apifox).toContain('<!-- glab-flow:apifox-asset-audit:v2');
-    expect(apifox).toMatch(/页面显示本地.*Stage[\s\S]{0,100}(停止|阻断)/);
-    expect(apifox).toMatch(/--carry-runtime-variables/);
+    expect(e2e).toMatch(/webUrl[\s\S]{0,120}scripts/);
+    expect(e2e).toMatch(/TestRun/);
     expect(flow).toMatch(/四层.*环境|环境事实/);
+    expect(flow).toMatch(/KN 租户[\s\S]{0,80}KNxxxx/);
   });
 
-  it('keeps detailed Apifox report upload paramandatory and never silently downgraded', () => {
-    const apifox = readProjectFile('skills/glab-flow/sub-skills/test-flow-apifox.md');
+  it('keeps script report evidence mandatory and never silently downgraded', () => {
+    const tools = readProjectFile('skills/glab-flow/tools.md');
+    const design = readProjectFile('skills/glab-flow/sub-skills/test-design.md');
+    const e2e = readProjectFile('skills/glab-flow/sub-skills/test-flow-e2e.md');
 
-    // 用户裁定（2026-09-02）：--upload-report detail 随 CLI 登录态直接上传，无需单独授权预检；
-    // 保留的契约是「参数不可省略/降级 + 报告必须回读」。
-    expect(apifox).toMatch(/不需要单独授权/);
-    expect(apifox).toMatch(/不可省略或降级/);
-    expect(apifox).toMatch(/test-report get/);
-    // 旧的两层授权预检表述必须移除，防止流程回退
-    expect(apifox).not.toMatch(/require_escalated/);
+    expect(tools).toMatch(/脚本测试/);
+    expect(design).toMatch(/禁止散落临场 curl/);
+    expect(e2e).toMatch(/结构化结果|计数/);
+    expect(e2e).toMatch(/detailRef|TestRun/);
+    expect(`${tools}\n${design}\n${e2e}`).not.toMatch(/apifox/i);
   });
 
   it('prohibits test-first workflow and keeps active glab-flow docs free of retired routes', () => {
@@ -406,13 +405,13 @@ describe('glab-flow process contracts', () => {
       'skills/glab-flow/sub-skills/code-review.md',
       'skills/glab-flow/sub-skills/mr-review.md',
       'skills/glab-flow/sub-skills/test-design.md',
-      'skills/glab-flow/sub-skills/test-flow-apifox.md',
       'skills/glab-flow/sub-skills/test-flow-e2e.md',
       'docs/flow.md',
     ].map(readProjectFile);
 
     expect(readProjectFile('skills/glab-flow/SKILL.md')).toMatch(/禁止测试先行仪式/);
     expect(activeDocs.join('\n')).not.toMatch(/test-first-guide|RED\s*→\s*GREEN\s*→\s*REFACTOR/i);
+    expect(activeDocs.join('\n')).not.toMatch(/apifox/i);
   });
 
   it('keeps repository documentation free of retired test-first terminology', () => {
@@ -484,7 +483,7 @@ describe('glab-flow process contracts', () => {
     const combinedDocs = REUSABLE_DOCS
       .map(readProjectFile)
       .join('\n')
-      .replace(/<!-- glab-flow:(?:artifact-receipt|test-plan|test-run|apifox-asset-audit):v[12]\r?\n[\s\S]*?-->/g, '');
+      .replace(/<!-- glab-flow:(?:artifact-receipt|test-plan|test-run):v[12]\r?\n[\s\S]*?-->/g, '');
 
     assertNoPattern(combinedDocs, [
       /issues\/\d+/,

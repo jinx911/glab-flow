@@ -64,12 +64,11 @@ glab-flow 的文档产物不是过程装饰，而是开发、测试、评审、�
 2. 覆盖范围：范围内/范围外；范围外必须写理由。
 3. AC → case → 风险映射：每条 AC 至少一个 case；每个设计风险至少一个验证手段。
 4. 用例清单：case ID、标题、关联 AC、方法（unit/api/integration/e2e/script/data/manual）、环境、步骤、预期、证据类型。
-5. 环境矩阵：local/test 的 webUrl、脚本 root、命令、env 文件、可选 Apifox envId、账号变量、数据库引用、数据前缀。
+5. 环境矩阵：local/test 的 webUrl、脚本 root、命令、env 文件、账号变量、数据库引用、数据前缀。
 6. 场景 ↔ 数据映射：每个 case 在每个执行环境都有对应测试数据、关键业务键、来源、生命周期。
 7. 前置条件与数据准备：fixture/seed、数据库回读、账号、权限、配置开关；进入执行前必须 E0 检查。
 8. 边界与异常：空值、越界、非法输入、重复点击、并发、权限变化、状态已变、外部依赖失败、大数据量、特殊字符。
-9. 执行入口：Apifox asset 或受管脚本；禁止临场 curl/一次性脚本作为门禁证据。
-10. 证据规则：TestRun/AssetAudit/脚本报告/人工核对项如何产生和回读。
+9. 执行入口：项目脚本或 E2E runner；禁止临场 curl/一次性脚本作为门禁证据。
+10. 证据规则：TestRun、脚本报告、数据库回读、人工核对项如何产生和回读。
 
-计划顶部必须包含唯一 `glab-flow:test-plan:v1` marker。计划实质变化必须递增 `plan-version`；旧 TestRun/AssetAudit 自动失效。`test-plan.md` 不记录实际执行流水，执行事实进入 DU 和测试报告。
-
+计划顶部必须包含唯一 `glab-flow:test-plan:v1` marker。计划实质变化必须递增 `plan-version`；旧 TestRun/ 自动失效。`test-plan.md` 不记录实际执行流水，执行事实进入 DU 和测试报告。

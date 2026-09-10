@@ -1,10 +1,9 @@
-import type { ApifoxAssetType, IssueNote, LatestTestRun, TestEnvironment, TestMethod, TestPlan, TestPlanCase, TestRun, TestRunValidation } from './types.js';
+import type { IssueNote, LatestTestRun, TestEnvironment, TestMethod, TestPlan, TestPlanCase, TestRun, TestRunValidation } from './types.js';
 import { chronologicalNotes } from './notes.js';
 
 const PLAN_MARKER = '<!-- glab-flow:test-plan:v1';
 const RUN_MARKER = '<!-- glab-flow:test-run:v1';
 const METHODS = new Set<TestMethod>(['api', 'e2e', 'data', 'manual', 'unit', 'script']);
-const ASSET_TYPES = new Set<ApifoxAssetType>(['scenario', 'suite-or-group', 'test-data', 'scenario-instance']);
 const ID = /^[A-Za-z][A-Za-z0-9_-]*$/;
 const ENVIRONMENT = /^[a-z][a-z0-9-]*$/;
 const SCRIPT_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/;
@@ -52,13 +51,7 @@ function parsePlanCase(value: string): TestPlanCase | string {
   if (new Set(environments).size !== environments.length || new Set(methods).size !== methods.length) {
     return `case ${parts[0]} 含重复环境或方法`;
   }
-  return { id: parts[0]!, environments, methods: methods as TestMethod[], scripts: [], dataPreps: [], assets: [], presentations: [], authProfiles: [] };
-}
-
-function parsePlanAsset(value: string): { caseId: string; type: ApifoxAssetType } | string {
-  const parts = value.split('|').map((part) => part.trim());
-  if (parts.length !== 2 || !ID.test(parts[0] ?? '') || !ASSET_TYPES.has(parts[1] as ApifoxAssetType)) return `asset 格式无效：${value}`;
-  return { caseId: parts[0]!, type: parts[1] as ApifoxAssetType };
+  return { id: parts[0]!, environments, methods: methods as TestMethod[], scripts: [], dataPreps: [], authProfiles: [] };
 }
 
 function parsePlanScript(value: string): { caseId: string; path: string; command: string } | string {
@@ -112,10 +105,8 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
   let version: string | undefined;
   let requiredAcs: string[] | undefined;
   const cases: TestPlanCase[] = [];
-  const assets: { caseId: string; type: ApifoxAssetType }[] = [];
   const scripts: { caseId: string; path: string; command: string }[] = [];
   const dataPreps: { caseId: string; source: string; name: string; lifecycle: 'preserve' | 'shared-candidate' | 'temporary' }[] = [];
-  const presentations: { caseId: string; type: ApifoxAssetType }[] = [];
   const authProfiles: { caseId: string; profile: string }[] = [];
   const acMappings: { caseId: string; acs: string[] }[] = [];
   for (const rawLine of block.body.split(/\r?\n/)) {
@@ -157,18 +148,6 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
       else dataPreps.push(parsed);
       continue;
     }
-    if (key === 'asset') {
-      const parsed = parsePlanAsset(value!);
-      if (typeof parsed === 'string') errors.push(parsed);
-      else assets.push(parsed);
-      continue;
-    }
-    if (key === 'presentation') {
-      const parsed = parsePlanAsset(value!);
-      if (typeof parsed === 'string') errors.push(parsed.replace('asset', 'presentation'));
-      else presentations.push(parsed);
-      continue;
-    }
     if (key === 'auth-profile') {
       const parsed = parsePlanAuthProfile(value!);
       if (typeof parsed === 'string') errors.push(parsed);
@@ -205,37 +184,16 @@ export function parseTestPlan(text: string | undefined): { ok: true; plan: TestP
     else testCase.dataPreps.push({ source: dataPrep.source, name: dataPrep.name, lifecycle: dataPrep.lifecycle });
     seenDataPreps.add(key);
   }
-  const seenAssets = new Set<string>();
-  for (const asset of assets) {
-    const testCase = byId.get(asset.caseId);
-    const key = `${asset.caseId}/${asset.type}`;
-    if (!testCase) errors.push(`asset 引用了未知 case：${asset.caseId}`);
-    else if (seenAssets.has(key)) errors.push(`asset 重复：${key}`);
-    else testCase.assets.push(asset.type);
-    seenAssets.add(key);
-  }
-  const seenPresentations = new Set<string>();
-  for (const presentation of presentations) {
-    const testCase = byId.get(presentation.caseId);
-    const key = `${presentation.caseId}/${presentation.type}`;
-    if (!testCase) errors.push(`presentation 引用了未知 case：${presentation.caseId}`);
-    else if (seenPresentations.has(key)) errors.push(`presentation 重复：${key}`);
-    else if (!testCase.assets.includes(presentation.type)) errors.push(`presentation 必须引用已声明资产：${key}`);
-    else testCase.presentations.push(presentation.type);
-    seenPresentations.add(key);
-  }
   const seenAuthProfiles = new Set<string>();
   for (const authProfile of authProfiles) {
     const testCase = byId.get(authProfile.caseId);
     const key = `${authProfile.caseId}/${authProfile.profile}`;
     if (!testCase) errors.push(`auth-profile 引用了未知 case：${authProfile.caseId}`);
     else if (seenAuthProfiles.has(key)) errors.push(`auth-profile 重复：${key}`);
-    else if (!testCase.assets.includes('scenario')) errors.push(`auth-profile 必须引用 scenario 资产：${authProfile.caseId}`);
     else testCase.authProfiles.push(authProfile.profile);
     seenAuthProfiles.add(key);
   }
   for (const testCase of cases) {
-    if (testCase.methods.includes('api') && !testCase.assets.includes('scenario')) errors.push(`case ${testCase.id} 的 API 测试必须声明 scenario 资产`);
     if (testCase.methods.includes('script') && !testCase.scripts.length) errors.push(`case ${testCase.id} 的 script 测试必须声明 script 资产`);
     if (testCase.methods.includes('data') && !testCase.dataPreps.length) errors.push(`case ${testCase.id} 的 data 测试必须声明 data-prep`);
   }
@@ -296,7 +254,7 @@ function parseRunBlock(block: MarkerBlock): { ok: true; run: TestRun } | { ok: f
     fields.set(key!, value!.trim());
   }
   // version is accepted only for old receipts; current receipts do not use it.
-  const known = new Set(['environment', 'plan-version', 'version', 'outcome', 'asset-audit', 'cases', 'evidence']);
+  const known = new Set(['environment', 'plan-version', 'version', 'outcome', 'cases', 'evidence']);
   for (const key of fields.keys()) if (!known.has(key)) errors.push(`测试执行记录含未知字段：${key}`);
   for (const key of ['environment', 'plan-version', 'outcome', 'cases', 'evidence']) if (!nonEmpty(fields.get(key))) errors.push(`测试执行记录缺 ${key}`);
   const environment = fields.get('environment') ?? '';
@@ -322,7 +280,6 @@ function parseRunBlock(block: MarkerBlock): { ok: true; run: TestRun } | { ok: f
       environment,
       planVersion: fields.get('plan-version')!,
       outcome: 'passed',
-      ...(fields.get('asset-audit') ? { assetAudit: fields.get('asset-audit')! } : {}),
       cases: cases as Record<string, 'passed'>,
       evidence: evidence as Partial<Record<TestMethod, string>>,
     },
@@ -359,9 +316,6 @@ export function validateTestRun(plan: TestPlan, environment: TestEnvironment, la
   if (run.planVersion !== plan.version) errors.push(`${environment} 测试计划版本不匹配：当前 ${plan.version}，记录 ${run.planVersion}`);
   const required = plan.cases.filter((item) => item.environments.includes(environment));
   if (!required.length) errors.push(`测试计划没有要求 ${environment} 执行的 case`);
-  const requiresAssetAudit = required.some((item) => item.assets.length);
-  if (requiresAssetAudit && run.assetAudit !== `${plan.version}/${environment}`) errors.push(`${environment} 测试执行记录未关联当前资产审计：应为 ${plan.version}/${environment}`);
-  if (!requiresAssetAudit && run.assetAudit) errors.push(`${environment} 脚本型测试执行记录不应强绑 Apifox 资产审计`);
   const requiredIds = new Set(required.map((item) => item.id));
   for (const id of requiredIds) if (run.cases[id] !== 'passed') errors.push(`${environment} 缺通过 case：${id}`);
   for (const id of Object.keys(run.cases)) if (!requiredIds.has(id)) errors.push(`${environment} 记录含非本环境计划 case：${id}`);
@@ -381,7 +335,6 @@ export function renderTestRun(run: TestRun): string {
     '## 测试执行记录', '',
     `- 环境：${run.environment}`,
     `- 计划版本：${run.planVersion}`,
-    ...(run.assetAudit ? [`- 资产审计：${run.assetAudit}`] : []),
     `- 结论：${run.outcome === 'passed' ? '通过' : '未通过'}`,
     `- 用例结果：${cases}`,
     `- 执行证据：${evidence}`,
@@ -390,7 +343,6 @@ export function renderTestRun(run: TestRun): string {
     `environment: ${run.environment}`,
     `plan-version: ${run.planVersion}`,
     `outcome: ${run.outcome}`,
-    ...(run.assetAudit ? [`asset-audit: ${run.assetAudit}`] : []),
     `cases: ${cases}`,
     `evidence: ${evidence}`,
     '-->',
